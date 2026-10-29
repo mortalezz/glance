@@ -79,15 +79,15 @@ public final class QuickHelpView: NSView {
         rootStack.alignment = .centerX
         rootStack.spacing = 16
         rootStack.translatesAutoresizingMaskIntoConstraints = false
-        // Generous Apple HIG padding so content never touches rounded glass borders
-        rootStack.edgeInsets = NSEdgeInsets(top: 26, left: 34, bottom: 22, right: 36)
         visualEffectView.addSubview(rootStack)
 
+        // HARD AUTO-LAYOUT CONSTRAINTS: 36pt left/right and 28pt/24pt top/bottom margins
+        // This guarantees content CANNOT touch the rounded glass edges under any circumstance.
         NSLayoutConstraint.activate([
-            rootStack.topAnchor.constraint(equalTo: visualEffectView.topAnchor),
-            rootStack.bottomAnchor.constraint(equalTo: visualEffectView.bottomAnchor),
-            rootStack.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor),
-            rootStack.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor)
+            rootStack.topAnchor.constraint(equalTo: visualEffectView.topAnchor, constant: 28),
+            rootStack.bottomAnchor.constraint(equalTo: visualEffectView.bottomAnchor, constant: -24),
+            rootStack.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor, constant: 36),
+            rootStack.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor, constant: -36)
         ])
 
         setupCompactLayout()
