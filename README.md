@@ -20,22 +20,21 @@
 ---
 
 > [!NOTE]
-> ### 🕊️ In Loving Memory of Phoenix Slides: The Premise of Glance
+> ### 🕊️ The Premise of Glance: Passing the Torch from Phoenix Slides
 >
-> For years, one lightweight utility reigned supreme on the Mac: **Phoenix Slides**. It solved a deceptively simple problem better than anything else before or since:
+> For years, one utility reigned supreme on the Mac for quick folder inspection: **Phoenix Slides**. It solved a deceptively simple problem better than anything else before or since:
 >
-> 🎯 **Open any picture from a folder straight into edge-to-edge full screen, and immediately fly through the entire directory with zero-latency keyboard navigation.**
+> 🎯 **Open any picture from a folder straight into a full-screen view, and immediately fly through the entire directory with pure keyboard navigation.**
 >
-> As macOS evolved and Phoenix Slides faded into history, a frustrating void emerged. Modern image viewers became bloated, sluggish web-tech wrappers, or overcomplicated catalog managers demanding that photos be imported into proprietary databases before you can even view them. Simple full-screen folder traversal with zero latency became virtually nonexistent on modern macOS.
+> While Phoenix Slides still receives occasional maintenance patches to stay alive on modern macOS, its legacy architecture and dated UI show their age on Apple Silicon—especially when confronted with modern high-resolution sensors and RAW workflows. Meanwhile, newer image viewers have drifted to the opposite extreme: bloated web-wrapped apps or heavy catalog managers that demand importing photos into proprietary databases before you can even look at them.
 >
-> **Glance was born directly out of that frustration.**
+> **Glance** was born directly out of that gap—taking the instant, zero-friction philosophy of Phoenix Slides and rebuilding it from the ground up for modern macOS and pro photography workflows:
 >
-> The founding goal of Glance is the **uncompromising preservation of this timeless experience**:
-> 1. 🖼️ **Instant Full-Screen Launch**: Open any photo directly from Finder straight into full screen.
-> 2. ⚡ **Zero-Latency Traversal**: Fly through thousands of 45MP+ RAW and JPEG shots using arrow keys or `Space` — zero lag, zero spinners, zero waiting.
-> 3. 🫧 **Distraction-Free Vibrancy**: Native macOS Apple Vibrancy frosted-glass squircle HUDs that appear only when needed and vanish automatically.
+> 1. 🖼️ **Finder-Direct Full Screen:** Open any photo directly from Finder straight into an edge-to-edge viewport.
+> 2. ⚡ **Zero-Latency Traversal:** Fly through the entire folder with arrow keys or `Space`—zero lag, zero spinners, zero waiting.
+> 3. 🫧 **Native macOS Vibrancy:** Clean, distraction-free viewing with frosted-glass HUD overlays that vanish when you don't need them.
 >
-> On top of this rock-solid foundation, Glance equips photographers with pro culling superpowers: 1:1 pixel peeping, 2-up burst comparison, Adobe XMP sidecar sync, real-time RGB histograms, and exposure clipping blinkies.
+> From this foundation, Glance adds modern pro culling superpowers: **1:1 pixel peeping**, **2-up burst compare**, **Adobe XMP sidecar sync**, **hardware-accelerated histograms**, and **exposure blinkies**.
 
 > [!TIP]
 > 💡 **Community Testing & Feedback Welcome!**  
