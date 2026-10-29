@@ -517,6 +517,13 @@ public final class SlideView: NSView {
             return
         }
 
+        if hudView.alphaValue > 0.0 {
+            let mouseInHud = hudView.convert(event.locationInWindow, from: nil)
+            if hudView.handleMouseDown(at: mouseInHud) {
+                return
+            }
+        }
+
         let mousePt = convert(event.locationInWindow, from: nil)
         if !isZoomed {
             // Click to zoom in
@@ -636,6 +643,13 @@ public final class SlideView: NSView {
         }
         if chars == "-" || chars == "_" || event.keyCode == 27 || event.keyCode == 78 {
             delegate?.slideViewAdjustSlideshowInterval(increase: false)
+            return
+        }
+
+        // Theme Toggle: 'T' or 'D'
+        if lower == "t" || lower == "d" || event.keyCode == 17 || event.keyCode == 2 {
+            ThemeManager.shared.toggleTheme()
+            hudView.pulse()
             return
         }
 

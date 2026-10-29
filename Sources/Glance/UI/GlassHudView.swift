@@ -1,5 +1,6 @@
 import AppKit
 
+/// Model representation of metadata and status displayed within the frosted glass HUD.
 public struct HudInfo: Sendable {
     public let currentIndex: Int
     public let totalCount: Int
@@ -58,11 +59,117 @@ public struct HudInfo: Sendable {
     }
 }
 
+/// Interactive pill button displaying a Day / Night theme toggle icon.
+@MainActor
+final class ThemePillButton: NSView {
+    var onClick: (() -> Void)?
+    private let iconView = NSImageView()
+    private var trackingArea: NSTrackingArea?
+    private var isHovered: Bool = false
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        wantsLayer = true
+        translatesAutoresizingMaskIntoConstraints = false
+        layer?.cornerRadius = 6
+        layer?.cornerCurve = .continuous
+        layer?.borderWidth = 0.5
+
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.imageScaling = .scaleProportionallyDown
+        addSubview(iconView)
+
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: 24),
+            heightAnchor.constraint(equalToConstant: 20),
+            iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 13),
+            iconView.heightAnchor.constraint(equalToConstant: 13)
+        ])
+
+        toolTip = "Toggle Light / Dark Theme (T)"
+        update(isDark: ThemeManager.shared.isDark)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let existing = trackingArea {
+            removeTrackingArea(existing)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        self.trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        updateColors()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        updateColors()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onClick?()
+    }
+
+    func update(isDark: Bool) {
+        // When in Dark mode, show Sun icon inviting switch to Light
+        // When in Light mode, show Moon icon inviting switch to Dark
+        let symbolName = isDark ? "sun.max.fill" : "moon.fill"
+        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        if let img = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Toggle Light/Dark Theme")?.withSymbolConfiguration(config) {
+            iconView.image = img
+        }
+        updateColors()
+    }
+
+    private func updateColors() {
+        let isDark = ThemeManager.shared.isDark
+        if isDark {
+            layer?.backgroundColor = isHovered
+                ? NSColor.white.withAlphaComponent(0.24).cgColor
+                : NSColor.white.withAlphaComponent(0.12).cgColor
+            layer?.borderColor = NSColor.white.withAlphaComponent(0.20).cgColor
+            iconView.contentTintColor = isHovered
+                ? NSColor(calibratedRed: 1.0, green: 0.86, blue: 0.35, alpha: 1.0)
+                : NSColor(white: 0.90, alpha: 1.0)
+        } else {
+            layer?.backgroundColor = isHovered
+                ? NSColor.black.withAlphaComponent(0.14).cgColor
+                : NSColor.black.withAlphaComponent(0.06).cgColor
+            layer?.borderColor = NSColor.black.withAlphaComponent(0.14).cgColor
+            iconView.contentTintColor = isHovered
+                ? NSColor(calibratedRed: 0.20, green: 0.35, blue: 0.75, alpha: 1.0)
+                : NSColor(white: 0.20, alpha: 1.0)
+        }
+    }
+}
+
 /// Modern macOS frosted-glass HUD overlay container.
-/// Displays index, filename, resolution, stars (★), picks/rejects, colors, and culling stats.
+/// Displays index, filename, resolution, stars (★), picks/rejects, colors, culling stats, and theme toggle.
 @MainActor
 public final class GlassHudView: NSView {
     private let visualEffectView = NSVisualEffectView()
+    private let scrimView = NSView()
+
     private let indexPill = NSView()
     private let indexLabel = NSTextField(labelWithString: "")
 
@@ -95,6 +202,8 @@ public final class GlassHudView: NSView {
     private let exportPill = NSView()
     private let exportLabel = NSTextField(labelWithString: "")
 
+    private let themeButton = ThemePillButton()
+
     private let stackView = NSStackView()
     private var lastInfo: HudInfo?
 
@@ -113,30 +222,41 @@ public final class GlassHudView: NSView {
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setupGlassHierarchy()
+        setupThemeObserver()
+        applyTheme()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         setupGlassHierarchy()
+        setupThemeObserver()
+        applyTheme()
     }
 
     public override func hitTest(_ point: NSPoint) -> NSView? {
+        let ptInButton = themeButton.convert(point, from: self)
+        if themeButton.bounds.contains(ptInButton) {
+            return themeButton
+        }
         return nil
+    }
+
+    public func handleMouseDown(at point: NSPoint) -> Bool {
+        let ptInButton = themeButton.convert(point, from: self)
+        if themeButton.bounds.contains(ptInButton) {
+            ThemeManager.shared.toggleTheme()
+            pulse()
+            return true
+        }
+        return false
     }
 
     private func setupGlassHierarchy() {
         wantsLayer = true
 
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.45)
-        shadow.shadowOffset = NSSize(width: 0, height: -5)
-        shadow.shadowBlurRadius = 16
-        self.shadow = shadow
-
         visualEffectView.material = .hudWindow
         visualEffectView.blendingMode = .withinWindow
         visualEffectView.state = .active
-        visualEffectView.appearance = NSAppearance(named: .vibrantDark)
         visualEffectView.wantsLayer = true
         visualEffectView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -144,14 +264,10 @@ public final class GlassHudView: NSView {
             effectLayer.cornerRadius = 16
             effectLayer.cornerCurve = .continuous
             effectLayer.masksToBounds = true
-            effectLayer.borderColor = NSColor.white.withAlphaComponent(0.22).cgColor
             effectLayer.borderWidth = 0.75
         }
 
-        // Dark scrim backdrop guarantees high-contrast legibility even against pure white skies
-        let scrimView = NSView()
         scrimView.wantsLayer = true
-        scrimView.layer?.backgroundColor = NSColor(deviceWhite: 0.05, alpha: 0.65).cgColor
         scrimView.translatesAutoresizingMaskIntoConstraints = false
         visualEffectView.addSubview(scrimView)
         NSLayoutConstraint.activate([
@@ -182,13 +298,12 @@ public final class GlassHudView: NSView {
 
         // 1. Index Pill [ 1 / 48 ]
         indexPill.wantsLayer = true
-        indexPill.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.12).cgColor
         indexPill.layer?.cornerRadius = 8
         indexPill.layer?.cornerCurve = .continuous
+        indexPill.layer?.borderWidth = 0.5
         indexPill.translatesAutoresizingMaskIntoConstraints = false
 
         indexLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
-        indexLabel.textColor = NSColor(white: 0.95, alpha: 1.0)
         indexLabel.alignment = .center
         indexLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -239,23 +354,13 @@ public final class GlassHudView: NSView {
         ])
         stackView.addArrangedSubview(colorBadge)
 
-        let textShadow = NSShadow()
-        textShadow.shadowColor = NSColor.black.withAlphaComponent(0.80)
-        textShadow.shadowOffset = NSSize(width: 0, height: -1)
-        textShadow.shadowBlurRadius = 2
-
-        indexLabel.shadow = textShadow
-
         // 3. Star Rating (★ ★ ★ ☆ ☆)
         ratingLabel.font = NSFont.systemFont(ofSize: 12, weight: .bold)
         ratingLabel.textColor = NSColor.systemYellow
-        ratingLabel.shadow = textShadow
         stackView.addArrangedSubview(ratingLabel)
 
         // 4. Filename
         filenameLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
-        filenameLabel.textColor = .white
-        filenameLabel.shadow = textShadow
         filenameLabel.lineBreakMode = .byTruncatingMiddle
         filenameLabel.maximumNumberOfLines = 1
         filenameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -263,8 +368,6 @@ public final class GlassHudView: NSView {
 
         // 5. Metadata (Resolution / File Size)
         metaLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-        metaLabel.textColor = NSColor(white: 0.85, alpha: 1.0)
-        metaLabel.shadow = textShadow
         metaLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         stackView.addArrangedSubview(metaLabel)
 
@@ -408,12 +511,73 @@ public final class GlassHudView: NSView {
         ])
         stackView.addArrangedSubview(exportPill)
 
+        // 12. Permanent Day / Night Theme Toggle Button
+        themeButton.onClick = { [weak self] in
+            ThemeManager.shared.toggleTheme()
+            self?.pulse()
+        }
+        stackView.addArrangedSubview(themeButton)
+
         NSLayoutConstraint.activate([
             stackView.topAnchor.constraint(equalTo: visualEffectView.topAnchor),
             stackView.bottomAnchor.constraint(equalTo: visualEffectView.bottomAnchor),
             stackView.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor),
             stackView.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor)
         ])
+    }
+
+    // MARK: - Theme Management
+
+    private func setupThemeObserver() {
+        NotificationCenter.default.addObserver(
+            forName: ThemeManager.themeDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.applyTheme()
+            }
+        }
+    }
+
+    private func applyTheme() {
+        let theme = ThemeManager.shared
+        visualEffectView.appearance = theme.glassAppearance
+        scrimView.layer?.backgroundColor = theme.scrimColor.cgColor
+        visualEffectView.layer?.borderColor = theme.glassBorderColor
+
+        let shadow = NSShadow()
+        shadow.shadowColor = theme.shadowColor
+        shadow.shadowOffset = NSSize(width: 0, height: -5)
+        shadow.shadowBlurRadius = 16
+        self.shadow = shadow
+
+        // Typography & Shadow styling
+        if theme.isDark {
+            let textShadow = NSShadow()
+            textShadow.shadowColor = NSColor.black.withAlphaComponent(0.80)
+            textShadow.shadowOffset = NSSize(width: 0, height: -1)
+            textShadow.shadowBlurRadius = 2
+
+            indexLabel.shadow = textShadow
+            ratingLabel.shadow = textShadow
+            filenameLabel.shadow = textShadow
+            metaLabel.shadow = textShadow
+        } else {
+            // Clean crisp text without muddy drop shadows in Light glass
+            indexLabel.shadow = nil
+            ratingLabel.shadow = nil
+            filenameLabel.shadow = nil
+            metaLabel.shadow = nil
+        }
+
+        filenameLabel.textColor = theme.primaryTextColor
+        metaLabel.textColor = theme.secondaryTextColor
+        indexLabel.textColor = theme.primaryTextColor
+        indexPill.layer?.backgroundColor = theme.pillBackgroundColor
+        indexPill.layer?.borderColor = theme.pillBorderColor
+
+        themeButton.update(isDark: theme.isDark)
     }
 
     public override func layout() {
@@ -508,6 +672,7 @@ public final class GlassHudView: NSView {
         }
 
         filenameLabel.stringValue = info.filename
+        filenameLabel.textColor = ThemeManager.shared.primaryTextColor
 
         // Auto-advance indicator
         autoPill.isHidden = !info.autoAdvance
@@ -536,7 +701,7 @@ public final class GlassHudView: NSView {
                 parts.append(size)
             }
             metaLabel.stringValue = parts.joined(separator: "  •  ")
-            metaLabel.textColor = NSColor(white: 0.75, alpha: 1.0)
+            metaLabel.textColor = ThemeManager.shared.secondaryTextColor
 
             // RAW / Stack Badge
             if info.isStacked {
@@ -639,6 +804,7 @@ public final class GlassHudView: NSView {
         filterPill.isHidden = true
         metaLabel.stringValue = ""
         filenameLabel.stringValue = message
+        filenameLabel.textColor = ThemeManager.shared.primaryTextColor
         pulse()
     }
 

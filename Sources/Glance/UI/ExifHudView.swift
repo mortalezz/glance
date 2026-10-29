@@ -4,6 +4,7 @@ import AppKit
 @MainActor
 public final class ExifHudView: NSView {
     private let visualEffectView = NSVisualEffectView()
+    private let scrimView = NSView()
 
     // Header
     private let titleLabel = NSTextField(labelWithString: "EXIF INFO")
@@ -15,10 +16,12 @@ public final class ExifHudView: NSView {
     private let apertureValueLabel = NSTextField(labelWithString: "—")
     private let isoValueLabel = NSTextField(labelWithString: "—")
     private let focalValueLabel = NSTextField(labelWithString: "—")
+    private var exposureTitles: [NSTextField] = []
 
     // Camera & Lens Details
     private let cameraLabel = NSTextField(labelWithString: "—")
     private let lensLabel = NSTextField(labelWithString: "—")
+    private let divider = NSView()
 
     // File & Capture Details
     private let dateLabel = NSTextField(labelWithString: "—")
@@ -28,12 +31,16 @@ public final class ExifHudView: NSView {
         super.init(frame: frameRect)
         setupGlass()
         setupContent()
+        setupThemeObserver()
+        applyTheme()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         setupGlass()
         setupContent()
+        setupThemeObserver()
+        applyTheme()
     }
 
     public override func hitTest(_ point: NSPoint) -> NSView? {
@@ -44,16 +51,9 @@ public final class ExifHudView: NSView {
         wantsLayer = true
         alphaValue = 0.0
 
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.50)
-        shadow.shadowOffset = NSSize(width: 0, height: -6)
-        shadow.shadowBlurRadius = 18
-        self.shadow = shadow
-
         visualEffectView.material = .hudWindow
         visualEffectView.blendingMode = .withinWindow
         visualEffectView.state = .active
-        visualEffectView.appearance = NSAppearance(named: .vibrantDark)
         visualEffectView.wantsLayer = true
         visualEffectView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -61,14 +61,10 @@ public final class ExifHudView: NSView {
             layer.cornerRadius = 14
             layer.cornerCurve = .continuous
             layer.masksToBounds = true
-            layer.borderColor = NSColor.white.withAlphaComponent(0.20).cgColor
             layer.borderWidth = 0.75
         }
 
-        // Dark scrim backdrop guarantees high-contrast legibility against bright backgrounds
-        let scrimView = NSView()
         scrimView.wantsLayer = true
-        scrimView.layer?.backgroundColor = NSColor(deviceWhite: 0.05, alpha: 0.65).cgColor
         scrimView.translatesAutoresizingMaskIntoConstraints = false
         visualEffectView.addSubview(scrimView)
         NSLayoutConstraint.activate([
@@ -102,15 +98,7 @@ public final class ExifHudView: NSView {
         header.spacing = 8
         header.translatesAutoresizingMaskIntoConstraints = false
 
-        let attrTitle = NSMutableAttributedString(
-            string: "EXIF INFO",
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 10, weight: .bold),
-                .foregroundColor: NSColor(white: 0.88, alpha: 1.0),
-                .kern: 0.8
-            ]
-        )
-        titleLabel.attributedStringValue = attrTitle
+        updateTitleLabel()
         header.addArrangedSubview(titleLabel)
 
         let spacer = NSView()
@@ -118,7 +106,6 @@ public final class ExifHudView: NSView {
         header.addArrangedSubview(spacer)
 
         timeBadgeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .semibold)
-        timeBadgeLabel.textColor = NSColor(white: 0.70, alpha: 1.0)
         header.addArrangedSubview(timeBadgeLabel)
 
         root.addArrangedSubview(header)
@@ -131,11 +118,9 @@ public final class ExifHudView: NSView {
         exposureWell.translatesAutoresizingMaskIntoConstraints = false
         exposureWell.wantsLayer = true
         if let layer = exposureWell.layer {
-            layer.backgroundColor = NSColor(deviceWhite: 0.05, alpha: 0.55).cgColor
             layer.cornerRadius = 7
             layer.cornerCurve = .continuous
             layer.borderWidth = 0.5
-            layer.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
             layer.masksToBounds = true
         }
 
@@ -168,21 +153,17 @@ public final class ExifHudView: NSView {
 
         // 3. Camera & Lens Details
         cameraLabel.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
-        cameraLabel.textColor = NSColor(white: 0.92, alpha: 1.0)
         cameraLabel.lineBreakMode = .byTruncatingTail
         cameraLabel.maximumNumberOfLines = 1
         root.addArrangedSubview(cameraLabel)
 
         lensLabel.font = NSFont.systemFont(ofSize: 10, weight: .regular)
-        lensLabel.textColor = NSColor(white: 0.70, alpha: 1.0)
         lensLabel.lineBreakMode = .byTruncatingTail
         lensLabel.maximumNumberOfLines = 1
         root.addArrangedSubview(lensLabel)
 
         // Subtle divider
-        let divider = NSView()
         divider.wantsLayer = true
-        divider.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
         divider.translatesAutoresizingMaskIntoConstraints = false
         root.addArrangedSubview(divider)
         NSLayoutConstraint.activate([
@@ -193,11 +174,9 @@ public final class ExifHudView: NSView {
 
         // 4. Capture Date & Technical Details
         dateLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular)
-        dateLabel.textColor = NSColor(white: 0.65, alpha: 1.0)
         root.addArrangedSubview(dateLabel)
 
         techLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular)
-        techLabel.textColor = NSColor(white: 0.65, alpha: 1.0)
         root.addArrangedSubview(techLabel)
 
         // Generous, balanced insets from HUD window edges (14pt left/right, 12pt top, 10pt bottom)
@@ -209,6 +188,18 @@ public final class ExifHudView: NSView {
         ])
     }
 
+    private func updateTitleLabel() {
+        let attrTitle = NSMutableAttributedString(
+            string: "EXIF INFO",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .bold),
+                .foregroundColor: ThemeManager.shared.primaryTextColor,
+                .kern: 0.8
+            ]
+        )
+        titleLabel.attributedStringValue = attrTitle
+    }
+
     private func makeExposureColumn(title: String, valueLabel: NSTextField) -> NSView {
         let col = NSStackView()
         col.orientation = .vertical
@@ -216,23 +207,77 @@ public final class ExifHudView: NSView {
         col.spacing = 2
 
         let tfTitle = NSTextField(labelWithString: title)
-        let attr = NSMutableAttributedString(
-            string: title,
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 7.5, weight: .bold),
-                .foregroundColor: NSColor(white: 1.0, alpha: 0.38),
-                .kern: 0.5
-            ]
-        )
-        tfTitle.attributedStringValue = attr
+        exposureTitles.append(tfTitle)
+        updateExposureTitle(tfTitle, title: title)
         col.addArrangedSubview(tfTitle)
 
         valueLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .bold)
-        valueLabel.textColor = NSColor(white: 0.95, alpha: 1.0)
         valueLabel.alignment = .center
         col.addArrangedSubview(valueLabel)
 
         return col
+    }
+
+    private func updateExposureTitle(_ label: NSTextField, title: String) {
+        let attr = NSMutableAttributedString(
+            string: title,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 7.5, weight: .bold),
+                .foregroundColor: ThemeManager.shared.tertiaryTextColor,
+                .kern: 0.5
+            ]
+        )
+        label.attributedStringValue = attr
+    }
+
+    // MARK: - Theme Management
+
+    private func setupThemeObserver() {
+        NotificationCenter.default.addObserver(
+            forName: ThemeManager.themeDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.applyTheme()
+            }
+        }
+    }
+
+    private func applyTheme() {
+        let theme = ThemeManager.shared
+        visualEffectView.appearance = theme.glassAppearance
+        scrimView.layer?.backgroundColor = theme.scrimColor.cgColor
+        visualEffectView.layer?.borderColor = theme.glassBorderColor
+
+        let shadow = NSShadow()
+        shadow.shadowColor = theme.shadowColor
+        shadow.shadowOffset = NSSize(width: 0, height: -6)
+        shadow.shadowBlurRadius = 18
+        self.shadow = shadow
+
+        updateTitleLabel()
+        timeBadgeLabel.textColor = theme.secondaryTextColor
+
+        exposureWell.layer?.backgroundColor = theme.wellBackgroundColor
+        exposureWell.layer?.borderColor = theme.pillBorderColor
+
+        for tf in exposureTitles {
+            updateExposureTitle(tf, title: tf.stringValue)
+        }
+
+        shutterValueLabel.textColor = theme.primaryTextColor
+        apertureValueLabel.textColor = theme.primaryTextColor
+        isoValueLabel.textColor = theme.primaryTextColor
+        focalValueLabel.textColor = theme.primaryTextColor
+
+        cameraLabel.textColor = theme.primaryTextColor
+        lensLabel.textColor = theme.secondaryTextColor
+
+        divider.layer?.backgroundColor = theme.dividerColor
+
+        dateLabel.textColor = theme.secondaryTextColor
+        techLabel.textColor = theme.secondaryTextColor
     }
 
     public func update(with exif: ExifMetadata?, dimensions: String?, fileSize: String?) {
@@ -248,7 +293,7 @@ public final class ExifHudView: NSView {
             var techParts: [String] = []
             if let d = dimensions { techParts.append(d) }
             if let s = fileSize { techParts.append(s) }
-            techLabel.stringValue = techParts.joined(separator: "  •  ")
+            techLabel.stringValue = techParts.isEmpty ? "—" : techParts.joined(separator: "  •  ")
             timeBadgeLabel.stringValue = ""
             return
         }
@@ -304,6 +349,8 @@ public final class ExifHudView: NSView {
     public func setVisible(_ visible: Bool, animated: Bool = true) {
         let targetAlpha: CGFloat = visible ? 1.0 : 0.0
         guard alphaValue != targetAlpha else { return }
+
+        applyTheme()
 
         if animated {
             NSAnimationContext.runAnimationGroup { context in

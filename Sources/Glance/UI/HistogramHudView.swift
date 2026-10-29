@@ -28,9 +28,14 @@ final class HistogramCanvasView: NSView {
         let rect = bounds
         guard rect.width > 10 && rect.height > 10 else { return }
 
+        let isDark = ThemeManager.shared.isDark
+
         // 1. Subtle exposure zone dividers (25% Shadows, 50% Midtones, 75% Highlights)
         ctx.saveGState()
-        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.08).cgColor)
+        let gridColor = isDark
+            ? NSColor.white.withAlphaComponent(0.08).cgColor
+            : NSColor.black.withAlphaComponent(0.09).cgColor
+        ctx.setStrokeColor(gridColor)
         ctx.setLineWidth(0.75)
 
         for fraction in [0.25, 0.50, 0.75] {
@@ -153,7 +158,10 @@ final class HistogramCanvasView: NSView {
         ctx.strokePath()
 
         // 6. Razor-sharp Luminance curve on top
-        ctx.setStrokeColor(NSColor(white: 0.95, alpha: 0.85).cgColor)
+        let lumColor = isDark
+            ? NSColor(white: 0.95, alpha: 0.85).cgColor
+            : NSColor(white: 0.15, alpha: 0.85).cgColor
+        ctx.setStrokeColor(lumColor)
         ctx.setLineWidth(1.2)
         ctx.addPath(lStroke)
         ctx.strokePath()
@@ -162,7 +170,7 @@ final class HistogramCanvasView: NSView {
     }
 }
 
-/// Lightroom Classic-style corner triangle clipping indicator for shadows or highlights.
+/// Lightroom-style interactive triangle clipping alert in histogram scope corners
 final class ClippingTriangleView: NSView {
     enum Kind {
         case shadow
@@ -183,7 +191,7 @@ final class ClippingTriangleView: NSView {
         self.kind = kind
         super.init(frame: .zero)
         wantsLayer = true
-        translatesAutoresizingMaskIntoConstraints = false
+        toolTip = (kind == .shadow) ? "Shadow Clipping Warning (O)" : "Highlight Clipping Warning (O)"
     }
 
     required init?(coder: NSCoder) {
@@ -199,42 +207,20 @@ final class ClippingTriangleView: NSView {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
 
         let rect = bounds
-        guard rect.width >= 8 && rect.height >= 8 else { return }
-
-        let bgPath = CGPath(roundedRect: rect, cornerWidth: 3, cornerHeight: 3, transform: nil)
-        ctx.addPath(bgPath)
-
-        if isClipped {
-            let activeColor = (kind == .shadow)
-                ? NSColor(calibratedRed: 0.05, green: 0.50, blue: 1.0, alpha: 0.85)
-                : NSColor(calibratedRed: 1.0, green: 0.15, blue: 0.20, alpha: 0.85)
-            ctx.setFillColor(activeColor.cgColor)
-            ctx.fillPath()
-        } else {
-            ctx.setFillColor(NSColor(white: 0.15, alpha: 0.40).cgColor)
-            ctx.fillPath()
-            ctx.addPath(bgPath)
-            ctx.setStrokeColor(NSColor(white: 1.0, alpha: 0.15).cgColor)
-            ctx.setLineWidth(0.5)
-            ctx.strokePath()
-        }
-
-        // Triangle glyph pointing into the corner
         let trianglePath = CGMutablePath()
-        let inset = rect.insetBy(dx: 3.5, dy: 3.5)
 
         switch kind {
         case .shadow:
-            // Triangle pointing to top-left corner
-            trianglePath.move(to: CGPoint(x: inset.minX, y: inset.maxY))
-            trianglePath.addLine(to: CGPoint(x: inset.maxX, y: inset.maxY))
-            trianglePath.addLine(to: CGPoint(x: inset.minX, y: inset.minY))
+            // Top-left corner triangle pointing down-right
+            trianglePath.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+            trianglePath.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+            trianglePath.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
             trianglePath.closeSubpath()
         case .highlight:
-            // Triangle pointing to top-right corner
-            trianglePath.move(to: CGPoint(x: inset.maxX, y: inset.maxY))
-            trianglePath.addLine(to: CGPoint(x: inset.maxX, y: inset.minY))
-            trianglePath.addLine(to: CGPoint(x: inset.minX, y: inset.maxY))
+            // Top-right corner triangle pointing down-left
+            trianglePath.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+            trianglePath.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+            trianglePath.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
             trianglePath.closeSubpath()
         }
 
@@ -242,7 +228,10 @@ final class ClippingTriangleView: NSView {
         if isClipped {
             ctx.setFillColor(NSColor.white.cgColor)
         } else {
-            ctx.setFillColor(NSColor(white: 1.0, alpha: 0.35).cgColor)
+            let unclippedColor = ThemeManager.shared.isDark
+                ? NSColor(white: 1.0, alpha: 0.35).cgColor
+                : NSColor(white: 0.0, alpha: 0.35).cgColor
+            ctx.setFillColor(unclippedColor)
         }
         ctx.fillPath()
     }
@@ -252,12 +241,14 @@ final class ClippingTriangleView: NSView {
 @MainActor
 public final class HistogramHudView: NSView {
     private let visualEffectView = NSVisualEffectView()
+    private let scrimView = NSView()
     private let titleLabel = NSTextField(labelWithString: "HISTOGRAM")
     private let canvasContainer = NSView()
     private let canvas = HistogramCanvasView()
 
     private let shadowClipIndicator = ClippingTriangleView(kind: .shadow)
     private let highlightClipIndicator = ClippingTriangleView(kind: .highlight)
+    private var footerLabels: [NSTextField] = []
 
     public var onToggleClipping: (() -> Void)?
 
@@ -265,12 +256,16 @@ public final class HistogramHudView: NSView {
         super.init(frame: frameRect)
         setupGlass()
         setupContent()
+        setupThemeObserver()
+        applyTheme()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         setupGlass()
         setupContent()
+        setupThemeObserver()
+        applyTheme()
     }
 
     public override func hitTest(_ point: NSPoint) -> NSView? {
@@ -289,16 +284,9 @@ public final class HistogramHudView: NSView {
         wantsLayer = true
         alphaValue = 0.0
 
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.50)
-        shadow.shadowOffset = NSSize(width: 0, height: -6)
-        shadow.shadowBlurRadius = 18
-        self.shadow = shadow
-
         visualEffectView.material = .hudWindow
         visualEffectView.blendingMode = .withinWindow
         visualEffectView.state = .active
-        visualEffectView.appearance = NSAppearance(named: .vibrantDark)
         visualEffectView.wantsLayer = true
         visualEffectView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -306,14 +294,10 @@ public final class HistogramHudView: NSView {
             layer.cornerRadius = 14
             layer.cornerCurve = .continuous
             layer.masksToBounds = true
-            layer.borderColor = NSColor.white.withAlphaComponent(0.20).cgColor
             layer.borderWidth = 0.75
         }
 
-        // Dark scrim backdrop guarantees high-contrast legibility against bright backgrounds
-        let scrimView = NSView()
         scrimView.wantsLayer = true
-        scrimView.layer?.backgroundColor = NSColor(deviceWhite: 0.05, alpha: 0.65).cgColor
         scrimView.translatesAutoresizingMaskIntoConstraints = false
         visualEffectView.addSubview(scrimView)
         NSLayoutConstraint.activate([
@@ -347,16 +331,7 @@ public final class HistogramHudView: NSView {
         header.spacing = 8
         header.translatesAutoresizingMaskIntoConstraints = false
 
-        // Title with uppercase tracking
-        let attrTitle = NSMutableAttributedString(
-            string: "HISTOGRAM",
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 10, weight: .bold),
-                .foregroundColor: NSColor(white: 0.88, alpha: 1.0),
-                .kern: 0.8
-            ]
-        )
-        titleLabel.attributedStringValue = attrTitle
+        updateTitleLabel()
         header.addArrangedSubview(titleLabel)
 
         let spacer = NSView()
@@ -381,15 +356,13 @@ public final class HistogramHudView: NSView {
             header.trailingAnchor.constraint(equalTo: root.trailingAnchor)
         ])
 
-        // 2. Recessed Scope Container with Dark Frosted Well
+        // 2. Recessed Scope Container with Frosted Well
         canvasContainer.translatesAutoresizingMaskIntoConstraints = false
         canvasContainer.wantsLayer = true
         if let layer = canvasContainer.layer {
-            layer.backgroundColor = NSColor(deviceWhite: 0.05, alpha: 0.55).cgColor
             layer.cornerRadius = 7
             layer.cornerCurve = .continuous
             layer.borderWidth = 0.5
-            layer.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
             layer.masksToBounds = true
         }
 
@@ -458,6 +431,18 @@ public final class HistogramHudView: NSView {
         ])
     }
 
+    private func updateTitleLabel() {
+        let attrTitle = NSMutableAttributedString(
+            string: "HISTOGRAM",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .bold),
+                .foregroundColor: ThemeManager.shared.primaryTextColor,
+                .kern: 0.8
+            ]
+        )
+        titleLabel.attributedStringValue = attrTitle
+    }
+
     private func makeLegendBadge(color: NSColor, label: String) -> NSView {
         let stack = NSStackView()
         stack.orientation = .horizontal
@@ -485,16 +470,60 @@ public final class HistogramHudView: NSView {
 
     private func makeFooterLabel(title: String) -> NSTextField {
         let tf = NSTextField(labelWithString: title)
+        footerLabels.append(tf)
+        updateFooterLabel(tf, title: title)
+        return tf
+    }
+
+    private func updateFooterLabel(_ label: NSTextField, title: String) {
         let attr = NSMutableAttributedString(
             string: title,
             attributes: [
                 .font: NSFont.systemFont(ofSize: 8, weight: .bold),
-                .foregroundColor: NSColor(white: 1.0, alpha: 0.35),
+                .foregroundColor: ThemeManager.shared.tertiaryTextColor,
                 .kern: 0.6
             ]
         )
-        tf.attributedStringValue = attr
-        return tf
+        label.attributedStringValue = attr
+    }
+
+    // MARK: - Theme Management
+
+    private func setupThemeObserver() {
+        NotificationCenter.default.addObserver(
+            forName: ThemeManager.themeDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.applyTheme()
+            }
+        }
+    }
+
+    private func applyTheme() {
+        let theme = ThemeManager.shared
+        visualEffectView.appearance = theme.glassAppearance
+        scrimView.layer?.backgroundColor = theme.scrimColor.cgColor
+        visualEffectView.layer?.borderColor = theme.glassBorderColor
+
+        let shadow = NSShadow()
+        shadow.shadowColor = theme.shadowColor
+        shadow.shadowOffset = NSSize(width: 0, height: -6)
+        shadow.shadowBlurRadius = 18
+        self.shadow = shadow
+
+        updateTitleLabel()
+        canvasContainer.layer?.backgroundColor = theme.wellBackgroundColor
+        canvasContainer.layer?.borderColor = theme.pillBorderColor
+
+        for tf in footerLabels {
+            updateFooterLabel(tf, title: tf.stringValue)
+        }
+
+        shadowClipIndicator.needsDisplay = true
+        highlightClipIndicator.needsDisplay = true
+        canvas.needsDisplay = true
     }
 
     public func update(with data: HistogramData) {
@@ -511,6 +540,8 @@ public final class HistogramHudView: NSView {
     public func setVisible(_ visible: Bool, animated: Bool = true) {
         let targetAlpha: CGFloat = visible ? 1.0 : 0.0
         guard alphaValue != targetAlpha else { return }
+
+        applyTheme()
 
         if animated {
             NSAnimationContext.runAnimationGroup { context in
