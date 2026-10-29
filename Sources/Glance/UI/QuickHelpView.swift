@@ -1,8 +1,9 @@
 import AppKit
 
 /// Apple Pro frosted-glass shortcuts cheatsheet.
-/// Features a sleek compact view by default, which animates into an expanded,
-/// richly descriptive, and subtly color-accented overview upon Space or Click.
+/// Follows Apple Human Interface Guidelines for dark HUD hierarchy:
+/// monochromatic keycaps, unified typography (labelColor, secondaryLabelColor),
+/// and generous edge margins so text never touches card borders.
 @MainActor
 public final class QuickHelpView: NSView {
     public private(set) var isExpanded: Bool = false
@@ -48,13 +49,13 @@ public final class QuickHelpView: NSView {
             layer.cornerRadius = 18
             layer.cornerCurve = .continuous
             layer.masksToBounds = true
-            layer.borderColor = NSColor.white.withAlphaComponent(0.20).cgColor
+            layer.borderColor = NSColor.white.withAlphaComponent(0.18).cgColor
             layer.borderWidth = 0.5
         }
 
         // Dark scrim backdrop guarantees high-contrast legibility against bright backgrounds
         scrimView.wantsLayer = true
-        scrimView.layer?.backgroundColor = NSColor(deviceWhite: 0.05, alpha: 0.72).cgColor
+        scrimView.layer?.backgroundColor = NSColor(deviceWhite: 0.05, alpha: 0.75).cgColor
         scrimView.translatesAutoresizingMaskIntoConstraints = false
         visualEffectView.addSubview(scrimView)
         NSLayoutConstraint.activate([
@@ -76,9 +77,10 @@ public final class QuickHelpView: NSView {
     private func setupContent() {
         rootStack.orientation = .vertical
         rootStack.alignment = .centerX
-        rootStack.spacing = 14
+        rootStack.spacing = 16
         rootStack.translatesAutoresizingMaskIntoConstraints = false
-        rootStack.edgeInsets = NSEdgeInsets(top: 20, left: 24, bottom: 16, right: 24)
+        // Generous Apple HIG padding so content never touches rounded glass borders
+        rootStack.edgeInsets = NSEdgeInsets(top: 26, left: 34, bottom: 22, right: 36)
         visualEffectView.addSubview(rootStack)
 
         NSLayoutConstraint.activate([
@@ -88,12 +90,10 @@ public final class QuickHelpView: NSView {
             rootStack.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor)
         ])
 
-        // Build both compact and expanded layouts
         setupCompactLayout()
         setupExpandedLayout()
         setupCluePill()
 
-        // Initial mode: Compact
         compactContainer.isHidden = false
         expandedContainer.isHidden = true
         updateClueLabel()
@@ -106,25 +106,23 @@ public final class QuickHelpView: NSView {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 12
+        stack.spacing = 14
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        let header = NSTextField(labelWithString: "KEYBOARD SHORTCUTS")
-        header.font = NSFont.systemFont(ofSize: 10, weight: .bold)
-        header.textColor = NSColor(white: 0.55, alpha: 1.0)
+        let header = makeSectionHeader(title: "KEYBOARD SHORTCUTS")
         stack.addArrangedSubview(header)
 
         let columns = NSStackView()
         columns.orientation = .horizontal
         columns.alignment = .top
-        columns.spacing = 32
+        columns.spacing = 38
         columns.translatesAutoresizingMaskIntoConstraints = false
 
         // Col 1: Culling
         let col1 = NSStackView()
         col1.orientation = .vertical
         col1.alignment = .leading
-        col1.spacing = 7
+        col1.spacing = 7.5
         col1.translatesAutoresizingMaskIntoConstraints = false
         col1.addArrangedSubview(makeCompactRow(key: "P", desc: "Pick"))
         col1.addArrangedSubview(makeCompactRow(key: "X", desc: "Reject"))
@@ -141,7 +139,7 @@ public final class QuickHelpView: NSView {
         let col2 = NSStackView()
         col2.orientation = .vertical
         col2.alignment = .leading
-        col2.spacing = 7
+        col2.spacing = 7.5
         col2.translatesAutoresizingMaskIntoConstraints = false
         col2.addArrangedSubview(makeCompactRow(key: "Z", desc: "100% Zoom / Pan"))
         col2.addArrangedSubview(makeCompactRow(key: "S", desc: "Split compare"))
@@ -165,7 +163,7 @@ public final class QuickHelpView: NSView {
             stack.bottomAnchor.constraint(equalTo: compactContainer.bottomAnchor),
             stack.leadingAnchor.constraint(equalTo: compactContainer.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: compactContainer.trailingAnchor),
-            col2.widthAnchor.constraint(greaterThanOrEqualToConstant: 165)
+            col2.widthAnchor.constraint(greaterThanOrEqualToConstant: 180)
         ])
 
         rootStack.addArrangedSubview(compactContainer)
@@ -175,18 +173,145 @@ public final class QuickHelpView: NSView {
         let row = NSStackView()
         row.orientation = .horizontal
         row.alignment = .centerY
-        row.spacing = 10
+        row.spacing = 11
         row.translatesAutoresizingMaskIntoConstraints = false
 
+        let keycap = makeKeycap(text: key)
+        row.addArrangedSubview(keycap)
+
+        let descLabel = NSTextField(labelWithString: desc)
+        descLabel.font = NSFont.systemFont(ofSize: 12, weight: .regular)
+        descLabel.textColor = NSColor(white: 0.90, alpha: 1.0)
+        descLabel.lineBreakMode = .byClipping
+        row.addArrangedSubview(descLabel)
+
+        return row
+    }
+
+    // MARK: - Expanded Mode Layout (Consistent Apple Dark Hierarchy)
+
+    private func setupExpandedLayout() {
+        expandedContainer.translatesAutoresizingMaskIntoConstraints = false
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 16
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let header = makeSectionHeader(title: "DETAILED SHORTCUTS GUIDE")
+        stack.addArrangedSubview(header)
+
+        let cols = NSStackView()
+        cols.orientation = .horizontal
+        cols.alignment = .top
+        cols.spacing = 32
+        cols.translatesAutoresizingMaskIntoConstraints = false
+
+        // Col 1: Culling & XMP
+        let col1 = NSStackView()
+        col1.orientation = .vertical
+        col1.alignment = .leading
+        col1.spacing = 10
+        col1.translatesAutoresizingMaskIntoConstraints = false
+        col1.addArrangedSubview(makeSectionSubHeader(title: "CULLING & XMP SYNC"))
+        col1.addArrangedSubview(makeVerboseRow(key: "P", title: "Pick (Keeper)", desc: "Flags photo as keeper. Writes crs:PickStatus to Adobe XMP sidecar."))
+        col1.addArrangedSubview(makeVerboseRow(key: "X", title: "Reject (Trash)", desc: "Marks for purge. Writes xmp:Rating=-1 to sidecar."))
+        col1.addArrangedSubview(makeVerboseRow(key: "U", title: "Unflag", desc: "Clears pick/reject flags back to neutral."))
+        col1.addArrangedSubview(makeVerboseRow(key: "1 – 5", title: "Star Ratings", desc: "Rates 1 to 5 stars (xmp:Rating). 0 clears stars."))
+        col1.addArrangedSubview(makeVerboseRow(key: "6 – 9", title: "Color Labels", desc: "6: Red, 7: Yellow, 8: Green, 9: Blue in XMP."))
+        col1.addArrangedSubview(makeVerboseRow(key: "C", title: "Auto-Advance", desc: "Speed culling: automatically advances after rating or flag."))
+        cols.addArrangedSubview(col1)
+
+        // Col 2: Inspection & Tonal Analysis
+        let col2 = NSStackView()
+        col2.orientation = .vertical
+        col2.alignment = .leading
+        col2.spacing = 10
+        col2.translatesAutoresizingMaskIntoConstraints = false
+        col2.addArrangedSubview(makeSectionSubHeader(title: "INSPECTION & TONAL TOOLS"))
+        col2.addArrangedSubview(makeVerboseRow(key: "Z", title: "100% Pixel Peep", desc: "Instant 1:1 sensor inspection centered at cursor. Drag to pan."))
+        col2.addArrangedSubview(makeVerboseRow(key: "S", title: "2-Up Compare", desc: "Split-screen burst compare with next frame. Synchronous 1:1 pan."))
+        col2.addArrangedSubview(makeVerboseRow(key: "H", title: "RGB Histogram", desc: "Hardware 256-bin RGB & Rec. 709 Luminance curve overlay."))
+        col2.addArrangedSubview(makeVerboseRow(key: "O", title: "Clipping Warnings", desc: "Pulsing blinkies: Red for blown highlights, Blue for shadows."))
+        col2.addArrangedSubview(makeVerboseRow(key: "I", title: "EXIF Info HUD", desc: "Camera body, lens, shutter, aperture, ISO, and focal length."))
+        col2.addArrangedSubview(makeVerboseRow(key: "\\", title: "Cycle Filters", desc: "All ➔ Hide Rejects ➔ Picks Only ➔ Rejects Only ➔ Stars."))
+        cols.addArrangedSubview(col2)
+
+        // Col 3: Workflow & Navigation
+        let col3 = NSStackView()
+        col3.orientation = .vertical
+        col3.alignment = .leading
+        col3.spacing = 10
+        col3.translatesAutoresizingMaskIntoConstraints = false
+        col3.addArrangedSubview(makeSectionSubHeader(title: "WORKFLOW & OUTPUT"))
+        col3.addArrangedSubview(makeVerboseRow(key: "Return", title: "Slideshow", desc: "Automated timed presentation. Any key or click stops it."))
+        col3.addArrangedSubview(makeVerboseRow(key: "+ / -", title: "Slideshow Speed", desc: "Live interval stepping (1s, 2s, 3s, 5s, 8s... up to 30s)."))
+        col3.addArrangedSubview(makeVerboseRow(key: "R / L", title: "Lossless Rotation", desc: "R or ]: 90° CW, L or [: 90° CCW via lossless EXIF rewrite."))
+        col3.addArrangedSubview(makeVerboseRow(key: "E", title: "Quick Export", desc: "Copies all Picks (or current photo) to ./Picks with sound chime."))
+        col3.addArrangedSubview(makeVerboseRow(key: "⌫", title: "Trash Photo", desc: "Moves active shot (and RAW + XMP pair) to macOS Trash."))
+        col3.addArrangedSubview(makeVerboseRow(key: "⇧ ⌫", title: "Purge Rejects", desc: "Batch-moves all rejected (X) photos to macOS Trash in one go."))
+        cols.addArrangedSubview(col3)
+
+        stack.addArrangedSubview(cols)
+        expandedContainer.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: expandedContainer.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: expandedContainer.bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: expandedContainer.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: expandedContainer.trailingAnchor),
+            // Generous 265pt width per column gives ample breathing room for descriptions
+            col1.widthAnchor.constraint(equalToConstant: 265),
+            col2.widthAnchor.constraint(equalToConstant: 265),
+            col3.widthAnchor.constraint(equalToConstant: 265)
+        ])
+
+        rootStack.addArrangedSubview(expandedContainer)
+    }
+
+    // MARK: - Apple HIG Typography & Keycap Factory
+
+    private func makeSectionHeader(title: String) -> NSView {
+        let label = NSTextField(labelWithString: title)
+        let attr = NSMutableAttributedString(
+            string: title,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .bold),
+                .foregroundColor: NSColor(white: 0.50, alpha: 1.0),
+                .kern: 0.6
+            ]
+        )
+        label.attributedStringValue = attr
+        return label
+    }
+
+    private func makeSectionSubHeader(title: String) -> NSView {
+        let label = NSTextField(labelWithString: title)
+        let attr = NSMutableAttributedString(
+            string: title,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 9.5, weight: .bold),
+                .foregroundColor: NSColor(white: 0.60, alpha: 1.0),
+                .kern: 0.5
+            ]
+        )
+        label.attributedStringValue = attr
+        return label
+    }
+
+    private func makeKeycap(text: String) -> NSView {
         let keycap = NSView()
         keycap.wantsLayer = true
+        // Refined monochromatic macOS keycap (Apple HIG Dark)
         keycap.layer?.backgroundColor = NSColor(white: 1.0, alpha: 0.12).cgColor
+        keycap.layer?.borderColor = NSColor(white: 1.0, alpha: 0.16).cgColor
+        keycap.layer?.borderWidth = 0.5
         keycap.layer?.cornerRadius = 5
         keycap.layer?.cornerCurve = .continuous
         keycap.translatesAutoresizingMaskIntoConstraints = false
 
-        let keyLabel = NSTextField(labelWithString: key)
-        keyLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold)
+        let keyLabel = NSTextField(labelWithString: text)
+        keyLabel.font = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .semibold)
         keyLabel.textColor = NSColor(white: 0.95, alpha: 1.0)
         keyLabel.alignment = .center
         keyLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -198,153 +323,35 @@ public final class QuickHelpView: NSView {
             keyLabel.centerXAnchor.constraint(equalTo: keycap.centerXAnchor),
             keyLabel.centerYAnchor.constraint(equalTo: keycap.centerYAnchor)
         ])
-        row.addArrangedSubview(keycap)
-
-        let descLabel = NSTextField(labelWithString: desc)
-        descLabel.font = NSFont.systemFont(ofSize: 12, weight: .regular)
-        descLabel.textColor = NSColor(white: 0.88, alpha: 1.0)
-        descLabel.lineBreakMode = .byClipping
-        row.addArrangedSubview(descLabel)
-
-        return row
+        return keycap
     }
 
-    // MARK: - Expanded Mode Layout (Color Accents & In-Depth Guidance)
-
-    private func setupExpandedLayout() {
-        expandedContainer.translatesAutoresizingMaskIntoConstraints = false
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 14
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
-        let header = NSTextField(labelWithString: "DETAILED SHORTCUTS GUIDE")
-        header.font = NSFont.systemFont(ofSize: 10, weight: .bold)
-        header.textColor = NSColor(white: 0.55, alpha: 1.0)
-        stack.addArrangedSubview(header)
-
-        let cols = NSStackView()
-        cols.orientation = .horizontal
-        cols.alignment = .top
-        cols.spacing = 24
-        cols.translatesAutoresizingMaskIntoConstraints = false
-
-        // Col 1: Culling & XMP
-        let col1 = NSStackView()
-        col1.orientation = .vertical
-        col1.alignment = .leading
-        col1.spacing = 9
-        col1.translatesAutoresizingMaskIntoConstraints = false
-        col1.addArrangedSubview(makeSectionHeader(title: "CULLING & XMP SYNC", color: NSColor.systemGreen))
-        col1.addArrangedSubview(makeVerboseRow(key: "P", title: "Pick (Keeper)", desc: "Flags photo as keeper. Writes crs:PickStatus to Adobe XMP sidecar.", color: .systemGreen))
-        col1.addArrangedSubview(makeVerboseRow(key: "X", title: "Reject (Trash)", desc: "Marks for purge. Writes xmp:Rating=-1 to sidecar.", color: .systemRed))
-        col1.addArrangedSubview(makeVerboseRow(key: "U", title: "Unflag", desc: "Clears pick/reject flags to neutral.", color: NSColor(white: 0.8, alpha: 1.0)))
-        col1.addArrangedSubview(makeVerboseRow(key: "1 – 5", title: "Star Ratings", desc: "Rates 1 to 5 stars (xmp:Rating). 0 clears stars.", color: .systemYellow))
-        col1.addArrangedSubview(makeVerboseRow(key: "6 – 9", title: "Color Labels", desc: "6: Red, 7: Yellow, 8: Green, 9: Blue in XMP.", color: .systemOrange))
-        col1.addArrangedSubview(makeVerboseRow(key: "C", title: "Auto-Advance", desc: "Speed culling: automatically advances after any rating or flag.", color: .systemCyan))
-        cols.addArrangedSubview(col1)
-
-        // Col 2: Inspection & Tonal Analysis
-        let col2 = NSStackView()
-        col2.orientation = .vertical
-        col2.alignment = .leading
-        col2.spacing = 9
-        col2.translatesAutoresizingMaskIntoConstraints = false
-        col2.addArrangedSubview(makeSectionHeader(title: "INSPECTION & TONAL TOOLS", color: NSColor.systemTeal))
-        col2.addArrangedSubview(makeVerboseRow(key: "Z", title: "100% Pixel Peep", desc: "Instant 1:1 sensor inspection centered at cursor. Drag to pan.", color: .systemTeal))
-        col2.addArrangedSubview(makeVerboseRow(key: "S", title: "2-Up Compare", desc: "Split-screen burst compare with next frame. Synchronous 1:1 pan.", color: .systemTeal))
-        col2.addArrangedSubview(makeVerboseRow(key: "H", title: "RGB Histogram", desc: "Hardware 256-bin RGB & Rec. 709 Luminance curve overlay.", color: .systemPurple))
-        col2.addArrangedSubview(makeVerboseRow(key: "O", title: "Clipping Warnings", desc: "Pulsing blinkies: Red for blown highlights, Blue for shadows.", color: .systemRed))
-        col2.addArrangedSubview(makeVerboseRow(key: "I", title: "EXIF Info HUD", desc: "Camera body, lens, shutter, aperture, ISO, and focal length.", color: .systemBlue))
-        col2.addArrangedSubview(makeVerboseRow(key: "\\", title: "Cycle Filters", desc: "All ➔ Hide Rejects ➔ Picks Only ➔ Rejects Only ➔ Stars.", color: .systemIndigo))
-        cols.addArrangedSubview(col2)
-
-        // Col 3: Workflow & Navigation
-        let col3 = NSStackView()
-        col3.orientation = .vertical
-        col3.alignment = .leading
-        col3.spacing = 9
-        col3.translatesAutoresizingMaskIntoConstraints = false
-        col3.addArrangedSubview(makeSectionHeader(title: "WORKFLOW & OUTPUT", color: NSColor.systemOrange))
-        col3.addArrangedSubview(makeVerboseRow(key: "Return", title: "Slideshow", desc: "Automated timed presentation. Any key or click stops it.", color: .systemTeal))
-        col3.addArrangedSubview(makeVerboseRow(key: "+ / -", title: "Slideshow Speed", desc: "Live interval stepping (1s, 2s, 3s, 5s, 8s... up to 30s).", color: .systemTeal))
-        col3.addArrangedSubview(makeVerboseRow(key: "R / L", title: "Lossless Rotation", desc: "R or ]: 90° CW, L or [: 90° CCW via lossless EXIF rewrite.", color: .systemOrange))
-        col3.addArrangedSubview(makeVerboseRow(key: "E", title: "Quick Export", desc: "Copies all Picks (or current photo) to ./Picks with sound chime.", color: .systemGreen))
-        col3.addArrangedSubview(makeVerboseRow(key: "⌫", title: "Trash Photo", desc: "Moves active shot (and RAW + XMP pair) to macOS Trash.", color: .systemRed))
-        col3.addArrangedSubview(makeVerboseRow(key: "⇧ ⌫", title: "Purge Rejects", desc: "Batch-moves all rejected (X) photos to macOS Trash in one go.", color: .systemRed))
-        cols.addArrangedSubview(col3)
-
-        stack.addArrangedSubview(cols)
-        expandedContainer.addSubview(stack)
-
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: expandedContainer.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: expandedContainer.bottomAnchor),
-            stack.leadingAnchor.constraint(equalTo: expandedContainer.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: expandedContainer.trailingAnchor),
-            col1.widthAnchor.constraint(equalToConstant: 245),
-            col2.widthAnchor.constraint(equalToConstant: 245),
-            col3.widthAnchor.constraint(equalToConstant: 245)
-        ])
-
-        rootStack.addArrangedSubview(expandedContainer)
-    }
-
-    private func makeSectionHeader(title: String, color: NSColor) -> NSView {
-        let label = NSTextField(labelWithString: title)
-        label.font = NSFont.systemFont(ofSize: 9, weight: .heavy)
-        label.textColor = color.withAlphaComponent(0.90)
-        return label
-    }
-
-    private func makeVerboseRow(key: String, title: String, desc: String, color: NSColor) -> NSView {
+    private func makeVerboseRow(key: String, title: String, desc: String) -> NSView {
         let row = NSStackView()
         row.orientation = .horizontal
         row.alignment = .top
-        row.spacing = 9
+        row.spacing = 11
         row.translatesAutoresizingMaskIntoConstraints = false
 
-        // Colored Keycap Pill
-        let keycap = NSView()
-        keycap.wantsLayer = true
-        keycap.layer?.backgroundColor = color.withAlphaComponent(0.18).cgColor
-        keycap.layer?.borderColor = color.withAlphaComponent(0.45).cgColor
-        keycap.layer?.borderWidth = 0.5
-        keycap.layer?.cornerRadius = 5
-        keycap.layer?.cornerCurve = .continuous
-        keycap.translatesAutoresizingMaskIntoConstraints = false
-
-        let keyLabel = NSTextField(labelWithString: key)
-        keyLabel.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .bold)
-        keyLabel.textColor = color
-        keyLabel.alignment = .center
-        keyLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        keycap.addSubview(keyLabel)
-        NSLayoutConstraint.activate([
-            keycap.widthAnchor.constraint(equalToConstant: 44),
-            keycap.heightAnchor.constraint(equalToConstant: 20),
-            keyLabel.centerXAnchor.constraint(equalTo: keycap.centerXAnchor),
-            keyLabel.centerYAnchor.constraint(equalTo: keycap.centerYAnchor)
-        ])
+        let keycap = makeKeycap(text: key)
         row.addArrangedSubview(keycap)
 
-        // Description column
         let descCol = NSStackView()
         descCol.orientation = .vertical
         descCol.alignment = .leading
-        descCol.spacing = 1.5
+        descCol.spacing = 2
         descCol.translatesAutoresizingMaskIntoConstraints = false
 
+        // Apple Primary Hierarchy: labelColor
         let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        titleLabel.font = NSFont.systemFont(ofSize: 11.5, weight: .semibold)
         titleLabel.textColor = NSColor(white: 0.95, alpha: 1.0)
         descCol.addArrangedSubview(titleLabel)
 
+        // Apple Secondary Hierarchy: secondaryLabelColor
         let detailLabel = NSTextField(wrappingLabelWithString: desc)
-        detailLabel.font = NSFont.systemFont(ofSize: 9.5, weight: .regular)
-        detailLabel.textColor = NSColor(white: 0.70, alpha: 1.0)
+        detailLabel.font = NSFont.systemFont(ofSize: 10, weight: .regular)
+        detailLabel.textColor = NSColor(white: 0.65, alpha: 1.0)
         detailLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         descCol.addArrangedSubview(detailLabel)
 
@@ -357,23 +364,23 @@ public final class QuickHelpView: NSView {
     private func setupCluePill() {
         cluePill.wantsLayer = true
         cluePill.layer?.backgroundColor = NSColor(white: 1.0, alpha: 0.08).cgColor
-        cluePill.layer?.borderColor = NSColor.white.withAlphaComponent(0.16).cgColor
+        cluePill.layer?.borderColor = NSColor.white.withAlphaComponent(0.14).cgColor
         cluePill.layer?.borderWidth = 0.5
-        cluePill.layer?.cornerRadius = 10
+        cluePill.layer?.cornerRadius = 11
         cluePill.layer?.cornerCurve = .continuous
         cluePill.translatesAutoresizingMaskIntoConstraints = false
 
-        clueLabel.font = NSFont.systemFont(ofSize: 9.5, weight: .medium)
-        clueLabel.textColor = NSColor(white: 0.75, alpha: 1.0)
+        clueLabel.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+        clueLabel.textColor = NSColor(white: 0.70, alpha: 1.0)
         clueLabel.alignment = .center
         clueLabel.translatesAutoresizingMaskIntoConstraints = false
 
         cluePill.addSubview(clueLabel)
         NSLayoutConstraint.activate([
-            clueLabel.topAnchor.constraint(equalTo: cluePill.topAnchor, constant: 3),
-            clueLabel.bottomAnchor.constraint(equalTo: cluePill.bottomAnchor, constant: -3),
-            clueLabel.leadingAnchor.constraint(equalTo: cluePill.leadingAnchor, constant: 10),
-            clueLabel.trailingAnchor.constraint(equalTo: cluePill.trailingAnchor, constant: -10)
+            clueLabel.topAnchor.constraint(equalTo: cluePill.topAnchor, constant: 4),
+            clueLabel.bottomAnchor.constraint(equalTo: cluePill.bottomAnchor, constant: -4),
+            clueLabel.leadingAnchor.constraint(equalTo: cluePill.leadingAnchor, constant: 14),
+            clueLabel.trailingAnchor.constraint(equalTo: cluePill.trailingAnchor, constant: -14)
         ])
 
         rootStack.addArrangedSubview(cluePill)
@@ -382,14 +389,14 @@ public final class QuickHelpView: NSView {
     private func updateClueLabel() {
         if isExpanded {
             clueLabel.stringValue = "␣ Space or Click to collapse ▴"
-            cluePill.layer?.backgroundColor = NSColor.systemTeal.withAlphaComponent(0.18).cgColor
-            cluePill.layer?.borderColor = NSColor.systemTeal.withAlphaComponent(0.40).cgColor
-            clueLabel.textColor = NSColor.systemTeal
+            cluePill.layer?.backgroundColor = NSColor(white: 1.0, alpha: 0.12).cgColor
+            cluePill.layer?.borderColor = NSColor.white.withAlphaComponent(0.22).cgColor
+            clueLabel.textColor = NSColor(white: 0.85, alpha: 1.0)
         } else {
             clueLabel.stringValue = "␣ Space or Click to expand details ▾"
             cluePill.layer?.backgroundColor = NSColor(white: 1.0, alpha: 0.08).cgColor
-            cluePill.layer?.borderColor = NSColor.white.withAlphaComponent(0.16).cgColor
-            clueLabel.textColor = NSColor(white: 0.75, alpha: 1.0)
+            cluePill.layer?.borderColor = NSColor.white.withAlphaComponent(0.14).cgColor
+            clueLabel.textColor = NSColor(white: 0.70, alpha: 1.0)
         }
     }
 
@@ -399,7 +406,6 @@ public final class QuickHelpView: NSView {
         isExpanded.toggle()
         updateClueLabel()
 
-        // When expanded, invalidate auto-dismiss timer so user can read comfortably
         if isExpanded {
             dismissTimer?.invalidate()
             dismissTimer = nil
