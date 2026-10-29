@@ -506,6 +506,17 @@ public final class SlideView: NSView {
 
     public override func mouseDown(with event: NSEvent) {
         delegate?.slideViewStopSlideshow()
+
+        if quickHelpView.alphaValue > 0.0 {
+            let mouseInHelp = quickHelpView.convert(event.locationInWindow, from: nil)
+            if quickHelpView.bounds.contains(mouseInHelp) {
+                quickHelpView.toggleExpansion()
+            } else {
+                quickHelpView.dismiss()
+            }
+            return
+        }
+
         let mousePt = convert(event.locationInWindow, from: nil)
         if !isZoomed {
             // Click to zoom in
@@ -570,7 +581,23 @@ public final class SlideView: NSView {
         let lower = chars.lowercased()
         let isShift = event.modifierFlags.contains(.shift)
 
-        if quickHelpView.alphaValue > 0.0 && !(chars == "?" || (event.keyCode == 44 && isShift)) {
+        if quickHelpView.alphaValue > 0.0 {
+            // Space key toggles between compact and expanded cheatsheet
+            if event.keyCode == 49 {
+                quickHelpView.toggleExpansion()
+                return
+            }
+            // "?" toggles cheatsheet
+            if chars == "?" || (event.keyCode == 44 && isShift) {
+                quickHelpView.dismiss()
+                return
+            }
+            // Esc or Q closes cheatsheet
+            if event.keyCode == 53 || lower == "q" {
+                quickHelpView.dismiss()
+                return
+            }
+            // Other inputs dismiss cheatsheet and proceed
             quickHelpView.dismiss()
         }
 
