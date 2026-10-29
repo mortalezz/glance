@@ -1,9 +1,9 @@
 import AppKit
 
 /// Apple Pro frosted-glass shortcuts cheatsheet.
-/// Follows Apple Human Interface Guidelines for dark HUD hierarchy:
-/// monochromatic keycaps, unified typography (labelColor, secondaryLabelColor),
-/// and generous edge margins so text never touches card borders.
+/// Features true table-grid alignment using native `NSGridView`, ensuring
+/// every single row across all columns shares the exact same baseline and height.
+/// Adheres strictly to Apple Human Interface Guidelines for pro dark HUDs.
 @MainActor
 public final class QuickHelpView: NSView {
     public private(set) var isExpanded: Bool = false
@@ -77,12 +77,11 @@ public final class QuickHelpView: NSView {
     private func setupContent() {
         rootStack.orientation = .vertical
         rootStack.alignment = .centerX
-        rootStack.spacing = 16
+        rootStack.spacing = 18
         rootStack.translatesAutoresizingMaskIntoConstraints = false
         visualEffectView.addSubview(rootStack)
 
-        // HARD AUTO-LAYOUT CONSTRAINTS: 36pt left/right and 28pt/24pt top/bottom margins
-        // This guarantees content CANNOT touch the rounded glass edges under any circumstance.
+        // Strict Auto Layout margins ensure content can NEVER touch the rounded glass borders
         NSLayoutConstraint.activate([
             rootStack.topAnchor.constraint(equalTo: visualEffectView.topAnchor, constant: 28),
             rootStack.bottomAnchor.constraint(equalTo: visualEffectView.bottomAnchor, constant: -24),
@@ -99,7 +98,7 @@ public final class QuickHelpView: NSView {
         updateClueLabel()
     }
 
-    // MARK: - Compact Mode Layout
+    // MARK: - Compact Mode Layout (Table Grid Alignment)
 
     private func setupCompactLayout() {
         compactContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -112,58 +111,43 @@ public final class QuickHelpView: NSView {
         let header = makeSectionHeader(title: "KEYBOARD SHORTCUTS")
         stack.addArrangedSubview(header)
 
-        let columns = NSStackView()
-        columns.orientation = .horizontal
-        columns.alignment = .top
-        columns.spacing = 38
-        columns.translatesAutoresizingMaskIntoConstraints = false
+        // Balanced 2-column table grid (11 rows each, perfectly aligned horizontally)
+        let grid = NSGridView()
+        grid.translatesAutoresizingMaskIntoConstraints = false
+        grid.columnSpacing = 38
+        grid.rowSpacing = 8
 
-        // Col 1: Culling
-        let col1 = NSStackView()
-        col1.orientation = .vertical
-        col1.alignment = .leading
-        col1.spacing = 7.5
-        col1.translatesAutoresizingMaskIntoConstraints = false
-        col1.addArrangedSubview(makeCompactRow(key: "P", desc: "Pick"))
-        col1.addArrangedSubview(makeCompactRow(key: "X", desc: "Reject"))
-        col1.addArrangedSubview(makeCompactRow(key: "U", desc: "Unflag"))
-        col1.addArrangedSubview(makeCompactRow(key: "1 – 5", desc: "Rating"))
-        col1.addArrangedSubview(makeCompactRow(key: "0", desc: "Clear rating"))
-        col1.addArrangedSubview(makeCompactRow(key: "6 – 9", desc: "Color label"))
-        col1.addArrangedSubview(makeCompactRow(key: "C", desc: "Auto-advance"))
-        col1.addArrangedSubview(makeCompactRow(key: "E", desc: "Export picks"))
-        col1.addArrangedSubview(makeCompactRow(key: "R / L", desc: "Rotate 90°"))
-        columns.addArrangedSubview(col1)
+        let compactPairs: [(col1: (key: String, desc: String), col2: (key: String, desc: String))] = [
+            (("P", "Pick"), ("Z", "100% Zoom / Pan")),
+            (("X", "Reject"), ("S", "Split compare")),
+            (("U", "Unflag"), ("H", "RGB Histogram")),
+            (("1 – 5", "Rating"), ("O", "Clipping warning")),
+            (("0", "Clear rating"), ("I", "EXIF Info")),
+            (("6 – 9", "Color label"), ("Return", "Slideshow")),
+            (("C", "Auto-advance"), ("+ / -", "Slideshow speed")),
+            (("E", "Export picks"), ("\\", "Cycle filter")),
+            (("R / L", "Rotate 90°"), ("⇧ ⌫", "Purge rejects")),
+            (("⌫", "Trash photo"), ("Space", "Next")),
+            (("F", "Full screen"), ("?", "Shortcuts guide"))
+        ]
 
-        // Col 2: Navigation & Review
-        let col2 = NSStackView()
-        col2.orientation = .vertical
-        col2.alignment = .leading
-        col2.spacing = 7.5
-        col2.translatesAutoresizingMaskIntoConstraints = false
-        col2.addArrangedSubview(makeCompactRow(key: "Z", desc: "100% Zoom / Pan"))
-        col2.addArrangedSubview(makeCompactRow(key: "S", desc: "Split compare"))
-        col2.addArrangedSubview(makeCompactRow(key: "H", desc: "RGB Histogram"))
-        col2.addArrangedSubview(makeCompactRow(key: "O", desc: "Clipping warning"))
-        col2.addArrangedSubview(makeCompactRow(key: "I", desc: "EXIF Info"))
-        col2.addArrangedSubview(makeCompactRow(key: "Return", desc: "Slideshow"))
-        col2.addArrangedSubview(makeCompactRow(key: "+ / -", desc: "Slideshow speed"))
-        col2.addArrangedSubview(makeCompactRow(key: "\\", desc: "Cycle filter"))
-        col2.addArrangedSubview(makeCompactRow(key: "⇧ ⌫", desc: "Purge rejects"))
-        col2.addArrangedSubview(makeCompactRow(key: "Space", desc: "Next"))
-        col2.addArrangedSubview(makeCompactRow(key: "F", desc: "Full screen"))
-        col2.addArrangedSubview(makeCompactRow(key: "?", desc: "Shortcuts"))
-        columns.addArrangedSubview(col2)
+        for pair in compactPairs {
+            let rowCell1 = makeCompactRow(key: pair.col1.key, desc: pair.col1.desc)
+            let rowCell2 = makeCompactRow(key: pair.col2.key, desc: pair.col2.desc)
+            grid.addRow(with: [rowCell1, rowCell2])
+        }
 
-        stack.addArrangedSubview(columns)
+        grid.column(at: 0).width = 175
+        grid.column(at: 1).width = 185
+
+        stack.addArrangedSubview(grid)
         compactContainer.addSubview(stack)
 
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: compactContainer.topAnchor),
             stack.bottomAnchor.constraint(equalTo: compactContainer.bottomAnchor),
             stack.leadingAnchor.constraint(equalTo: compactContainer.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: compactContainer.trailingAnchor),
-            col2.widthAnchor.constraint(greaterThanOrEqualToConstant: 180)
+            stack.trailingAnchor.constraint(equalTo: compactContainer.trailingAnchor)
         ])
 
         rootStack.addArrangedSubview(compactContainer)
@@ -188,7 +172,7 @@ public final class QuickHelpView: NSView {
         return row
     }
 
-    // MARK: - Expanded Mode Layout (Consistent Apple Dark Hierarchy)
+    // MARK: - Expanded Mode Layout (3-Column Table Grid Alignment)
 
     private func setupExpandedLayout() {
         expandedContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -201,69 +185,76 @@ public final class QuickHelpView: NSView {
         let header = makeSectionHeader(title: "DETAILED SHORTCUTS GUIDE")
         stack.addArrangedSubview(header)
 
-        let cols = NSStackView()
-        cols.orientation = .horizontal
-        cols.alignment = .top
-        cols.spacing = 32
-        cols.translatesAutoresizingMaskIntoConstraints = false
+        // Native 3-column table grid: guarantees identical row heights & baseline alignment across all columns
+        let grid = NSGridView()
+        grid.translatesAutoresizingMaskIntoConstraints = false
+        grid.columnSpacing = 34
+        grid.rowSpacing = 14
 
-        // Col 1: Culling & XMP
-        let col1 = NSStackView()
-        col1.orientation = .vertical
-        col1.alignment = .leading
-        col1.spacing = 10
-        col1.translatesAutoresizingMaskIntoConstraints = false
-        col1.addArrangedSubview(makeSectionSubHeader(title: "CULLING & XMP SYNC"))
-        col1.addArrangedSubview(makeVerboseRow(key: "P", title: "Pick (Keeper)", desc: "Flags photo as keeper. Writes crs:PickStatus to Adobe XMP sidecar."))
-        col1.addArrangedSubview(makeVerboseRow(key: "X", title: "Reject (Trash)", desc: "Marks for purge. Writes xmp:Rating=-1 to sidecar."))
-        col1.addArrangedSubview(makeVerboseRow(key: "U", title: "Unflag", desc: "Clears pick/reject flags back to neutral."))
-        col1.addArrangedSubview(makeVerboseRow(key: "1 – 5", title: "Star Ratings", desc: "Rates 1 to 5 stars (xmp:Rating). 0 clears stars."))
-        col1.addArrangedSubview(makeVerboseRow(key: "6 – 9", title: "Color Labels", desc: "6: Red, 7: Yellow, 8: Green, 9: Blue in XMP."))
-        col1.addArrangedSubview(makeVerboseRow(key: "C", title: "Auto-Advance", desc: "Speed culling: automatically advances after rating or flag."))
-        cols.addArrangedSubview(col1)
+        // Section Sub-headers Row
+        let h1 = makeSectionSubHeader(title: "CULLING & XMP SYNC")
+        let h2 = makeSectionSubHeader(title: "INSPECTION & TONAL TOOLS")
+        let h3 = makeSectionSubHeader(title: "WORKFLOW & OUTPUT")
+        grid.addRow(with: [h1, h2, h3])
 
-        // Col 2: Inspection & Tonal Analysis
-        let col2 = NSStackView()
-        col2.orientation = .vertical
-        col2.alignment = .leading
-        col2.spacing = 10
-        col2.translatesAutoresizingMaskIntoConstraints = false
-        col2.addArrangedSubview(makeSectionSubHeader(title: "INSPECTION & TONAL TOOLS"))
-        col2.addArrangedSubview(makeVerboseRow(key: "Z", title: "100% Pixel Peep", desc: "Instant 1:1 sensor inspection centered at cursor. Drag to pan."))
-        col2.addArrangedSubview(makeVerboseRow(key: "S", title: "2-Up Compare", desc: "Split-screen burst compare with next frame. Synchronous 1:1 pan."))
-        col2.addArrangedSubview(makeVerboseRow(key: "H", title: "RGB Histogram", desc: "Hardware 256-bin RGB & Rec. 709 Luminance curve overlay."))
-        col2.addArrangedSubview(makeVerboseRow(key: "O", title: "Clipping Warnings", desc: "Pulsing blinkies: Red for blown highlights, Blue for shadows."))
-        col2.addArrangedSubview(makeVerboseRow(key: "I", title: "EXIF Info HUD", desc: "Camera body, lens, shutter, aperture, ISO, and focal length."))
-        col2.addArrangedSubview(makeVerboseRow(key: "\\", title: "Cycle Filters", desc: "All ➔ Hide Rejects ➔ Picks Only ➔ Rejects Only ➔ Stars."))
-        cols.addArrangedSubview(col2)
+        // 6 Matched Table Rows across all 3 functional domains
+        let rowsData: [(
+            c1: (key: String, title: String, desc: String),
+            c2: (key: String, title: String, desc: String),
+            c3: (key: String, title: String, desc: String)
+        )] = [
+            (
+                ("P", "Pick (Keeper)", "Flags photo as keeper. Writes crs:PickStatus to Adobe XMP sidecar."),
+                ("Z", "100% Pixel Peep", "Instant 1:1 sensor inspection centered at cursor. Drag to pan."),
+                ("Return", "Slideshow", "Automated timed presentation. Any key or click stops it.")
+            ),
+            (
+                ("X", "Reject (Trash)", "Marks for purge. Writes xmp:Rating=-1 to sidecar."),
+                ("S", "2-Up Compare", "Split-screen burst compare with next frame. Synchronous 1:1 pan."),
+                ("+ / -", "Slideshow Speed", "Live interval stepping (1s, 2s, 3s, 5s, 8s... up to 30s).")
+            ),
+            (
+                ("U", "Unflag", "Clears pick/reject flags back to neutral in sidecar."),
+                ("H", "RGB Histogram", "Hardware 256-bin RGB & Rec. 709 Luminance curve overlay."),
+                ("R / L", "Lossless Rotation", "R or ]: 90° CW, L or [: 90° CCW via lossless EXIF rewrite.")
+            ),
+            (
+                ("1 – 5", "Star Ratings", "Rates 1 to 5 stars (xmp:Rating). 0 clears stars."),
+                ("O", "Clipping Warnings", "Pulsing blinkies: Red for blown highlights, Blue for shadows."),
+                ("E", "Quick Export", "Copies all Picks (or current photo) to ./Picks with sound chime.")
+            ),
+            (
+                ("6 – 9", "Color Labels", "6: Red, 7: Yellow, 8: Green, 9: Blue in Adobe XMP."),
+                ("I", "EXIF Info HUD", "Camera body, lens, shutter, aperture, ISO, and focal length."),
+                ("⌫", "Trash Photo", "Moves active shot (and RAW + XMP pair) to macOS Trash.")
+            ),
+            (
+                ("C", "Auto-Advance", "Speed culling: automatically advances after rating or flag."),
+                ("\\", "Cycle Filters", "All ➔ Hide Rejects ➔ Picks Only ➔ Rejects Only ➔ Stars."),
+                ("⇧ ⌫", "Purge Rejects", "Batch-moves all rejected (X) photos to macOS Trash in one go.")
+            )
+        ]
 
-        // Col 3: Workflow & Navigation
-        let col3 = NSStackView()
-        col3.orientation = .vertical
-        col3.alignment = .leading
-        col3.spacing = 10
-        col3.translatesAutoresizingMaskIntoConstraints = false
-        col3.addArrangedSubview(makeSectionSubHeader(title: "WORKFLOW & OUTPUT"))
-        col3.addArrangedSubview(makeVerboseRow(key: "Return", title: "Slideshow", desc: "Automated timed presentation. Any key or click stops it."))
-        col3.addArrangedSubview(makeVerboseRow(key: "+ / -", title: "Slideshow Speed", desc: "Live interval stepping (1s, 2s, 3s, 5s, 8s... up to 30s)."))
-        col3.addArrangedSubview(makeVerboseRow(key: "R / L", title: "Lossless Rotation", desc: "R or ]: 90° CW, L or [: 90° CCW via lossless EXIF rewrite."))
-        col3.addArrangedSubview(makeVerboseRow(key: "E", title: "Quick Export", desc: "Copies all Picks (or current photo) to ./Picks with sound chime."))
-        col3.addArrangedSubview(makeVerboseRow(key: "⌫", title: "Trash Photo", desc: "Moves active shot (and RAW + XMP pair) to macOS Trash."))
-        col3.addArrangedSubview(makeVerboseRow(key: "⇧ ⌫", title: "Purge Rejects", desc: "Batch-moves all rejected (X) photos to macOS Trash in one go."))
-        cols.addArrangedSubview(col3)
+        for item in rowsData {
+            let cell1 = makeVerboseRow(key: item.c1.key, title: item.c1.title, desc: item.c1.desc)
+            let cell2 = makeVerboseRow(key: item.c2.key, title: item.c2.title, desc: item.c2.desc)
+            let cell3 = makeVerboseRow(key: item.c3.key, title: item.c3.title, desc: item.c3.desc)
+            grid.addRow(with: [cell1, cell2, cell3])
+        }
 
-        stack.addArrangedSubview(cols)
+        // Explicit generous 265pt width per column gives ample breathing room
+        grid.column(at: 0).width = 265
+        grid.column(at: 1).width = 265
+        grid.column(at: 2).width = 265
+
+        stack.addArrangedSubview(grid)
         expandedContainer.addSubview(stack)
 
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: expandedContainer.topAnchor),
             stack.bottomAnchor.constraint(equalTo: expandedContainer.bottomAnchor),
             stack.leadingAnchor.constraint(equalTo: expandedContainer.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: expandedContainer.trailingAnchor),
-            // Generous 265pt width per column gives ample breathing room for descriptions
-            col1.widthAnchor.constraint(equalToConstant: 265),
-            col2.widthAnchor.constraint(equalToConstant: 265),
-            col3.widthAnchor.constraint(equalToConstant: 265)
+            stack.trailingAnchor.constraint(equalTo: expandedContainer.trailingAnchor)
         ])
 
         rootStack.addArrangedSubview(expandedContainer)
@@ -339,7 +330,7 @@ public final class QuickHelpView: NSView {
         let descCol = NSStackView()
         descCol.orientation = .vertical
         descCol.alignment = .leading
-        descCol.spacing = 2
+        descCol.spacing = 2.5
         descCol.translatesAutoresizingMaskIntoConstraints = false
 
         // Apple Primary Hierarchy: labelColor
