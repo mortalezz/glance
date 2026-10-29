@@ -119,7 +119,7 @@ Press **`?`** (`Shift + /`) at any time inside Glance to toggle the interactive 
 
 ### Option 1: Direct Download (Recommended) 📦
 Download the latest pre-compiled application bundle from the [**Releases Page**](https://github.com/mortalezz/glance/releases/latest):
-1. Download **`Glance-v1.0.0-macOS.zip`**.
+1. Download **`Glance-v1.1.0-macOS.zip`**.
 2. Unzip and drag `Glance.app` into your `/Applications` folder.
 3. Right-click any image in Finder ➔ *Open With* ➔ *Glance* (or set Glance as your default image viewer for instant full-screen glory).
 

@@ -1,8 +1,9 @@
-import Foundation
+import AppKit
 import CoreGraphics
 import ImageIO
-import Darwin
+import UniformTypeIdentifiers
 
+/// Represents a successfully decoded image along with its metadata and origin dimensions.
 public struct DecodedImage: @unchecked Sendable {
     public let image: CGImage
     public let originalWidth: Int
@@ -21,7 +22,7 @@ public struct DecodedImage: @unchecked Sendable {
         originalWidth: Int,
         originalHeight: Int,
         isDownscaled: Bool,
-        isRaw: Bool,
+        isRaw: Bool = false,
         exif: ExifMetadata? = nil
     ) {
         self.image = image
@@ -33,48 +34,45 @@ public struct DecodedImage: @unchecked Sendable {
     }
 }
 
-/// High-performance background image decoder using ImageIO.
-/// Implements screen-bounding downscaling, zero-copy memory mapping, and native RAW/TIFF decode.
+/// Thread-safe, high-performance image decoder wrapping ImageIO.
+/// Performs memory-mapped reads and display-scaled thumbnail generation to ensure
+/// high framerate directory traversal even with 50MP+ RAW and raster files.
 public final class ImageDecoder: Sendable {
     public static let shared = ImageDecoder()
 
     public init() {}
 
-    /// Decodes the image at the given URL, constrained to a maximum bounding pixel dimension.
+    /// Decodes an image from disk at `url`, optionally downscaling to `maxBoundingPixelSize`.
     ///
     /// - Parameters:
-    ///   - url: The file URL of the image or RAW file.
+    ///   - url: File URL of the image to decode.
     ///   - maxBoundingPixelSize: The maximum dimension (width or height) in device pixels.
-    ///     If nil or 0, a sensible default (e.g., 4096) is used to bound memory.
-    /// - Returns: A `DecodedImage` ready for immediate CALayer presentation.
+    ///                           Pass `nil` or `0` to request full original sensor resolution.
+    /// - Returns: `DecodedImage` containing the decoded CGImage and metadata.
     public func decode(
         at url: URL,
         maxBoundingPixelSize: Int? = nil
     ) throws -> DecodedImage {
-        // Fast extension-based RAW check
-        let ext = url.pathExtension.lowercased()
-        let isRawFile = SupportedFormats.rawExtensions.contains(ext)
+        let isRawFile = SupportedFormats.isRaw(url: url)
 
-        // 1. Configure zero-copy & cache options for ImageIO
+        // 1. Create ImageSource from URL with memory-mapped hints
         let sourceOptions: [CFString: Any] = [
-            kCGImageSourceShouldCache: false,
-            kCGImageSourceShouldAllowFloat: true
+            kCGImageSourceShouldCache: false
         ]
 
-        // 2. Load via memory-mapping (mmap zero-copy, completely bypasses Gatekeeper/syspolicyd URL checks)
-        // Fall back to CGImageSourceCreateWithURL if memory-mapping fails
-        let imageSource: CGImageSource
-        if let mappedData = try? Data(contentsOf: url, options: .alwaysMapped) {
-            guard let src = CGImageSourceCreateWithData(mappedData as CFData, sourceOptions as CFDictionary) else {
-                throw NSError(domain: "ImageDecoder", code: 400, userInfo: [
-                    NSLocalizedDescriptionKey: "Failed to create CGImageSource from data at \(url.path)"
-                ])
-            }
+        var imageSource: CGImageSource
+        if let src = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary) {
             imageSource = src
         } else {
-            guard let src = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary) else {
+            // Fallback: try loading file data directly with memory mapping
+            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
                 throw NSError(domain: "ImageDecoder", code: 400, userInfo: [
-                    NSLocalizedDescriptionKey: "Failed to create CGImageSource from \(url.path)"
+                    NSLocalizedDescriptionKey: "Could not read file at \(url.path)"
+                ])
+            }
+            guard let src = CGImageSourceCreateWithData(data as CFData, sourceOptions as CFDictionary) else {
+                throw NSError(domain: "ImageDecoder", code: 400, userInfo: [
+                    NSLocalizedDescriptionKey: "Unsupported or corrupt image at \(url.path)"
                 ])
             }
             imageSource = src
@@ -111,6 +109,13 @@ public final class ImageDecoder: Sendable {
         // When browsing standalone RAW files (shouldDownscale == true), extract the camera-generated
         // embedded JPEG preview in sub-5ms, completely bypassing costly 150-300ms sensor demosaicing.
         // Full raw demosaicing is deferred until the user initiates 100% 1:1 Pixel Peep (Z).
+        //
+        // RETINA VIEWPORT CHECK:
+        // Cameras vary widely in embedded thumbnail size: while pro DSLRs/mirrorless often embed
+        // full-resolution or 4K JPEGs, many cameras (e.g. DJI DNG drones, older bodies) only embed
+        // tiny 160x120 or 960x540 drafts. If the embedded preview is smaller than the target
+        // bounding fullscreen viewport, we bypass it and decode the RAW sensor data properly
+        // downscaled so the image remains pin-sharp on Retina screens.
         if isRawFile && shouldDownscale {
             let embeddedOptions: [CFString: Any] = [
                 kCGImageSourceCreateThumbnailFromImageIfAbsent: false,
@@ -118,15 +123,22 @@ public final class ImageDecoder: Sendable {
                 kCGImageSourceThumbnailMaxPixelSize: targetBoundingSize,
                 kCGImageSourceShouldCacheImmediately: true
             ]
-            if let embeddedThumb = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, embeddedOptions as CFDictionary) {
-                return DecodedImage(
-                    image: embeddedThumb,
-                    originalWidth: originalWidth > 0 ? originalWidth : embeddedThumb.width,
-                    originalHeight: originalHeight > 0 ? originalHeight : embeddedThumb.height,
-                    isDownscaled: true,
-                    isRaw: true,
-                    exif: parsedExif
-                )
+            let sourceCount = CGImageSourceGetCount(imageSource)
+            for idx in 0..<sourceCount {
+                if let embeddedThumb = CGImageSourceCreateThumbnailAtIndex(imageSource, idx, embeddedOptions as CFDictionary) {
+                    let thumbMaxDim = max(embeddedThumb.width, embeddedThumb.height)
+                    let requiredMinDim = min(maxOriginalDim, targetBoundingSize)
+                    if thumbMaxDim >= requiredMinDim {
+                        return DecodedImage(
+                            image: embeddedThumb,
+                            originalWidth: originalWidth > 0 ? originalWidth : embeddedThumb.width,
+                            originalHeight: originalHeight > 0 ? originalHeight : embeddedThumb.height,
+                            isDownscaled: true,
+                            isRaw: true,
+                            exif: parsedExif
+                        )
+                    }
+                }
             }
         }
 
