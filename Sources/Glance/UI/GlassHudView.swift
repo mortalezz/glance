@@ -136,6 +136,7 @@ public final class GlassHudView: NSView {
         visualEffectView.material = .hudWindow
         visualEffectView.blendingMode = .withinWindow
         visualEffectView.state = .active
+        visualEffectView.appearance = NSAppearance(named: .vibrantDark)
         visualEffectView.wantsLayer = true
         visualEffectView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -146,6 +147,19 @@ public final class GlassHudView: NSView {
             effectLayer.borderColor = NSColor.white.withAlphaComponent(0.22).cgColor
             effectLayer.borderWidth = 0.75
         }
+
+        // Dark scrim backdrop guarantees high-contrast legibility even against pure white skies
+        let scrimView = NSView()
+        scrimView.wantsLayer = true
+        scrimView.layer?.backgroundColor = NSColor(deviceWhite: 0.05, alpha: 0.65).cgColor
+        scrimView.translatesAutoresizingMaskIntoConstraints = false
+        visualEffectView.addSubview(scrimView)
+        NSLayoutConstraint.activate([
+            scrimView.topAnchor.constraint(equalTo: visualEffectView.topAnchor),
+            scrimView.bottomAnchor.constraint(equalTo: visualEffectView.bottomAnchor),
+            scrimView.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor),
+            scrimView.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor)
+        ])
 
         addSubview(visualEffectView)
         NSLayoutConstraint.activate([
@@ -225,14 +239,23 @@ public final class GlassHudView: NSView {
         ])
         stackView.addArrangedSubview(colorBadge)
 
+        let textShadow = NSShadow()
+        textShadow.shadowColor = NSColor.black.withAlphaComponent(0.80)
+        textShadow.shadowOffset = NSSize(width: 0, height: -1)
+        textShadow.shadowBlurRadius = 2
+
+        indexLabel.shadow = textShadow
+
         // 3. Star Rating (★ ★ ★ ☆ ☆)
         ratingLabel.font = NSFont.systemFont(ofSize: 12, weight: .bold)
         ratingLabel.textColor = NSColor.systemYellow
+        ratingLabel.shadow = textShadow
         stackView.addArrangedSubview(ratingLabel)
 
         // 4. Filename
         filenameLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
         filenameLabel.textColor = .white
+        filenameLabel.shadow = textShadow
         filenameLabel.lineBreakMode = .byTruncatingMiddle
         filenameLabel.maximumNumberOfLines = 1
         filenameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -240,7 +263,8 @@ public final class GlassHudView: NSView {
 
         // 5. Metadata (Resolution / File Size)
         metaLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-        metaLabel.textColor = NSColor(white: 0.75, alpha: 1.0)
+        metaLabel.textColor = NSColor(white: 0.85, alpha: 1.0)
+        metaLabel.shadow = textShadow
         metaLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         stackView.addArrangedSubview(metaLabel)
 

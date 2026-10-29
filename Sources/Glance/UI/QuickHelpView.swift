@@ -37,6 +37,7 @@ public final class QuickHelpView: NSView {
         visualEffectView.material = .hudWindow
         visualEffectView.blendingMode = .withinWindow
         visualEffectView.state = .active
+        visualEffectView.appearance = NSAppearance(named: .vibrantDark)
         visualEffectView.wantsLayer = true
         visualEffectView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -47,6 +48,19 @@ public final class QuickHelpView: NSView {
             layer.borderColor = NSColor.white.withAlphaComponent(0.20).cgColor
             layer.borderWidth = 0.5
         }
+
+        // Dark scrim backdrop guarantees high-contrast legibility against bright backgrounds
+        let scrimView = NSView()
+        scrimView.wantsLayer = true
+        scrimView.layer?.backgroundColor = NSColor(deviceWhite: 0.05, alpha: 0.68).cgColor
+        scrimView.translatesAutoresizingMaskIntoConstraints = false
+        visualEffectView.addSubview(scrimView)
+        NSLayoutConstraint.activate([
+            scrimView.topAnchor.constraint(equalTo: visualEffectView.topAnchor),
+            scrimView.bottomAnchor.constraint(equalTo: visualEffectView.bottomAnchor),
+            scrimView.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor),
+            scrimView.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor)
+        ])
 
         addSubview(visualEffectView)
         NSLayoutConstraint.activate([
