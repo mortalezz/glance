@@ -31,6 +31,10 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     private var isExporting: Bool = false
     private var exportProgressText: String? = nil
 
+    // Live directory monitoring with self-trigger suppression
+    private var directoryWatcher: DirectoryWatcher? = nil
+    private var pipelineMaxPixelSize: Int = 4096
+
     public init() {
         let screenRect = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
         let window = NSWindow(
@@ -90,6 +94,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 let scale = screen?.backingScaleFactor ?? 2.0
                 let screenSize = screen?.frame.size ?? CGSize(width: 1920, height: 1080)
                 let maxPixelSize = Int(max(screenSize.width, screenSize.height) * scale)
+                self.pipelineMaxPixelSize = maxPixelSize
 
                 let rawInitial = self.currentRawIndex ?? 0
                 await pipeline.setPlaylist(
@@ -97,6 +102,13 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                     initialIndex: rawInitial,
                     maxPixelSize: maxPixelSize
                 )
+
+                // Start FSEvents live folder watcher with kernel self-suppression
+                self.directoryWatcher?.stop()
+                let watcher = DirectoryWatcher(directoryURL: scanResult.directoryURL)
+                watcher.delegate = self
+                watcher.start()
+                self.directoryWatcher = watcher
 
                 await loadAndDisplayCurrent()
             } catch {
@@ -767,6 +779,37 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     }
 
     public func windowWillClose(_ notification: Notification) {
+        directoryWatcher?.stop()
         NSApp.terminate(nil)
+    }
+}
+
+// MARK: - DirectoryWatcherDelegate
+
+extension FullScreenWindowController: DirectoryWatcherDelegate {
+    public func directoryWatcherDidDetectChanges(in directoryURL: URL) {
+        Task { [weak self] in
+            guard let self = self else { return }
+
+            let currentURL: URL? = self.currentRawIndex.flatMap {
+                $0 < self.allItems.count ? self.allItems[$0].url : nil
+            }
+
+            guard let scanResult = try? await self.scanner.scan(targetURL: directoryURL) else { return }
+            guard !scanResult.items.isEmpty else { return }
+
+            self.allItems = scanResult.items
+
+            let targetIdx = currentURL.flatMap { cur in
+                self.allItems.firstIndex(where: { $0.url == cur || $0.allURLs.contains(cur) })
+            } ?? 0
+
+            self.rebuildFilter(targetIndex: targetIdx)
+            await self.pipeline.setPlaylist(
+                items: self.allItems,
+                initialIndex: targetIdx,
+                maxPixelSize: self.pipelineMaxPixelSize
+            )
+        }
     }
 }

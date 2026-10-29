@@ -98,7 +98,7 @@ xattr -cr "${APP_DIR}" 2>/dev/null || true
 
 # Properly seal and ad-hoc sign the app bundle
 echo "Ad-hoc signing ${APP_DIR}..."
-codesign --force --deep --sign - "${APP_DIR}"
+codesign --force --deep --options runtime --entitlements scripts/entitlements.plist --sign - "${APP_DIR}"
 
 echo "Successfully built and signed ${APP_DIR}!"
 echo "Run with: open ${APP_DIR} /path/to/folder"
