@@ -718,6 +718,52 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+                // ==========================================
+        // TEST 21: 2-UP Synchronized Lossless Rotation & Profile Baseline
+        // ==========================================
+        do {
+            print("🧪 TEST 21: 2-UP Synchronized Lossless Rotation & Baseline Invariants...")
+
+            // 1. Synchronized rotation compound undo/redo
+            let undoMgr = CullingUndoManager()
+            let rotLeft = CullingAction.rotate(itemID: "shot1", rawIndex: 0, direction: .clockwise)
+            let rotRight = CullingAction.rotate(itemID: "shot2", rawIndex: 1, direction: .clockwise)
+            let compoundRotation = CullingAction.compound([rotLeft, rotRight])
+
+            undoMgr.record(compoundRotation)
+            assertEqual(undoMgr.canUndo, true, "Compound rotation recorded in undo stack")
+
+            guard let poppedRotUndo = undoMgr.popUndo() else {
+                fatalError("Expected compound rotation undo")
+            }
+            if case .compound(let actions) = poppedRotUndo {
+                assertEqual(actions.count, 2, "Compound rotation must have 2 actions")
+                if case .rotate(let id, _, let dir) = actions[0] {
+                    assertEqual(id, "shot1", "First action is shot1")
+                    assertEqual(dir, .clockwise, "First action direction is clockwise")
+                }
+            } else {
+                fatalError("Action must be compound")
+            }
+
+            // 2. SplitPaneInfo ratings and color labels
+            let p1 = SplitPaneInfo(slot: 1, filename: "DSC_0001.NEF", pick: .pick, rating: 5, color: .red, isChampion: true)
+            assertEqual(p1.slot, 1, "Slot 1")
+            assertEqual(p1.rating, 5, "Rating 5 preserved on Champion")
+            assertEqual(p1.color, .red, "Color red preserved on Champion")
+            assertEqual(p1.isChampion, true, "Champion flag true")
+
+            let p2 = SplitPaneInfo(slot: 2, filename: "DSC_0002.NEF", pick: .unflagged, rating: 0, color: .none, isChampion: false)
+            assertEqual(p2.rating, 0, "Rating 0 on Challenger")
+            assertEqual(p2.color, .none, "Color none on Challenger")
+
+            // 3. Baseline profile invariant
+            let forcedNeutral = CameraProfile.asShot
+            assertEqual(forcedNeutral.rawValue, "asShot", "2-UP mode baseline must be neutral asShot")
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

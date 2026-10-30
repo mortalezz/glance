@@ -198,7 +198,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             var leftSplitInfo: SplitPaneInfo? = nil
             var rightSplitInfo: SplitPaneInfo? = nil
 
-            if slideView.isSplitMode {
+            let isSplit = slideView.isSplitMode
+
+            if isSplit {
                 // Ensure challenger position is valid
                 if splitChallengerPos == nil || splitChallengerPos! <= currentFilteredPos || splitChallengerPos! >= filteredIndices.count {
                     splitChallengerPos = (currentFilteredPos + 1 < filteredIndices.count) ? (currentFilteredPos + 1) : nil
@@ -208,6 +210,8 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                     slot: 1,
                     filename: item.displayName,
                     pick: meta.pick,
+                    rating: meta.rating,
+                    color: meta.color,
                     isChampion: true
                 )
 
@@ -225,12 +229,20 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                         slot: 2,
                         filename: challengerItem.displayName,
                         pick: challengerMeta.pick,
+                        rating: challengerMeta.rating,
+                        color: challengerMeta.color,
                         isChampion: false
                     )
                 }
             }
 
             let filterBadge = currentFilter == .all ? nil : currentFilter.title
+
+            // In 2-UP mode, force neutral baseline so comparison is completely unbiased
+            var hudMeta = meta
+            if isSplit {
+                hudMeta.cameraProfile = .asShot
+            }
 
             let info = HudInfo(
                 currentIndex: currentFilteredPos,
@@ -241,7 +253,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 isRaw: decoded.isRaw || item.rawURL != nil,
                 isStacked: item.isStacked,
                 isDownscaled: decoded.isDownscaled,
-                culling: meta,
+                culling: hudMeta,
                 autoAdvance: autoAdvance,
                 filterTitle: filterBadge,
                 isZoomed: slideView.isZoomed,
@@ -276,8 +288,8 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             // Detect camera brand for tailored profile color science and naming
             let cameraBrand = CameraProfileEngine.detectBrand(for: item, exif: decoded.exif)
 
-            // Apply Camera Profile / Picture Control if active
-            let activeProfile = meta.cameraProfile ?? .asShot
+            // Apply Camera Profile / Picture Control if active (forced to .asShot in 2-UP mode for unbiased comparison)
+            let activeProfile = isSplit ? .asShot : (meta.cameraProfile ?? .asShot)
             let renderedImage = (activeProfile != .asShot)
                 ? (CameraProfileEngine.apply(profile: activeProfile, brand: cameraBrand, to: decoded.image) ?? decoded.image)
                 : decoded.image
@@ -340,6 +352,20 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     public func slideViewRequestNext() {
         stopSlideshowIfRunning()
         guard !filteredIndices.isEmpty else { return }
+
+        // In 2-UP split compare mode: Space or Right Arrow advances challenger without marking champion
+        if slideView.isSplitMode {
+            let cPos = splitChallengerPos ?? (currentFilteredPos + 1)
+            if cPos + 1 < filteredIndices.count {
+                splitChallengerPos = cPos + 1
+                slideView.hudView.showMessage("Next Challenger [→]")
+                Task { await loadAndDisplayCurrent() }
+            } else {
+                slideView.hudView.showMessage("No more challengers in set")
+            }
+            return
+        }
+
         if currentFilteredPos + 1 < filteredIndices.count {
             navigate(toFilteredPos: currentFilteredPos + 1, direction: .forward)
         } else {
@@ -350,6 +376,22 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     public func slideViewRequestPrevious() {
         stopSlideshowIfRunning()
         guard !filteredIndices.isEmpty else { return }
+
+        // In 2-UP split compare mode: Left Arrow steps back challenger or pair
+        if slideView.isSplitMode {
+            let cPos = splitChallengerPos ?? (currentFilteredPos + 1)
+            if cPos > currentFilteredPos + 1 {
+                splitChallengerPos = cPos - 1
+                slideView.hudView.showMessage("Previous Challenger [←]")
+                Task { await loadAndDisplayCurrent() }
+            } else if currentFilteredPos - 1 >= 0 {
+                navigate(toFilteredPos: currentFilteredPos - 1, direction: .backward)
+            } else {
+                slideView.hudView.showMessage("First pair in set")
+            }
+            return
+        }
+
         if currentFilteredPos - 1 >= 0 {
             navigate(toFilteredPos: currentFilteredPos - 1, direction: .backward)
         } else {
@@ -536,7 +578,13 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
 
+        let isSplit = slideView.isSplitMode
+        let cPos = splitChallengerPos ?? (currentFilteredPos + 1)
+        let rightRawIndex: Int? = (isSplit && cPos < filteredIndices.count) ? filteredIndices[cPos] : nil
+        let rightItem: SlideItem? = rightRawIndex != nil ? allItems[rightRawIndex!] : nil
+
         Task {
+            // Left faces (Champion)
             var faces = self.detectedFacesForCurrentSlide
             if faces.isEmpty {
                 if let decoded = try? await self.pipeline.getImage(at: rawIndex) {
@@ -545,7 +593,15 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 }
             }
 
-            guard !faces.isEmpty else {
+            // Right faces (Challenger) if in 2-UP split compare mode
+            var rightFaces: [DetectedFace] = []
+            if let rIdx = rightRawIndex, let rItem = rightItem {
+                if let rDecoded = try? await self.pipeline.getImage(at: rIdx) {
+                    rightFaces = await FaceDetectionEngine.shared.detectFaces(in: rDecoded.image, cacheKey: rItem.url.path)
+                }
+            }
+
+            guard !faces.isEmpty || !rightFaces.isEmpty else {
                 self.slideView.hudView.showMessage("No faces detected in frame")
                 if !self.slideView.isZoomed {
                     let mouseInWindow = self.window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: self.slideView.bounds.midX, y: self.slideView.bounds.midY)
@@ -555,22 +611,48 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 return
             }
 
-            let faceIdx = self.currentFaceIndex % faces.count
-            let targetFace = faces[faceIdx]
+            let leftFace = !faces.isEmpty ? faces[self.currentFaceIndex % faces.count] : nil
+            let rightFace = !rightFaces.isEmpty ? rightFaces[self.currentFaceIndex % rightFaces.count] : nil
             self.currentFaceIndex += 1
 
-            let label = faces.count > 1
-                ? "👁️ Face \(faceIdx + 1)/\(faces.count) (Eye Focus)"
-                : "👁️ Eye Focus"
+            let label: String
+            if isSplit {
+                label = "👁️ Dual-Eye Focus [⇧Z]"
+            } else if faces.count > 1 {
+                label = "👁️ Face \(((self.currentFaceIndex - 1) % faces.count) + 1)/\(faces.count) (Eye Focus)"
+            } else {
+                label = "👁️ Eye Focus"
+            }
 
-            self.slideView.zoomToNormalizedPoint(targetFace.eyeCenter, label: label)
+            let leftPoint = leftFace?.eyeCenter ?? CGPoint(x: 0.5, y: 0.5)
+            let rightPoint = rightFace?.eyeCenter ?? leftPoint
 
-            if let fullRes = try? await self.pipeline.getFullResolutionImage(at: rawIndex) {
+            self.slideView.zoomToNormalizedPoint(
+                leftPoint,
+                rightNormPoint: rightPoint,
+                label: label
+            )
+
+            // Concurrently fetch full resolution sensor data for ultra-sharp 100% pixel peeping
+            async let leftFullTask = try? self.pipeline.getFullResolutionImage(at: rawIndex)
+            async let rightFullTask: DecodedImage? = {
+                if let rIdx = rightRawIndex {
+                    return try? await self.pipeline.getFullResolutionImage(at: rIdx)
+                }
+                return nil
+            }()
+
+            let (leftFull, rightFull) = await (leftFullTask, rightFullTask)
+            if let fullRes = leftFull {
                 let fullDims = CGSize(width: fullRes.originalWidth, height: fullRes.originalHeight)
+                let rightDims = rightFull != nil ? CGSize(width: rightFull!.originalWidth, height: rightFull!.originalHeight) : nil
                 self.slideView.zoomToNormalizedPoint(
-                    targetFace.eyeCenter,
+                    leftPoint,
+                    rightNormPoint: rightPoint,
                     fullResImage: fullRes.image,
-                    originalDimensions: fullDims
+                    originalDimensions: fullDims,
+                    rightFullResImage: rightFull?.image,
+                    rightOriginalDimensions: rightDims
                 )
             }
         }
@@ -682,6 +764,12 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     // MARK: - Camera Profiles & Picture Controls
 
     public func slideViewCycleCameraProfile() {
+        // Enforce unbiased neutral standard baseline in 2-UP compare
+        if slideView.isSplitMode {
+            slideView.hudView.showMessage("Color Profiles locked to Standard in 2-UP Compare")
+            return
+        }
+
         guard let rawIndex = currentRawIndex else { return }
         NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .default)
         let item = allItems[rawIndex]
@@ -721,6 +809,11 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         cullingData[item.id] = meta
 
         cullingUndoManager.record(.rating(itemID: item.id, rawIndex: rawIndex, previous: previous, new: newRating))
+
+        if slideView.isSplitMode {
+            let starText = newRating > 0 ? "★ \(newRating)" : "Cleared"
+            slideView.hudView.showMessage("Champion [ 1 ] Rating: \(starText)")
+        }
 
         applyCullingUpdate()
         saveMetadataAsync(meta: meta, for: item)
@@ -877,6 +970,10 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
         cullingUndoManager.record(.color(itemID: item.id, rawIndex: rawIndex, previous: previous, new: newColor))
 
+        if slideView.isSplitMode {
+            slideView.hudView.showMessage("Champion [ 1 ] Color: \(newColor.title)")
+        }
+
         applyCullingUpdate()
         saveMetadataAsync(meta: meta, for: item)
     }
@@ -901,7 +998,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
             await loadAndDisplayCurrent()
 
-            if autoAdvance {
+            if autoAdvance && !slideView.isSplitMode {
                 slideViewRequestNext()
             }
         }
@@ -1040,6 +1137,45 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         stopSlideshowIfRunning()
         guard let rawIndex = currentRawIndex, rawIndex >= 0 && rawIndex < allItems.count else { return }
         let item = allItems[rawIndex]
+
+        // In 2-UP split compare mode: rotate BOTH frames concurrently (essential for portrait bursts)
+        if slideView.isSplitMode {
+            let cPos = splitChallengerPos ?? (currentFilteredPos + 1)
+            let rightRaw: Int? = (cPos < filteredIndices.count) ? filteredIndices[cPos] : nil
+            let leftItem = item
+            let rightItem = (rightRaw != nil) ? allItems[rightRaw!] : nil
+
+            var actions: [CullingAction] = [
+                .rotate(itemID: leftItem.id, rawIndex: rawIndex, direction: direction)
+            ]
+            if let right = rightItem, let rRaw = rightRaw {
+                actions.append(.rotate(itemID: right.id, rawIndex: rRaw, direction: direction))
+            }
+            cullingUndoManager.record(.compound(actions))
+            slideView.hudView.showMessage("Rotating Both...")
+
+            Task.detached(priority: .userInitiated) { [weak self] in
+                do {
+                    _ = try LosslessRotationEngine.rotate(item: leftItem, direction: direction)
+                    await self?.pipeline.invalidateCache(at: rawIndex)
+                    if let right = rightItem, let rRaw = rightRaw {
+                        _ = try LosslessRotationEngine.rotate(item: right, direction: direction)
+                        await self?.pipeline.invalidateCache(at: rRaw)
+                    }
+                    Task { @MainActor [weak self] in
+                        guard let self = self else { return }
+                        let dirTitle = (direction == .clockwise) ? "Clockwise 90° [R]" : "Counter-Clockwise 90° [L]"
+                        self.slideView.hudView.showMessage("Rotated Both \(dirTitle)")
+                        await self.loadAndDisplayCurrent()
+                    }
+                } catch {
+                    Task { @MainActor [weak self] in
+                        self?.slideView.hudView.showMessage("Rotation failed: \(error.localizedDescription)")
+                    }
+                }
+            }
+            return
+        }
 
         cullingUndoManager.record(.rotate(itemID: item.id, rawIndex: rawIndex, direction: direction))
         slideView.hudView.showMessage("Rotating...")
@@ -1188,8 +1324,15 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
             for act in actions.reversed() {
                 applyUndoSingleAction(act)
             }
-            slideView.hudView.showMessage("↩ Undone Match [⌘Z]")
-            Task { await loadAndDisplayCurrent() }
+            slideView.hudView.showMessage("↩ Undone [⌘Z]")
+            Task {
+                for act in actions {
+                    if case .rotate(_, let rawIndex, _) = act {
+                        await pipeline.invalidateCache(at: rawIndex)
+                    }
+                }
+                await loadAndDisplayCurrent()
+            }
             return
         case .rating(let itemID, _, let previous, _):
             guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
@@ -1282,8 +1425,15 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
             for act in actions {
                 applyRedoSingleAction(act)
             }
-            slideView.hudView.showMessage("↪ Redone Match [⇧⌘Z]")
-            Task { await loadAndDisplayCurrent() }
+            slideView.hudView.showMessage("↪ Redone [⇧⌘Z]")
+            Task {
+                for act in actions {
+                    if case .rotate(_, let rawIndex, _) = act {
+                        await pipeline.invalidateCache(at: rawIndex)
+                    }
+                }
+                await loadAndDisplayCurrent()
+            }
             return
         case .rating(let itemID, _, _, let new):
             guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
@@ -1411,7 +1561,12 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
             meta.cameraProfile = previous
             cullingData[itemID] = meta
             saveMetadataAsync(meta: meta, for: allItems[idx])
-        case .rotate, .delete:
+        case .rotate(let itemID, _, let direction):
+            guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
+            let item = allItems[idx]
+            let reverseDir: RotationDirection = (direction == .clockwise) ? .counterClockwise : .clockwise
+            _ = try? LosslessRotationEngine.rotate(item: item, direction: reverseDir)
+        case .delete:
             break
         }
     }
@@ -1444,7 +1599,11 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
             meta.cameraProfile = new
             cullingData[itemID] = meta
             saveMetadataAsync(meta: meta, for: allItems[idx])
-        case .rotate, .delete:
+        case .rotate(let itemID, _, let direction):
+            guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
+            let item = allItems[idx]
+            _ = try? LosslessRotationEngine.rotate(item: item, direction: direction)
+        case .delete:
             break
         }
     }

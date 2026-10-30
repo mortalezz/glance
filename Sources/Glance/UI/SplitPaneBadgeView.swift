@@ -5,12 +5,23 @@ public struct SplitPaneInfo: Sendable {
     public let slot: Int // 1 or 2
     public let filename: String
     public let pick: PickStatus
+    public let rating: Int
+    public let color: ColorLabel
     public let isChampion: Bool
 
-    public init(slot: Int, filename: String, pick: PickStatus, isChampion: Bool = false) {
+    public init(
+        slot: Int,
+        filename: String,
+        pick: PickStatus,
+        rating: Int = 0,
+        color: ColorLabel = .none,
+        isChampion: Bool = false
+    ) {
         self.slot = slot
         self.filename = filename
         self.pick = pick
+        self.rating = rating
+        self.color = color
         self.isChampion = isChampion
     }
 }
@@ -160,24 +171,26 @@ public final class SplitPaneBadgeView: NSView {
         filenameLabel.stringValue = info.filename
 
         let isDark = ThemeManager.shared.isDark
+        let starSuffix = info.rating > 0 ? " ★\(info.rating)" : ""
 
         switch info.pick {
         case .pick:
-            statusLabel.stringValue = info.isChampion ? "👑 CHAMPION" : "✓ PICK"
+            statusLabel.stringValue = (info.isChampion ? "👑 CHAMPION" : "✓ PICK") + starSuffix
             statusLabel.textColor = .white
             statusPill.layer?.backgroundColor = NSColor(srgbRed: 0.12, green: 0.65, blue: 0.35, alpha: 0.90).cgColor
             statusPill.layer?.borderColor = NSColor(srgbRed: 0.20, green: 0.85, blue: 0.45, alpha: 0.60).cgColor
             statusPill.isHidden = false
 
         case .reject:
-            statusLabel.stringValue = "✕ REJECT"
+            statusLabel.stringValue = "✕ REJECT" + starSuffix
             statusLabel.textColor = .white
             statusPill.layer?.backgroundColor = NSColor(srgbRed: 0.82, green: 0.22, blue: 0.22, alpha: 0.85).cgColor
             statusPill.layer?.borderColor = NSColor(srgbRed: 0.95, green: 0.35, blue: 0.35, alpha: 0.50).cgColor
             statusPill.isHidden = false
 
         case .unflagged:
-            statusLabel.stringValue = "PRESS \(info.slot)"
+            let starPrefix = info.rating > 0 ? "★\(info.rating) • " : ""
+            statusLabel.stringValue = starPrefix + "PRESS \(info.slot)"
             statusLabel.textColor = isDark ? NSColor.secondaryLabelColor : NSColor.tertiaryLabelColor
             statusPill.layer?.backgroundColor = isDark
                 ? NSColor(white: 0.20, alpha: 0.40).cgColor

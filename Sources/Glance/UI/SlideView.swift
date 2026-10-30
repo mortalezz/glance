@@ -84,8 +84,10 @@ public final class SlideView: NSView {
 
     // Zoom & Pan state
     private var zoomPanOffset: CGPoint = .zero
+    private var rightZoomPanOffset: CGPoint = .zero
     private var dragStartMouse: CGPoint = .zero
     private var dragStartOffset: CGPoint = .zero
+    private var dragStartRightOffset: CGPoint = .zero
     private var isDragging: Bool = false
     private var currentImageSize: CGSize = .zero
     private var rightImageSize: CGSize = .zero
@@ -304,19 +306,19 @@ public final class SlideView: NSView {
                 let maxPanX2 = max(0, (nativeW2 - halfWidth) / 2)
                 let maxPanY2 = max(0, (nativeH2 - bounds.height) / 2)
 
-                let maxPanX = max(maxPanX1, maxPanX2)
-                let maxPanY = max(maxPanY1, maxPanY2)
+                zoomPanOffset.x = min(maxPanX1, max(-maxPanX1, zoomPanOffset.x))
+                zoomPanOffset.y = min(maxPanY1, max(-maxPanY1, zoomPanOffset.y))
 
-                zoomPanOffset.x = min(maxPanX, max(-maxPanX, zoomPanOffset.x))
-                zoomPanOffset.y = min(maxPanY, max(-maxPanY, zoomPanOffset.y))
+                rightZoomPanOffset.x = min(maxPanX2, max(-maxPanX2, rightZoomPanOffset.x))
+                rightZoomPanOffset.y = min(maxPanY2, max(-maxPanY2, rightZoomPanOffset.y))
 
                 leftImageLayer.position = CGPoint(
                     x: (halfWidth / 2) + zoomPanOffset.x,
                     y: (bounds.height / 2) + zoomPanOffset.y
                 )
                 rightImageLayer.position = CGPoint(
-                    x: (halfWidth / 2) + zoomPanOffset.x,
-                    y: (bounds.height / 2) + zoomPanOffset.y
+                    x: (halfWidth / 2) + rightZoomPanOffset.x,
+                    y: (bounds.height / 2) + rightZoomPanOffset.y
                 )
             } else {
                 leftImageLayer.contentsGravity = .resizeAspect
@@ -328,6 +330,7 @@ public final class SlideView: NSView {
                 rightImageLayer.position = CGPoint(x: rightFrame.width / 2, y: rightFrame.height / 2)
 
                 zoomPanOffset = .zero
+                rightZoomPanOffset = .zero
             }
         } else {
             leftContainerLayer.frame = bounds
@@ -358,6 +361,7 @@ public final class SlideView: NSView {
                 leftImageLayer.bounds = bounds
                 leftImageLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
                 zoomPanOffset = .zero
+                rightZoomPanOffset = .zero
             }
         }
 
@@ -493,6 +497,7 @@ public final class SlideView: NSView {
         anim.autoreverses = true
         anim.repeatCount = .infinity
         anim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        anim.beginTime = CACurrentMediaTime()
 
         leftClippingLayer.add(anim, forKey: "blinkyPulse")
         rightClippingLayer.add(anim, forKey: "blinkyPulse")
@@ -567,6 +572,7 @@ public final class SlideView: NSView {
                     x: centerOffset.x * fitRatioX,
                     y: centerOffset.y * fitRatioY
                 )
+                rightZoomPanOffset = zoomPanOffset
             } else {
                 let centerOffset = CGPoint(
                     x: bounds.midX - mousePt.x,
@@ -582,9 +588,11 @@ public final class SlideView: NSView {
                     x: centerOffset.x * fitRatioX,
                     y: centerOffset.y * fitRatioY
                 )
+                rightZoomPanOffset = zoomPanOffset
             }
         } else {
             zoomPanOffset = .zero
+            rightZoomPanOffset = .zero
         }
 
         updateLayerLayout(animated: true)
@@ -593,8 +601,11 @@ public final class SlideView: NSView {
     /// Zooms into 100% 1:1 pixel peeping centered precisely on a normalized image coordinate (e.g. detected subject eye)
     public func zoomToNormalizedPoint(
         _ normPoint: CGPoint,
+        rightNormPoint: CGPoint? = nil,
         fullResImage: CGImage? = nil,
         originalDimensions: CGSize? = nil,
+        rightFullResImage: CGImage? = nil,
+        rightOriginalDimensions: CGSize? = nil,
         label: String? = nil
     ) {
         if let dims = originalDimensions {
@@ -603,6 +614,12 @@ public final class SlideView: NSView {
         if let fullImg = fullResImage {
             leftImageLayer.contents = fullImg
         }
+        if let rDims = rightOriginalDimensions {
+            rightImageSize = rDims
+        }
+        if let rFullImg = rightFullResImage {
+            rightImageLayer.contents = rFullImg
+        }
 
         isZoomed = true
         hudView.updateZoomState(true)
@@ -610,11 +627,20 @@ public final class SlideView: NSView {
         let scale = window?.backingScaleFactor ?? 2.0
         if isSplitMode {
             let halfWidth = (bounds.width - 2) / 2
-            let nativeW = currentImageSize.width > 0 ? (currentImageSize.width / scale) : halfWidth
-            let nativeH = currentImageSize.height > 0 ? (currentImageSize.height / scale) : bounds.height
+            let nativeW1 = currentImageSize.width > 0 ? (currentImageSize.width / scale) : halfWidth
+            let nativeH1 = currentImageSize.height > 0 ? (currentImageSize.height / scale) : bounds.height
             zoomPanOffset = CGPoint(
-                x: (0.5 - normPoint.x) * nativeW,
-                y: (0.5 - normPoint.y) * nativeH
+                x: (0.5 - normPoint.x) * nativeW1,
+                y: (0.5 - normPoint.y) * nativeH1
+            )
+
+            let rPt = rightNormPoint ?? normPoint
+            let rSize = rightImageSize.width > 0 ? rightImageSize : currentImageSize
+            let nativeW2 = rSize.width > 0 ? (rSize.width / scale) : halfWidth
+            let nativeH2 = rSize.height > 0 ? (rSize.height / scale) : bounds.height
+            rightZoomPanOffset = CGPoint(
+                x: (0.5 - rPt.x) * nativeW2,
+                y: (0.5 - rPt.y) * nativeH2
             )
         } else {
             let nativeW = currentImageSize.width > 0 ? (currentImageSize.width / scale) : bounds.width
@@ -623,6 +649,7 @@ public final class SlideView: NSView {
                 x: (0.5 - normPoint.x) * nativeW,
                 y: (0.5 - normPoint.y) * nativeH
             )
+            rightZoomPanOffset = zoomPanOffset
         }
 
         updateLayerLayout(animated: true)
@@ -661,6 +688,7 @@ public final class SlideView: NSView {
             isDragging = true
             dragStartMouse = mousePt
             dragStartOffset = zoomPanOffset
+            dragStartRightOffset = rightZoomPanOffset
         }
     }
 
@@ -673,6 +701,10 @@ public final class SlideView: NSView {
         zoomPanOffset = CGPoint(
             x: dragStartOffset.x + deltaX,
             y: dragStartOffset.y + deltaY
+        )
+        rightZoomPanOffset = CGPoint(
+            x: dragStartRightOffset.x + deltaX,
+            y: dragStartRightOffset.y + deltaY
         )
 
         updateLayerLayout(animated: false)
@@ -700,6 +732,8 @@ public final class SlideView: NSView {
         // Two-finger trackpad panning when zoomed in
         zoomPanOffset.x += event.scrollingDeltaX
         zoomPanOffset.y -= event.scrollingDeltaY
+        rightZoomPanOffset.x += event.scrollingDeltaX
+        rightZoomPanOffset.y -= event.scrollingDeltaY
         updateLayerLayout(animated: false)
     }
 
@@ -854,6 +888,108 @@ public final class SlideView: NSView {
             }
         }
 
+        // Numbers 0..5 (Ratings) & 6..9 (Colors) - Layout independent
+        if !isCmd {
+            if chars == "0" || event.keyCode == 29 {
+                delegate?.slideViewSetRating(0)
+                return
+            }
+            if !isSplitMode && (chars == "1" || event.keyCode == 18) {
+                delegate?.slideViewSetRating(1)
+                return
+            }
+            if !isSplitMode && (chars == "2" || event.keyCode == 19) {
+                delegate?.slideViewSetRating(2)
+                return
+            }
+            if chars == "3" || event.keyCode == 20 {
+                delegate?.slideViewSetRating(3)
+                return
+            }
+            if chars == "4" || event.keyCode == 21 {
+                delegate?.slideViewSetRating(4)
+                return
+            }
+            if chars == "5" || event.keyCode == 23 {
+                delegate?.slideViewSetRating(5)
+                return
+            }
+            if chars == "6" || event.keyCode == 22 {
+                delegate?.slideViewSetColor(.red)
+                return
+            }
+            if chars == "7" || event.keyCode == 26 {
+                delegate?.slideViewSetColor(.yellow)
+                return
+            }
+            if chars == "8" || event.keyCode == 28 {
+                delegate?.slideViewSetColor(.green)
+                return
+            }
+            if chars == "9" || event.keyCode == 25 {
+                delegate?.slideViewSetColor(.blue)
+                return
+            }
+        }
+
+        // Layout-Independent Culling Hotkeys: P, X, U
+        if !isCmd {
+            if lower == "p" || event.keyCode == 35 {
+                delegate?.slideViewSetPick(.pick)
+                return
+            }
+            if lower == "x" || event.keyCode == 7 {
+                delegate?.slideViewSetPick(.reject)
+                return
+            }
+            if lower == "u" || event.keyCode == 32 {
+                delegate?.slideViewSetPick(.unflagged)
+                return
+            }
+        }
+
+        // Auto-advance toggle: 'C'
+        if !isCmd && (lower == "c" || event.keyCode == 8) {
+            delegate?.slideViewToggleAutoAdvance()
+            return
+        }
+
+        // Split Compare Toggle: 'S' or Tab
+        if !isCmd && (lower == "s" || event.keyCode == 1 || event.keyCode == 48) {
+            delegate?.slideViewToggleSplitCompare()
+            return
+        }
+
+        // Cycle Filter: '\'
+        if chars == "\\" || event.keyCode == 42 {
+            delegate?.slideViewCycleFilter()
+            return
+        }
+
+        // Live RGB Histogram: 'H'
+        if !isCmd && (lower == "h" || event.keyCode == 4) {
+            delegate?.slideViewToggleHistogram()
+            return
+        }
+
+        // Exposure Clipping Warnings: 'O'
+        if !isCmd && (lower == "o" || event.keyCode == 31) {
+            delegate?.slideViewToggleClipping()
+            return
+        }
+
+        // Fullscreen Toggle: 'F' (when Shift is not held)
+        if !isShift && !isCmd && (lower == "f" || event.keyCode == 3) {
+            delegate?.slideViewToggleFullScreen()
+            return
+        }
+
+        // EXIF HUD: 'I'
+        if !isCmd && (lower == "i" || event.keyCode == 34) {
+            delegate?.slideViewToggleExif()
+            return
+        }
+
         switch event.keyCode {
         // Space, Right Arrow, Down Arrow, Page Down, 'N'
         case 49, 124, 125, 121, 45:
@@ -875,8 +1011,6 @@ public final class SlideView: NSView {
             if isZoomed { setZoom(false) }
             delegate?.slideViewRequestLast()
 
-        // 'Z' key handled in layout-independent section above
-
         // Delete / Backspace
         case 51, 117:
             if isZoomed { setZoom(false) }
@@ -885,65 +1019,6 @@ public final class SlideView: NSView {
             } else {
                 delegate?.slideViewRequestDelete()
             }
-
-        // --- CULLING HOTKEYS ---
-        case 35: // 'P'
-            delegate?.slideViewSetPick(.pick)
-        case 7:  // 'X'
-            delegate?.slideViewSetPick(.reject)
-        case 32: // 'U'
-            delegate?.slideViewSetPick(.unflagged)
-        case 8:  // 'C'
-            delegate?.slideViewToggleAutoAdvance()
-        case 1, 48: // 'S' or Tab
-            delegate?.slideViewToggleSplitCompare()
-        case 42: // '\'
-            delegate?.slideViewCycleFilter()
-
-        // --- PHASE 3: HISTOGRAM & CLIPPING HOTKEYS ---
-        case 4: // 'H' -> Toggle Live RGB Histogram
-            delegate?.slideViewToggleHistogram()
-        case 31: // 'O' -> Toggle Exposure Clipping Warnings ("Blinkies")
-            delegate?.slideViewToggleClipping()
-
-        // Phase 4 hotkeys handled above via layout-independent matcher
-
-        // Numbers 0..5 (Stars) & 6..9 (Colors)
-        case 29:
-            delegate?.slideViewSetRating(0)
-        case 18:
-            if isSplitMode {
-                delegate?.slideViewPickWinner(slot: 1)
-            } else {
-                delegate?.slideViewSetRating(1)
-            }
-        case 19:
-            if isSplitMode {
-                delegate?.slideViewPickWinner(slot: 2)
-            } else {
-                delegate?.slideViewSetRating(2)
-            }
-        case 20:
-            delegate?.slideViewSetRating(3)
-        case 21:
-            delegate?.slideViewSetRating(4)
-        case 23:
-            delegate?.slideViewSetRating(5)
-
-        case 22: // 6 -> Red
-            delegate?.slideViewSetColor(.red)
-        case 26: // 7 -> Yellow
-            delegate?.slideViewSetColor(.yellow)
-        case 28: // 8 -> Green
-            delegate?.slideViewSetColor(.green)
-        case 25: // 9 -> Blue
-            delegate?.slideViewSetColor(.blue)
-
-        case 3: // 'F'
-            delegate?.slideViewToggleFullScreen()
-        case 34: // 'I'
-            delegate?.slideViewToggleExif()
-        // Note: Esc and 'Q' are handled unequivocally at the top of keyDown
 
         default:
             super.keyDown(with: event)
