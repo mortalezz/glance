@@ -588,6 +588,12 @@ public final class SlideView: NSView {
         let lower = chars.lowercased()
         let isShift = event.modifierFlags.contains(.shift)
 
+        // Esc (KeyCode 53) or 'Q' (KeyCode 12): Unequivocally quit Glance to reveal Finder
+        if event.keyCode == 53 || lower == "q" || event.keyCode == 12 {
+            delegate?.slideViewClose()
+            return
+        }
+
         if quickHelpView.alphaValue > 0.0 {
             // Space key toggles between compact and expanded cheatsheet
             if event.keyCode == 49 {
@@ -596,11 +602,6 @@ public final class SlideView: NSView {
             }
             // "?" toggles cheatsheet
             if chars == "?" || (event.keyCode == 44 && isShift) {
-                quickHelpView.dismiss()
-                return
-            }
-            // Esc or Q closes cheatsheet
-            if event.keyCode == 53 || lower == "q" {
                 quickHelpView.dismiss()
                 return
             }
@@ -744,15 +745,7 @@ public final class SlideView: NSView {
             delegate?.slideViewToggleFullScreen()
         case 34: // 'I'
             delegate?.slideViewToggleExif()
-        case 53, 12: // Esc or 'Q'
-            delegate?.slideViewStopSlideshow()
-            if isZoomed {
-                setZoom(false)
-            } else if quickHelpView.alphaValue > 0.0 {
-                quickHelpView.dismiss()
-            } else {
-                delegate?.slideViewClose()
-            }
+        // Note: Esc and 'Q' are handled unequivocally at the top of keyDown
 
         default:
             super.keyDown(with: event)

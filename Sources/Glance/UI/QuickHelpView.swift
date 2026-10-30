@@ -129,7 +129,7 @@ public final class QuickHelpView: NSView {
             (("R / L", "Rotate 90°"), ("\\", "Cycle filter")),
             (("⌫", "Trash photo"), ("⇧ ⌫", "Purge rejects")),
             (("F", "Full screen"), ("Space", "Next / Expand")),
-            (("?", "Cheatsheet"), ("Q / Esc", "Quit / Close"))
+            (("?", "Cheatsheet"), ("Esc / Q", "Quit to Finder"))
         ]
 
         for pair in compactPairs {
@@ -232,12 +232,12 @@ public final class QuickHelpView: NSView {
             (
                 ("C", "Auto-Advance", "Speed culling: automatically advances after rating or flag."),
                 ("\\", "Cycle Filters", "All ➔ Hide Rejects ➔ Picks Only ➔ Rejects Only ➔ Stars."),
-                ("⌫", "Trash Photo", "Moves active shot (and RAW + XMP pair) to macOS Trash.")
+                ("⌫ / ⇧⌫", "Trash / Purge", "⌫ trashes active shot. ⇧⌫ batch-purges all rejected photos.")
             ),
             (
                 ("Space", "Traverse / Expand", "Next photo. In cheatsheet, toggles compact and detailed views."),
                 ("F", "Full Screen", "Toggles edge-to-edge full screen presentation mode."),
-                ("⇧ ⌫", "Purge Rejects", "Batch-moves all rejected (X) photos to macOS Trash in one go.")
+                ("Esc / Q", "Quit to Finder", "Unequivocally quits Glance to reveal Finder immediately.")
             )
         ]
 

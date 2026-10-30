@@ -601,11 +601,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
     public func slideViewClose() {
         stopSlideshowTimer()
-        if window?.styleMask.contains(.fullScreen) == true {
-            window?.toggleFullScreen(nil)
-        } else {
-            NSApp.terminate(nil)
-        }
+        NSApp.terminate(nil)
     }
 
     public func slideViewDidDrop(url: URL) {
