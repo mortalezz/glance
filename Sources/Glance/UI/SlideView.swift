@@ -126,6 +126,7 @@ public final class SlideView: NSView {
 
         // Left Exposure Clipping Overlay Layer ("Blinkies")
         leftClippingLayer.backgroundColor = NSColor.clear.cgColor
+        leftClippingLayer.contentsGravity = .resizeAspect
         leftClippingLayer.actions = [
             "contents": NSNull(),
             "bounds": NSNull(),
@@ -138,6 +139,7 @@ public final class SlideView: NSView {
 
         // Left Focus Peaking Overlay Layer (EVF Neon Green)
         leftPeakingLayer.backgroundColor = NSColor.clear.cgColor
+        leftPeakingLayer.contentsGravity = .resizeAspect
         leftPeakingLayer.actions = [
             "contents": NSNull(),
             "bounds": NSNull(),
@@ -167,6 +169,7 @@ public final class SlideView: NSView {
 
         // Right Exposure Clipping Overlay Layer
         rightClippingLayer.backgroundColor = NSColor.clear.cgColor
+        rightClippingLayer.contentsGravity = .resizeAspect
         rightClippingLayer.actions = [
             "contents": NSNull(),
             "bounds": NSNull(),
@@ -179,6 +182,7 @@ public final class SlideView: NSView {
 
         // Right Focus Peaking Overlay Layer
         rightPeakingLayer.backgroundColor = NSColor.clear.cgColor
+        rightPeakingLayer.contentsGravity = .resizeAspect
         rightPeakingLayer.actions = [
             "contents": NSNull(),
             "bounds": NSNull(),
@@ -344,6 +348,11 @@ public final class SlideView: NSView {
         rightClippingLayer.frame = rightImageLayer.bounds
         leftPeakingLayer.frame = leftImageLayer.bounds
         rightPeakingLayer.frame = rightImageLayer.bounds
+
+        leftClippingLayer.contentsGravity = leftImageLayer.contentsGravity
+        rightClippingLayer.contentsGravity = rightImageLayer.contentsGravity
+        leftPeakingLayer.contentsGravity = leftImageLayer.contentsGravity
+        rightPeakingLayer.contentsGravity = rightImageLayer.contentsGravity
 
         CATransaction.commit()
     }
