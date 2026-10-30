@@ -16,6 +16,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         setupMainMenu()
+        setupAppearanceObserver()
 
         if windowController == nil {
             windowController = FullScreenWindowController()
@@ -84,6 +85,30 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 // If user cancelled and no window is open, exit
                 NSApp.terminate(nil)
             }
+        }
+    }
+
+    // MARK: - Liquid Glass & Appearance-Adaptive Dock Icon
+
+    private func setupAppearanceObserver() {
+        updateDockIconForAppearance()
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("AppleInterfaceThemeChangedNotification"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updateDockIconForAppearance()
+            }
+        }
+    }
+
+    private func updateDockIconForAppearance() {
+        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let iconName = isDark ? "AppIcon-Dark" : "AppIcon"
+        if let iconURL = Bundle.main.url(forResource: iconName, withExtension: "icns"),
+           let iconImage = NSImage(contentsOf: iconURL) {
+            NSApplication.shared.applicationIconImage = iconImage
         }
     }
 
