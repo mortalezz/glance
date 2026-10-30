@@ -119,9 +119,16 @@ Press **`?`** (`Shift + /`) at any time inside Glance to toggle the interactive 
 
 ### Option 1: Install via Homebrew 🍺 (Recommended)
 ```bash
-brew install --cask --no-quarantine mortalezz/tap/glance
+brew install --cask mortalezz/tap/glance
 ```
-> **Note:** Because Glance is distributed outside the Mac App Store and ad-hoc signed, passing `--no-quarantine` prevents macOS Gatekeeper from displaying the unverified developer warning. If poured without it, run `xattr -cr /Applications/Glance.app` once.
+
+*Or tap the repository first:*
+```bash
+brew tap mortalezz/tap
+brew install --cask glance
+```
+
+> **Note:** The cask automatically strips the macOS Gatekeeper quarantine attribute upon pouring into `/Applications`. If you previously installed Glance, run `brew reinstall --cask glance` to apply the updated cask.
 
 *Or tap the repository first:*
 ```bash
