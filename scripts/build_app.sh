@@ -108,5 +108,14 @@ xattr -cr "${APP_DIR}" 2>/dev/null || true
 echo "Ad-hoc signing ${APP_DIR}..."
 codesign --force --deep --options runtime --entitlements scripts/entitlements.plist --sign - "${APP_DIR}"
 
+# Optional installation to /Applications
+if [ "$1" = "--install" ] || [ "$INSTALL" = "1" ]; then
+    echo "Installing to /Applications/${APP_DIR}..."
+    killall "${APP_NAME}" 2>/dev/null || true
+    rm -rf "/Applications/${APP_DIR}"
+    cp -R "${APP_DIR}" /Applications/
+    echo "Installed to /Applications/${APP_DIR}"
+fi
+
 echo "Successfully built and signed ${APP_DIR}!"
 echo "Run with: open ${APP_DIR} /path/to/folder"
