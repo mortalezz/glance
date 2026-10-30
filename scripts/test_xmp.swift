@@ -637,6 +637,13 @@ struct TestRunner {
         do {
             print("▶ Testing CameraProfileEngine Picture Control extraction & color profile simulation...")
 
+            // Test extraction on real Fuji RAF file if present
+            let sampleRaf = URL(fileURLWithPath: "/Users/mortalezz/Desktop/Fuji/0955097116.raf")
+            if FileManager.default.fileExists(atPath: sampleRaf.path) {
+                let extracted = CameraProfileEngine.extractCameraProfile(from: sampleRaf)
+                assertEqual(extracted, "Velvia / Vivid", "Fujifilm X100V RAF should extract Velvia / Vivid Film Simulation")
+            }
+
             // Test extraction on real Nikon NEF file if present
             let sampleNef = URL(fileURLWithPath: "/Users/mortalezz/Pictures/fall colors/_DSC3088.NEF")
             if FileManager.default.fileExists(atPath: sampleNef.path) {

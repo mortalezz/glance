@@ -243,10 +243,13 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 exportProgressText: exportProgressText
             )
 
+            // Detect camera brand for tailored profile color science and naming
+            let cameraBrand = CameraProfileEngine.detectBrand(for: item, exif: decoded.exif)
+
             // Apply Camera Profile / Picture Control if active
             let activeProfile = meta.cameraProfile ?? .asShot
             let renderedImage = (activeProfile != .asShot)
-                ? (CameraProfileEngine.apply(profile: activeProfile, to: decoded.image) ?? decoded.image)
+                ? (CameraProfileEngine.apply(profile: activeProfile, brand: cameraBrand, to: decoded.image) ?? decoded.image)
                 : decoded.image
 
             let nativeSize = CGSize(width: decoded.originalWidth, height: decoded.originalHeight)
@@ -663,8 +666,10 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         saveMetadataAsync(meta: meta, for: item)
 
         Task {
+            let brand = CameraProfileEngine.detectBrand(for: item, exif: nil)
+            let brandName = nextProfile.displayName(for: brand)
             await loadAndDisplayCurrent()
-            slideView.hudView.showMessage("Profile: \(nextProfile.displayName) [V]")
+            slideView.hudView.showMessage("Profile: \(brandName) [V]")
         }
     }
 
@@ -1055,7 +1060,8 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
             cullingData[itemID] = meta
             saveMetadataAsync(meta: meta, for: item)
             jumpToRawIndex(idx)
-            let profName = previous?.displayName ?? "As Shot"
+            let brand = CameraProfileEngine.detectBrand(for: item, exif: nil)
+            let profName = previous?.displayName(for: brand) ?? "As Shot"
             slideView.hudView.showMessage("↩ Undone Profile: \(profName) [⌘Z]")
 
         case .rotate(let itemID, _, let direction):
@@ -1141,7 +1147,8 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
             cullingData[itemID] = meta
             saveMetadataAsync(meta: meta, for: item)
             jumpToRawIndex(idx)
-            let profName = new?.displayName ?? "As Shot"
+            let brand = CameraProfileEngine.detectBrand(for: item, exif: nil)
+            let profName = new?.displayName(for: brand) ?? "As Shot"
             slideView.hudView.showMessage("↪ Redone Profile: \(profName) [⇧⌘Z]")
 
         case .rotate(let itemID, _, let direction):

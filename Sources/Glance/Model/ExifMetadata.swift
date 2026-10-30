@@ -94,8 +94,13 @@ public struct ExifMetadata: Sendable {
         // 9. Date Time Original
         self.dateTimeOriginal = exif?[kCGImagePropertyExifDateTimeOriginal] as? String
 
-        // 10. Picture Control / Profile
-        if let nikon = properties[kCGImagePropertyMakerNikonDictionary] as? [CFString: Any],
+        // 10. Picture Control / Film Simulation / Profile
+        if let picStyle = properties["{PictureStyle}" as CFString] as? [CFString: Any],
+           let sim = picStyle["FilmSimulation" as CFString] as? [Any],
+           let firstStr = sim.first as? String {
+            // Fujifilm FilmSimulation: e.g. ["F2/Fujichrome", 512, 512] -> "Fujichrome (Velvia)"
+            self.pictureControl = CameraProfileEngine.formatFujiSimulationName(firstStr)
+        } else if let nikon = properties[kCGImagePropertyMakerNikonDictionary] as? [CFString: Any],
            let picCtrl = nikon["PictureControl" as CFString] as? String {
             self.pictureControl = picCtrl.trimmingCharacters(in: .whitespacesAndNewlines)
         } else {
