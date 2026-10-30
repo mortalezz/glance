@@ -128,6 +128,12 @@ brew tap mortalezz/tap
 brew install --cask glance
 ```
 
+**To update to future releases:**
+```bash
+brew update
+brew upgrade --cask glance
+```
+
 > **First Launch:** On first launch, if macOS displays an *"unverified developer"* notice (as Glance is distributed outside the Mac App Store), simply **Right-Click (Control-Click) `Glance.app` in `/Applications` ➔ Open** once, or run:
 > ```bash
 > xattr -cr /Applications/Glance.app
