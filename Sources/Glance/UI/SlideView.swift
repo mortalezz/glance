@@ -21,6 +21,7 @@ public protocol SlideViewDelegate: AnyObject {
     func slideViewToggleAutoAdvance()
     func slideViewCycleFilter()
     func slideViewToggleSplitCompare()
+    func slideViewPickWinner(slot: Int)
 
     // 100% Zoom Action
     func slideViewRequestZoomToggle(mouseLocation: CGPoint)
@@ -73,6 +74,8 @@ public final class SlideView: NSView {
     public let histogramHud = HistogramHudView()
     public let exifHud = ExifHudView()
     public let quickHelpView = QuickHelpView()
+    public let leftSplitBadge = SplitPaneBadgeView(slot: 1)
+    public let rightSplitBadge = SplitPaneBadgeView(slot: 2)
 
     public private(set) var isSplitMode: Bool = false
     public private(set) var isZoomed: Bool = false
@@ -211,6 +214,11 @@ public final class SlideView: NSView {
         quickHelpView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(quickHelpView)
 
+        addSubview(leftSplitBadge)
+        addSubview(rightSplitBadge)
+        leftSplitBadge.isHidden = true
+        rightSplitBadge.isHidden = true
+
         NSLayoutConstraint.activate([
             hudView.centerXAnchor.constraint(equalTo: centerXAnchor),
             hudView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -28),
@@ -270,6 +278,12 @@ public final class SlideView: NSView {
             rightContainerLayer.frame = rightFrame
             rightContainerLayer.isHidden = false
 
+            let badgeW: CGFloat = min(260, max(180, halfWidth - 48))
+            leftSplitBadge.frame = CGRect(x: 20, y: bounds.height - 54, width: badgeW, height: 34)
+            rightSplitBadge.frame = CGRect(x: halfWidth + 22, y: bounds.height - 54, width: badgeW, height: 34)
+            leftSplitBadge.isHidden = false
+            rightSplitBadge.isHidden = false
+
             if isZoomed {
                 // Synchronous 100% Pixel Peeping across BOTH split panes!
                 let nativeW1 = (currentImageSize.width > 0 ? currentImageSize.width : halfWidth * scale) / scale
@@ -319,6 +333,8 @@ public final class SlideView: NSView {
             leftContainerLayer.frame = bounds
             rightContainerLayer.frame = .zero
             rightContainerLayer.isHidden = true
+            leftSplitBadge.isHidden = true
+            rightSplitBadge.isHidden = true
 
             if isZoomed && currentImageSize.width > 0 && currentImageSize.height > 0 {
                 // Single 100% 1:1 Pixel Peep mode
@@ -363,7 +379,9 @@ public final class SlideView: NSView {
         nextImage: CGImage? = nil,
         info: HudInfo? = nil,
         nativeSize: CGSize? = nil,
-        rightNativeSize: CGSize? = nil
+        rightNativeSize: CGSize? = nil,
+        leftSplitInfo: SplitPaneInfo? = nil,
+        rightSplitInfo: SplitPaneInfo? = nil
     ) {
         if let size = nativeSize {
             currentImageSize = size
@@ -396,10 +414,15 @@ public final class SlideView: NSView {
             hudView.update(with: info)
             exifHud.update(with: info.exif, dimensions: info.dimensions, fileSize: info.fileSize)
         }
+
+        leftSplitBadge.update(with: leftSplitInfo)
+        rightSplitBadge.update(with: rightSplitInfo)
     }
 
     public func setSplitMode(_ enabled: Bool) {
         isSplitMode = enabled
+        leftSplitBadge.isHidden = !enabled
+        rightSplitBadge.isHidden = !enabled
         needsLayout = true
     }
 
@@ -775,6 +798,8 @@ public final class SlideView: NSView {
         if lower == "t" || lower == "d" || event.keyCode == 17 || event.keyCode == 2 {
             ThemeManager.shared.toggleTheme()
             hudView.pulse()
+            leftSplitBadge.updateTheme()
+            rightSplitBadge.updateTheme()
             return
         }
 
@@ -813,6 +838,20 @@ public final class SlideView: NSView {
         if chars == "?" || (event.keyCode == 44 && isShift) {
             toggleHelp()
             return
+        }
+
+        // 2-UP Split Compare King-of-the-Hill Pick Elimination:
+        // '1' picks left candidate & rejects right candidate
+        // '2' picks right candidate & rejects left candidate
+        if isSplitMode && !isCmd {
+            if chars == "1" || event.keyCode == 18 {
+                delegate?.slideViewPickWinner(slot: 1)
+                return
+            }
+            if chars == "2" || event.keyCode == 19 {
+                delegate?.slideViewPickWinner(slot: 2)
+                return
+            }
         }
 
         switch event.keyCode {
@@ -873,9 +912,17 @@ public final class SlideView: NSView {
         case 29:
             delegate?.slideViewSetRating(0)
         case 18:
-            delegate?.slideViewSetRating(1)
+            if isSplitMode {
+                delegate?.slideViewPickWinner(slot: 1)
+            } else {
+                delegate?.slideViewSetRating(1)
+            }
         case 19:
-            delegate?.slideViewSetRating(2)
+            if isSplitMode {
+                delegate?.slideViewPickWinner(slot: 2)
+            } else {
+                delegate?.slideViewSetRating(2)
+            }
         case 20:
             delegate?.slideViewSetRating(3)
         case 21:

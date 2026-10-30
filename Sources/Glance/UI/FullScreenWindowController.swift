@@ -43,6 +43,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     private var directoryWatcher: DirectoryWatcher? = nil
     private var pipelineMaxPixelSize: Int = 4096
 
+    // Split Compare King-of-the-Hill State
+    private var splitChallengerPos: Int? = nil
+
     public init() {
         let screenRect = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
         let window = NSWindow(
@@ -192,11 +195,38 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
             var splitCgImage: CGImage? = nil
             var rightNativeSize: CGSize? = nil
-            if slideView.isSplitMode && currentFilteredPos + 1 < filteredIndices.count {
-                let nextRaw = filteredIndices[currentFilteredPos + 1]
-                if let nextDecoded = try? await pipeline.getImage(at: nextRaw) {
-                    splitCgImage = nextDecoded.image
-                    rightNativeSize = CGSize(width: nextDecoded.originalWidth, height: nextDecoded.originalHeight)
+            var leftSplitInfo: SplitPaneInfo? = nil
+            var rightSplitInfo: SplitPaneInfo? = nil
+
+            if slideView.isSplitMode {
+                // Ensure challenger position is valid
+                if splitChallengerPos == nil || splitChallengerPos! <= currentFilteredPos || splitChallengerPos! >= filteredIndices.count {
+                    splitChallengerPos = (currentFilteredPos + 1 < filteredIndices.count) ? (currentFilteredPos + 1) : nil
+                }
+
+                leftSplitInfo = SplitPaneInfo(
+                    slot: 1,
+                    filename: item.displayName,
+                    pick: meta.pick,
+                    isChampion: true
+                )
+
+                if let cPos = splitChallengerPos, cPos < filteredIndices.count {
+                    let nextRaw = filteredIndices[cPos]
+                    let challengerItem = allItems[nextRaw]
+                    let challengerMeta = cullingData[challengerItem.id] ?? CullingMetadata()
+
+                    if let nextDecoded = try? await pipeline.getImage(at: nextRaw) {
+                        splitCgImage = nextDecoded.image
+                        rightNativeSize = CGSize(width: nextDecoded.originalWidth, height: nextDecoded.originalHeight)
+                    }
+
+                    rightSplitInfo = SplitPaneInfo(
+                        slot: 2,
+                        filename: challengerItem.displayName,
+                        pick: challengerMeta.pick,
+                        isChampion: false
+                    )
                 }
             }
 
@@ -258,7 +288,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 nextImage: splitCgImage,
                 info: info,
                 nativeSize: nativeSize,
-                rightNativeSize: rightNativeSize
+                rightNativeSize: rightNativeSize,
+                leftSplitInfo: leftSplitInfo,
+                rightSplitInfo: rightSplitInfo
             )
 
             // Trigger background async histogram and clipping calculations (Phase 3)
@@ -462,8 +494,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
             // Check if in split mode to decode both left and right images at 100%
             let isSplit = slideView.isSplitMode
-            let nextRawIndex: Int? = (isSplit && currentFilteredPos + 1 < filteredIndices.count)
-                ? filteredIndices[currentFilteredPos + 1]
+            let cPos = splitChallengerPos ?? (currentFilteredPos + 1)
+            let nextRawIndex: Int? = (isSplit && cPos < filteredIndices.count)
+                ? filteredIndices[cPos]
                 : nil
 
             // Concurrently fetch the full 100% unconstrained sensor resolution in background
@@ -577,8 +610,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             Task {
                 if let decoded = try? await pipeline.getImage(at: rawIndex) {
                     var nextImg: CGImage? = nil
-                    if slideView.isSplitMode && currentFilteredPos + 1 < filteredIndices.count {
-                        let nextRaw = filteredIndices[currentFilteredPos + 1]
+                    let cPos = self.splitChallengerPos ?? (self.currentFilteredPos + 1)
+                    if self.slideView.isSplitMode && cPos < self.filteredIndices.count {
+                        let nextRaw = self.filteredIndices[cPos]
                         nextImg = (try? await pipeline.getImage(at: nextRaw))?.image
                     }
                     updateClippingMaskAsync(for: decoded.image, nextImage: nextImg)
@@ -599,8 +633,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             Task {
                 if let decoded = try? await pipeline.getImage(at: rawIndex) {
                     var nextImg: CGImage? = nil
-                    if slideView.isSplitMode && currentFilteredPos + 1 < filteredIndices.count {
-                        let nextRaw = filteredIndices[currentFilteredPos + 1]
+                    let cPos = self.splitChallengerPos ?? (self.currentFilteredPos + 1)
+                    if self.slideView.isSplitMode && cPos < self.filteredIndices.count {
+                        let nextRaw = self.filteredIndices[cPos]
                         nextImg = (try? await pipeline.getImage(at: nextRaw))?.image
                     }
                     updatePeakingMaskAsync(for: decoded.image, nextImage: nextImg)
@@ -693,6 +728,47 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
     public func slideViewSetPick(_ pick: PickStatus) {
         guard let rawIndex = currentRawIndex else { return }
+
+        // In 2-UP split compare mode:
+        if slideView.isSplitMode, let cPos = splitChallengerPos, cPos < filteredIndices.count {
+            let rightRaw = filteredIndices[cPos]
+            let leftItem = allItems[rawIndex]
+            let rightItem = allItems[rightRaw]
+
+            var leftMeta = cullingData[leftItem.id] ?? CullingMetadata()
+            var rightMeta = cullingData[rightItem.id] ?? CullingMetadata()
+
+            let prevLeft = leftMeta.pick
+            let prevRight = rightMeta.pick
+
+            leftMeta.pick = pick
+            rightMeta.pick = pick
+
+            cullingData[leftItem.id] = leftMeta
+            cullingData[rightItem.id] = rightMeta
+
+            saveMetadataAsync(meta: leftMeta, for: leftItem)
+            saveMetadataAsync(meta: rightMeta, for: rightItem)
+
+            let a1 = CullingAction.pick(itemID: leftItem.id, rawIndex: rawIndex, previous: prevLeft, new: pick)
+            let a2 = CullingAction.pick(itemID: rightItem.id, rawIndex: rightRaw, previous: prevRight, new: pick)
+            cullingUndoManager.record(.compound([a1, a2]))
+
+            let msg = (pick == .pick) ? "✓ Both Picked [P]" : (pick == .reject ? "✕ Both Rejected [X]" : "Both Unflagged [U]")
+            slideView.hudView.showMessage(msg)
+
+            if pick == .reject {
+                let nextLeft = min(filteredIndices.count - 1, cPos + 1)
+                currentFilteredPos = nextLeft
+                splitChallengerPos = (nextLeft + 1 < filteredIndices.count) ? (nextLeft + 1) : nil
+            }
+
+            Task {
+                await loadAndDisplayCurrent()
+            }
+            return
+        }
+
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
         let item = allItems[rawIndex]
         var meta = cullingData[item.id] ?? CullingMetadata()
@@ -705,6 +781,88 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
         applyCullingUpdate()
         saveMetadataAsync(meta: meta, for: item)
+    }
+
+    public func slideViewPickWinner(slot: Int) {
+        guard slideView.isSplitMode else { return }
+        guard let leftRaw = currentRawIndex else { return }
+
+        let cPos = splitChallengerPos ?? (currentFilteredPos + 1)
+        guard cPos < filteredIndices.count else {
+            slideView.hudView.showMessage("No opponent to compare")
+            return
+        }
+        let rightRaw = filteredIndices[cPos]
+
+        let leftItem = allItems[leftRaw]
+        let rightItem = allItems[rightRaw]
+
+        var leftMeta = cullingData[leftItem.id] ?? CullingMetadata()
+        var rightMeta = cullingData[rightItem.id] ?? CullingMetadata()
+
+        let prevLeft = leftMeta.pick
+        let prevRight = rightMeta.pick
+
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+
+        let winnerItem: SlideItem
+        let winnerMsg: String
+
+        if slot == 1 {
+            // [ 1 ] Defends: Left is Picked, Right is Rejected
+            leftMeta.pick = .pick
+            rightMeta.pick = .reject
+            winnerItem = leftItem
+            winnerMsg = "🏆 [ 1 ] Defended Champion: \(leftItem.displayName)"
+        } else {
+            // [ 2 ] Deposes: Right is Picked, Left is Rejected
+            rightMeta.pick = .pick
+            leftMeta.pick = .reject
+            winnerItem = rightItem
+            winnerMsg = "🏆 [ 2 ] New Champion: \(rightItem.displayName)"
+        }
+
+        cullingData[leftItem.id] = leftMeta
+        cullingData[rightItem.id] = rightMeta
+
+        saveMetadataAsync(meta: leftMeta, for: leftItem)
+        saveMetadataAsync(meta: rightMeta, for: rightItem)
+
+        // Compound Undo record
+        let action1 = CullingAction.pick(itemID: leftItem.id, rawIndex: leftRaw, previous: prevLeft, new: leftMeta.pick)
+        let action2 = CullingAction.pick(itemID: rightItem.id, rawIndex: rightRaw, previous: prevRight, new: rightMeta.pick)
+        cullingUndoManager.record(.compound([action1, action2]))
+
+        // King of the Hill progression:
+        if slot == 2 {
+            currentFilteredPos = cPos
+        }
+
+        // Advance challenger to next unrejected photo
+        var nextChallenger: Int? = nil
+        let startSearch = cPos + 1
+        for p in startSearch..<filteredIndices.count {
+            let item = allItems[filteredIndices[p]]
+            let m = cullingData[item.id] ?? CullingMetadata()
+            if m.pick != .reject {
+                nextChallenger = p
+                break
+            }
+        }
+        if nextChallenger == nil && startSearch < filteredIndices.count {
+            nextChallenger = startSearch
+        }
+
+        splitChallengerPos = nextChallenger
+
+        Task {
+            await loadAndDisplayCurrent()
+            if nextChallenger == nil {
+                slideView.hudView.showMessage("🏆 Final Champion Crowned: \(winnerItem.displayName)")
+            } else {
+                slideView.hudView.showMessage(winnerMsg)
+            }
+        }
     }
 
     public func slideViewSetColor(_ color: ColorLabel) {
@@ -787,8 +945,13 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     public func slideViewToggleSplitCompare() {
         let newState = !slideView.isSplitMode
         slideView.setSplitMode(newState)
-        let modeMsg = newState ? "Burst Compare: 2-UP [S]" : "Single Fullscreen [S]"
-        slideView.hudView.showMessage(modeMsg)
+        if newState {
+            splitChallengerPos = (currentFilteredPos + 1 < filteredIndices.count) ? (currentFilteredPos + 1) : nil
+            slideView.hudView.showMessage("2-UP Compare: Press [ 1 ] or [ 2 ] to Pick Winner [S]")
+        } else {
+            splitChallengerPos = nil
+            slideView.hudView.showMessage("Single Fullscreen [S]")
+        }
         Task {
             await loadAndDisplayCurrent()
         }
@@ -1021,6 +1184,13 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
 
         switch action {
+        case .compound(let actions):
+            for act in actions.reversed() {
+                applyUndoSingleAction(act)
+            }
+            slideView.hudView.showMessage("↩ Undone Match [⌘Z]")
+            Task { await loadAndDisplayCurrent() }
+            return
         case .rating(let itemID, _, let previous, _):
             guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
             let item = allItems[idx]
@@ -1108,6 +1278,13 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
 
         switch action {
+        case .compound(let actions):
+            for act in actions {
+                applyRedoSingleAction(act)
+            }
+            slideView.hudView.showMessage("↪ Redone Match [⇧⌘Z]")
+            Task { await loadAndDisplayCurrent() }
+            return
         case .rating(let itemID, _, _, let new):
             guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
             let item = allItems[idx]
@@ -1205,4 +1382,71 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
         NSWorkspace.shared.open(targetURL)
         slideView.hudView.showMessage("Opening: \(targetURL.lastPathComponent)")
     }
+
+    private func applyUndoSingleAction(_ action: CullingAction) {
+        switch action {
+        case .compound(let actions):
+            for act in actions.reversed() { applyUndoSingleAction(act) }
+        case .rating(let itemID, _, let previous, _):
+            guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
+            var meta = cullingData[itemID] ?? CullingMetadata()
+            meta.rating = previous
+            cullingData[itemID] = meta
+            saveMetadataAsync(meta: meta, for: allItems[idx])
+        case .pick(let itemID, _, let previous, _):
+            guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
+            var meta = cullingData[itemID] ?? CullingMetadata()
+            meta.pick = previous
+            cullingData[itemID] = meta
+            saveMetadataAsync(meta: meta, for: allItems[idx])
+        case .color(let itemID, _, let previous, _):
+            guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
+            var meta = cullingData[itemID] ?? CullingMetadata()
+            meta.color = previous
+            cullingData[itemID] = meta
+            saveMetadataAsync(meta: meta, for: allItems[idx])
+        case .profile(let itemID, _, let previous, _):
+            guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
+            var meta = cullingData[itemID] ?? CullingMetadata()
+            meta.cameraProfile = previous
+            cullingData[itemID] = meta
+            saveMetadataAsync(meta: meta, for: allItems[idx])
+        case .rotate, .delete:
+            break
+        }
+    }
+
+    private func applyRedoSingleAction(_ action: CullingAction) {
+        switch action {
+        case .compound(let actions):
+            for act in actions { applyRedoSingleAction(act) }
+        case .rating(let itemID, _, _, let new):
+            guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
+            var meta = cullingData[itemID] ?? CullingMetadata()
+            meta.rating = new
+            cullingData[itemID] = meta
+            saveMetadataAsync(meta: meta, for: allItems[idx])
+        case .pick(let itemID, _, _, let new):
+            guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
+            var meta = cullingData[itemID] ?? CullingMetadata()
+            meta.pick = new
+            cullingData[itemID] = meta
+            saveMetadataAsync(meta: meta, for: allItems[idx])
+        case .color(let itemID, _, _, let new):
+            guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
+            var meta = cullingData[itemID] ?? CullingMetadata()
+            meta.color = new
+            cullingData[itemID] = meta
+            saveMetadataAsync(meta: meta, for: allItems[idx])
+        case .profile(let itemID, _, _, let new):
+            guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
+            var meta = cullingData[itemID] ?? CullingMetadata()
+            meta.cameraProfile = new
+            cullingData[itemID] = meta
+            saveMetadataAsync(meta: meta, for: allItems[idx])
+        case .rotate, .delete:
+            break
+        }
+    }
+
 }

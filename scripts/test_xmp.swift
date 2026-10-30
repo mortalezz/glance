@@ -671,6 +671,53 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+        // ==========================================
+        // TEST 20: 2-UP King of the Hill Elimination & Compound Undo
+        // ==========================================
+        do {
+            print("🧪 TEST 20: 2-UP King of the Hill Elimination & Compound Undo...")
+
+            let undoMgr = CullingUndoManager()
+            assertEqual(undoMgr.canUndo, false, "Undo manager starts empty")
+
+            let leftAction = CullingAction.pick(itemID: "shot1", rawIndex: 0, previous: .unflagged, new: .pick)
+            let rightAction = CullingAction.pick(itemID: "shot2", rawIndex: 1, previous: .unflagged, new: .reject)
+            let matchAction = CullingAction.compound([leftAction, rightAction])
+
+            undoMgr.record(matchAction)
+            assertEqual(undoMgr.canUndo, true, "Undo manager has recorded compound match")
+
+            guard let poppedUndo = undoMgr.popUndo() else {
+                fatalError("Expected compound undo action")
+            }
+
+            if case .compound(let actions) = poppedUndo {
+                assertEqual(actions.count, 2, "Compound match must contain 2 child actions")
+            } else {
+                fatalError("Action must be compound")
+            }
+
+            assertEqual(undoMgr.canRedo, true, "Can redo match after undo")
+            guard let poppedRedo = undoMgr.popRedo() else {
+                fatalError("Expected compound redo action")
+            }
+            if case .compound(let actions) = poppedRedo {
+                assertEqual(actions.count, 2, "Compound redo must match original")
+            }
+
+            // Test SplitPaneInfo model
+            let p1 = SplitPaneInfo(slot: 1, filename: "DSC_0001.NEF", pick: .pick, isChampion: true)
+            assertEqual(p1.slot, 1, "Slot 1")
+            assertEqual(p1.isChampion, true, "Slot 1 is champion")
+            assertEqual(p1.pick, .pick, "Slot 1 is picked")
+
+            let p2 = SplitPaneInfo(slot: 2, filename: "DSC_0002.NEF", pick: .reject, isChampion: false)
+            assertEqual(p2.slot, 2, "Slot 2")
+            assertEqual(p2.pick, .reject, "Slot 2 is rejected")
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

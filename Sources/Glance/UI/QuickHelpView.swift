@@ -119,7 +119,7 @@ public final class QuickHelpView: NSView {
 
         let compactPairs: [(col1: (key: String, desc: String), col2: (key: String, desc: String))] = [
             (("P", "Pick"), ("Z / ⇧Z", "100% / Eye Jump")),
-            (("X", "Reject"), ("S", "Split compare")),
+            (("X", "Reject"), ("S / 1 / 2", "2-UP Pick Winner")),
             (("U", "Unflag"), ("H", "RGB Histogram")),
             (("1 – 5", "Rating"), ("O", "Clipping warning")),
             (("0", "Clear rating"), ("I", "EXIF Info")),
@@ -217,7 +217,7 @@ public final class QuickHelpView: NSView {
             ),
             (
                 ("X", "Reject (Trash)", "Marks for purge. Writes xmp:Rating=-1 to sidecar."),
-                ("S", "2-Up Compare", "Split-screen burst compare with next frame. Synchronous 1:1 pan."),
+                ("S / 1 / 2", "2-Up Tournament", "Burst compare. Press 1 or 2 to Pick winner in King of the Hill elimination."),
                 ("+ / -", "Slideshow Speed", "Live interval stepping (1s, 2s, 3s, 5s, 8s... up to 30s).")
             ),
             (
