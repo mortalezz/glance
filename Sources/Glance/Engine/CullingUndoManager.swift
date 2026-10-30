@@ -6,6 +6,7 @@ public enum CullingAction: Sendable {
     case color(itemID: String, rawIndex: Int, previous: ColorLabel, new: ColorLabel)
     case rotate(itemID: String, rawIndex: Int, direction: RotationDirection)
     case delete(item: SlideItem, rawIndex: Int, previousMeta: CullingMetadata?, trashedRecords: [TrashedFileRecord])
+    case profile(itemID: String, rawIndex: Int, previous: CameraProfile?, new: CameraProfile?)
 }
 
 @MainActor

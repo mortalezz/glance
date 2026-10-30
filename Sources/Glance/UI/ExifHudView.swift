@@ -327,6 +327,9 @@ public final class ExifHudView: NSView {
         if let bias = exif.formattedBias {
             techParts.append(bias)
         }
+        if let profile = exif.pictureControl {
+            techParts.append("Profile: \(profile)")
+        }
         if let flash = exif.flashFired {
             techParts.append(flash ? "Flash: Fired" : "Flash: Off")
         }

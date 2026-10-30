@@ -31,6 +31,7 @@ public protocol SlideViewDelegate: AnyObject {
     func slideViewToggleClipping()
     func slideViewToggleFocusPeaking()
     func slideViewToggleExif()
+    func slideViewCycleCameraProfile()
 
     // Undo & Redo Actions
     func slideViewRequestUndo()
@@ -799,6 +800,12 @@ public final class SlideView: NSView {
         // Focus Peaking: Shift + F
         if isShift && (lower == "f" || event.keyCode == 3) {
             delegate?.slideViewToggleFocusPeaking()
+            return
+        }
+
+        // Camera Picture Profile / Film Simulation: 'V' (KeyCode 9)
+        if lower == "v" || event.keyCode == 9 {
+            delegate?.slideViewCycleCameraProfile()
             return
         }
 

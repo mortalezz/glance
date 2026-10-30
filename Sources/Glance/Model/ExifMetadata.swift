@@ -15,6 +15,7 @@ public struct ExifMetadata: Sendable {
     public let exposureBias: Double?
     public let flashFired: Bool?
     public let dateTimeOriginal: String?
+    public let pictureControl: String?
 
     public init(
         cameraMake: String? = nil,
@@ -27,7 +28,8 @@ public struct ExifMetadata: Sendable {
         focalLength35mm: Int? = nil,
         exposureBias: Double? = nil,
         flashFired: Bool? = nil,
-        dateTimeOriginal: String? = nil
+        dateTimeOriginal: String? = nil,
+        pictureControl: String? = nil
     ) {
         self.cameraMake = cameraMake
         self.cameraModel = cameraModel
@@ -40,6 +42,7 @@ public struct ExifMetadata: Sendable {
         self.exposureBias = exposureBias
         self.flashFired = flashFired
         self.dateTimeOriginal = dateTimeOriginal
+        self.pictureControl = pictureControl
     }
 
     /// Parses EXIF and TIFF dictionaries from standard ImageIO properties dictionary.
@@ -90,6 +93,14 @@ public struct ExifMetadata: Sendable {
 
         // 9. Date Time Original
         self.dateTimeOriginal = exif?[kCGImagePropertyExifDateTimeOriginal] as? String
+
+        // 10. Picture Control / Profile
+        if let nikon = properties[kCGImagePropertyMakerNikonDictionary] as? [CFString: Any],
+           let picCtrl = nikon["PictureControl" as CFString] as? String {
+            self.pictureControl = picCtrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            self.pictureControl = nil
+        }
     }
 
     // MARK: - Formatted Readouts

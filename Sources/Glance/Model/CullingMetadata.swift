@@ -37,17 +37,20 @@ public struct CullingMetadata: Sendable, Codable, Equatable {
     public var pick: PickStatus
     public var color: ColorLabel
     public var orientation: Int? // EXIF Orientation 1..8
+    public var cameraProfile: CameraProfile? // Camera Picture Control / Profile
 
     public init(
         rating: Int = 0,
         pick: PickStatus = .unflagged,
         color: ColorLabel = .none,
-        orientation: Int? = nil
+        orientation: Int? = nil,
+        cameraProfile: CameraProfile? = nil
     ) {
         self.rating = max(0, min(5, rating))
         self.pick = pick
         self.color = color
         self.orientation = orientation
+        self.cameraProfile = cameraProfile
     }
 }
 

@@ -98,6 +98,7 @@ public enum XmpSidecarManager {
         var pick: PickStatus = .unflagged
         var color: ColorLabel = .none
         var orientation: Int? = nil
+        var profile: CameraProfile? = nil
 
         // Find all rdf:Description nodes
         let descriptions = (try? doc.nodes(forXPath: "//*[local-name()='Description']")) ?? []
@@ -109,7 +110,7 @@ public enum XmpSidecarManager {
                 let local = attr.localName ?? ""
                 let val = attr.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-                applyField(local: local, val: val, rating: &rating, pick: &pick, color: &color, orientation: &orientation)
+                applyField(local: local, val: val, rating: &rating, pick: &pick, color: &color, orientation: &orientation, profile: &profile)
             }
 
             // 2. Check Child Elements (for tools that write elements instead of attributes)
@@ -117,11 +118,11 @@ public enum XmpSidecarManager {
                 let local = child.localName ?? ""
                 let val = child.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-                applyField(local: local, val: val, rating: &rating, pick: &pick, color: &color, orientation: &orientation)
+                applyField(local: local, val: val, rating: &rating, pick: &pick, color: &color, orientation: &orientation, profile: &profile)
             }
         }
 
-        return CullingMetadata(rating: rating, pick: pick, color: color, orientation: orientation)
+        return CullingMetadata(rating: rating, pick: pick, color: color, orientation: orientation, cameraProfile: profile)
     }
 
     private static func applyField(
@@ -130,7 +131,8 @@ public enum XmpSidecarManager {
         rating: inout Int,
         pick: inout PickStatus,
         color: inout ColorLabel,
-        orientation: inout Int?
+        orientation: inout Int?,
+        profile: inout CameraProfile?
     ) {
         if local == "Rating" {
             if let r = Int(val) {
@@ -159,6 +161,10 @@ public enum XmpSidecarManager {
         } else if local == "Orientation" {
             if let o = Int(val), (1...8).contains(o) {
                 orientation = o
+            }
+        } else if local == "CameraProfile" {
+            if let p = CameraProfile.from(xmpString: val) {
+                profile = p
             }
         }
     }
@@ -194,7 +200,7 @@ public enum XmpSidecarManager {
     /// Serializes `metadata` into an XMP XML data buffer.
     /// If a file already exists at `targetURL`, its existing tags are preserved.
     public static func serialize(metadata: CullingMetadata, targetURL: URL) throws -> Data {
-        let targetLocalNames = ["Rating", "PickStatus", "Label", "Urgency", "Orientation"]
+        let targetLocalNames = ["Rating", "PickStatus", "Label", "Urgency", "Orientation", "CameraProfile"]
 
         if fileManager.fileExists(atPath: targetURL.path),
            let existingData = try? Data(contentsOf: targetURL),
@@ -290,6 +296,11 @@ public enum XmpSidecarManager {
         // Orientation
         if let o = metadata.orientation {
             desc.addAttribute(XMLNode.attribute(withName: "tiff:Orientation", stringValue: "\(o)") as! XMLNode)
+        }
+
+        // Camera Profile / Picture Control
+        if let p = metadata.cameraProfile, p != .asShot {
+            desc.addAttribute(XMLNode.attribute(withName: "crs:CameraProfile", stringValue: p.xmpCameraProfile) as! XMLNode)
         }
     }
 

@@ -123,7 +123,7 @@ public final class QuickHelpView: NSView {
             (("U", "Unflag"), ("H", "RGB Histogram")),
             (("1 – 5", "Rating"), ("O", "Clipping warning")),
             (("0", "Clear rating"), ("I", "EXIF Info")),
-            (("6 – 9", "Color label"), ("T", "Day / Night theme")),
+            (("6 – 9", "Color label"), ("V / T", "Profile / Theme")),
             (("C", "Auto-advance"), ("Return", "Slideshow")),
             (("E", "Export picks"), ("+ / -", "Slideshow speed")),
             (("R / L", "Rotate 90°"), ("\\", "Cycle filter")),
@@ -233,7 +233,7 @@ public final class QuickHelpView: NSView {
             (
                 ("6 – 9", "Color Labels", "6: Red, 7: Yellow, 8: Green, 9: Blue in Adobe XMP."),
                 ("I", "EXIF Info HUD", "Camera body, lens, shutter, aperture, ISO, and focal length."),
-                ("T", "Day / Night Theme", "Toggle between Frosted Dark and Frosted Light appearance.")
+                ("V / T", "Profile / Theme", "V: Cycle Camera Picture Controls / Film Sims. T: Frosted dark/light theme.")
             ),
             (
                 ("C", "Auto-Advance", "Speed culling: automatically advances after rating or flag."),

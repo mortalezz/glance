@@ -633,6 +633,37 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+        // TEST 19: CameraProfileEngine (MakerNote Picture Control Extraction & Color Profile Simulation)
+        do {
+            print("▶ Testing CameraProfileEngine Picture Control extraction & color profile simulation...")
+
+            // Test extraction on real Nikon NEF file if present
+            let sampleNef = URL(fileURLWithPath: "/Users/mortalezz/Pictures/fall colors/_DSC3088.NEF")
+            if FileManager.default.fileExists(atPath: sampleNef.path) {
+                let extracted = CameraProfileEngine.extractCameraProfile(from: sampleNef)
+                assertEqual(extracted, "Standard", "Nikon Z 6 NEF MakerNote should extract Standard Picture Control")
+            }
+
+            // Test Profile Rendering (Vivid, Monochrome, etc.)
+            let testImg = makeTestCGImage(width: 64, height: 64, r: 180, g: 120, b: 60)
+            let vividImg = CameraProfileEngine.apply(profile: .vivid, to: testImg)
+            assertTrue(vividImg != nil, "Vivid camera profile rendering should produce valid CGImage")
+            assertEqual(vividImg?.width, 64, "Vivid image width matches")
+
+            let monoImg = CameraProfileEngine.apply(profile: .monochrome, to: testImg)
+            assertTrue(monoImg != nil, "Monochrome profile rendering should produce valid CGImage")
+
+            // Test XMP serialization & roundtrip
+            let xmpFile = tempDir.appendingPathComponent("profile_test.xmp")
+            let metaWithProfile = CullingMetadata(rating: 5, pick: .pick, cameraProfile: .vivid)
+            try XmpSidecarManager.save(metadata: metaWithProfile, for: xmpFile)
+
+            let readBack = XmpSidecarManager.read(from: xmpFile)
+            assertEqual(readBack.cameraProfile, .vivid, "CameraProfile.vivid must roundtrip via crs:CameraProfile in Adobe XMP")
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

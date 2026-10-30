@@ -215,15 +215,43 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 autoAdvance: autoAdvance,
                 filterTitle: filterBadge,
                 isZoomed: slideView.isZoomed,
-                exif: decoded.exif,
+                exif: {
+                    var parsed = decoded.exif
+                    if parsed?.pictureControl == nil {
+                        let targetURL = item.rawURL ?? item.url
+                        if let extracted = CameraProfileEngine.extractCameraProfile(from: targetURL) {
+                            parsed = ExifMetadata(
+                                cameraMake: parsed?.cameraMake,
+                                cameraModel: parsed?.cameraModel,
+                                lensModel: parsed?.lensModel,
+                                shutterSpeed: parsed?.shutterSpeed,
+                                aperture: parsed?.aperture,
+                                iso: parsed?.iso,
+                                focalLength: parsed?.focalLength,
+                                focalLength35mm: parsed?.focalLength35mm,
+                                exposureBias: parsed?.exposureBias,
+                                flashFired: parsed?.flashFired,
+                                dateTimeOriginal: parsed?.dateTimeOriginal,
+                                pictureControl: extracted
+                            )
+                        }
+                    }
+                    return parsed
+                }(),
                 isSlideshow: isSlideshowActive,
                 slideshowInterval: slideshowInterval,
                 exportProgressText: exportProgressText
             )
 
+            // Apply Camera Profile / Picture Control if active
+            let activeProfile = meta.cameraProfile ?? .asShot
+            let renderedImage = (activeProfile != .asShot)
+                ? (CameraProfileEngine.apply(profile: activeProfile, to: decoded.image) ?? decoded.image)
+                : decoded.image
+
             let nativeSize = CGSize(width: decoded.originalWidth, height: decoded.originalHeight)
             slideView.displayImage(
-                decoded.image,
+                renderedImage,
                 nextImage: splitCgImage,
                 info: info,
                 nativeSize: nativeSize,
@@ -613,6 +641,33 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         }
     }
 
+    // MARK: - Camera Profiles & Picture Controls
+
+    public func slideViewCycleCameraProfile() {
+        guard let rawIndex = currentRawIndex else { return }
+        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .default)
+        let item = allItems[rawIndex]
+        var meta = cullingData[item.id] ?? CullingMetadata()
+        let previous = meta.cameraProfile
+
+        let allProfiles = CameraProfile.allCases
+        let currentIdx = allProfiles.firstIndex(of: meta.cameraProfile ?? .asShot) ?? 0
+        let nextIdx = (currentIdx + 1) % allProfiles.count
+        let nextProfile = allProfiles[nextIdx]
+
+        meta.cameraProfile = nextProfile
+        cullingData[item.id] = meta
+
+        cullingUndoManager.record(.profile(itemID: item.id, rawIndex: rawIndex, previous: previous, new: nextProfile))
+
+        slideView.hudView.showMessage("Profile: \(nextProfile.displayName) [V]")
+        saveMetadataAsync(meta: meta, for: item)
+
+        Task {
+            await loadAndDisplayCurrent()
+        }
+    }
+
     // MARK: - Culling Actions
 
     public func slideViewSetRating(_ rating: Int) {
@@ -992,6 +1047,17 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
             jumpToRawIndex(idx)
             slideView.hudView.showMessage("↩ Undone Color: \(previous.title) [⌘Z]")
 
+        case .profile(let itemID, _, let previous, _):
+            guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
+            let item = allItems[idx]
+            var meta = cullingData[itemID] ?? CullingMetadata()
+            meta.cameraProfile = previous
+            cullingData[itemID] = meta
+            saveMetadataAsync(meta: meta, for: item)
+            jumpToRawIndex(idx)
+            let profName = previous?.displayName ?? "As Shot"
+            slideView.hudView.showMessage("↩ Undone Profile: \(profName) [⌘Z]")
+
         case .rotate(let itemID, _, let direction):
             guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
             let item = allItems[idx]
@@ -1066,6 +1132,17 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
             saveMetadataAsync(meta: meta, for: item)
             jumpToRawIndex(idx)
             slideView.hudView.showMessage("↪ Redone Color: \(new.title) [⇧⌘Z]")
+
+        case .profile(let itemID, _, _, let new):
+            guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
+            let item = allItems[idx]
+            var meta = cullingData[itemID] ?? CullingMetadata()
+            meta.cameraProfile = new
+            cullingData[itemID] = meta
+            saveMetadataAsync(meta: meta, for: item)
+            jumpToRawIndex(idx)
+            let profName = new?.displayName ?? "As Shot"
+            slideView.hudView.showMessage("↪ Redone Profile: \(profName) [⇧⌘Z]")
 
         case .rotate(let itemID, _, let direction):
             guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
