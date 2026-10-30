@@ -342,6 +342,20 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                     self.detectedFacesForChallengerSlide = faces2
                 }
             }
+
+            // Evaluate Apple Vision aesthetic & integral quality scores for 2-UP burst comparison
+            if isSplit, let rImg = rightCg, let rPath = challengerPath {
+                Task.detached(priority: .utility) { [weak self] in
+                    async let s1 = AestheticsEngine.shared.computeScore(for: decoded.image, cacheKey: currentPath)
+                    async let s2 = AestheticsEngine.shared.computeScore(for: rImg, cacheKey: rPath)
+                    let (score1, score2) = await (s1, s2)
+                    let (compared1, compared2) = AestheticScoreResult.compareMatchup(left: score1, right: score2)
+                    await MainActor.run { [weak self] in
+                        guard let self = self, self.currentRawIndex == rawIndex else { return }
+                        self.slideView.updateSplitAesthetics(left: compared1, right: compared2)
+                    }
+                }
+            }
         } catch {
             let info = HudInfo(
                 currentIndex: currentFilteredPos,

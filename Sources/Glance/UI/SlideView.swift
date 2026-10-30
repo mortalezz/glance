@@ -280,7 +280,7 @@ public final class SlideView: NSView {
             rightContainerLayer.frame = rightFrame
             rightContainerLayer.isHidden = false
 
-            let badgeW: CGFloat = min(260, max(180, halfWidth - 48))
+            let badgeW: CGFloat = min(360, max(220, halfWidth - 48))
             leftSplitBadge.frame = CGRect(x: 20, y: bounds.height - 54, width: badgeW, height: 34)
             rightSplitBadge.frame = CGRect(x: halfWidth + 22, y: bounds.height - 54, width: badgeW, height: 34)
             leftSplitBadge.isHidden = false
@@ -421,6 +421,11 @@ public final class SlideView: NSView {
 
         leftSplitBadge.update(with: leftSplitInfo)
         rightSplitBadge.update(with: rightSplitInfo)
+    }
+
+    public func updateSplitAesthetics(left: AestheticScoreResult?, right: AestheticScoreResult?) {
+        leftSplitBadge.updateAestheticScore(left)
+        rightSplitBadge.updateAestheticScore(right)
     }
 
     public func setSplitMode(_ enabled: Bool) {

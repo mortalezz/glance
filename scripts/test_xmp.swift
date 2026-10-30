@@ -830,6 +830,56 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+        // ==========================================
+        // TEST 23: Apple Vision Aesthetics & 2-UP Matchup Comparison
+        // ==========================================
+        do {
+            print("🧪 TEST 23: Apple Vision Aesthetics & 2-UP Matchup Comparison...")
+
+            let imgA = makeTestCGImage(width: 128, height: 128, r: 200, g: 150, b: 80)
+            let imgB = makeTestCGImage(width: 128, height: 128, r: 50, g: 50, b: 50)
+
+            let scoreA = await AestheticsEngine.shared.computeScore(for: imgA, cacheKey: "test_img_A")
+            let scoreB = await AestheticsEngine.shared.computeScore(for: imgB, cacheKey: "test_img_B")
+
+            assertTrue(scoreA.score >= 1.0 && scoreA.score <= 10.0, "Score A must be bounded between 1.0 and 10.0")
+            assertTrue(scoreB.score >= 1.0 && scoreB.score <= 10.0, "Score B must be bounded between 1.0 and 10.0")
+            assertEqual(scoreA.formattedScore.count, 3, "Formatted score should be X.X (3 chars)")
+
+            // Test caching
+            let cachedA = await AestheticsEngine.shared.computeScore(for: imgA, cacheKey: "test_img_A")
+            assertEqual(scoreA.score, cachedA.score, "Cached aesthetic score must match original computation")
+
+            // Test matchup comparison
+            let winScore = AestheticScoreResult(score: 8.8)
+            let loseScore = AestheticScoreResult(score: 6.5)
+            let (compWin, compLose) = AestheticScoreResult.compareMatchup(left: winScore, right: loseScore)
+
+            assertEqual(compWin.isWinner, true, "8.8 vs 6.5: higher score must be declared winner")
+            assertEqual(compLose.isWinner, false, "8.8 vs 6.5: lower score must not be winner")
+            assertTrue((compWin.deltaToOpponent ?? 0) > 2.0, "Winner delta must exceed 2.0")
+
+            // Test close call (< 0.3 gap)
+            let close1 = AestheticScoreResult(score: 8.4)
+            let close2 = AestheticScoreResult(score: 8.3)
+            let (compClose1, compClose2) = AestheticScoreResult.compareMatchup(left: close1, right: close2)
+            assertEqual(compClose1.isWinner, false, "Close matchup (0.1 gap) must not declare winner")
+            assertEqual(compClose2.isWinner, false, "Close matchup (0.1 gap) must not declare winner")
+
+            // Test SplitPaneInfo model with aestheticScore
+            let paneInfo = SplitPaneInfo(
+                slot: 1,
+                filename: "HERO_001.NEF",
+                pick: .pick,
+                isChampion: true,
+                aestheticScore: compWin
+            )
+            assertEqual(paneInfo.aestheticScore?.isWinner, true, "SplitPaneInfo preserves winner aesthetic score")
+            assertEqual(paneInfo.aestheticScore?.formattedScore, "8.8", "SplitPaneInfo formatted score is 8.8")
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

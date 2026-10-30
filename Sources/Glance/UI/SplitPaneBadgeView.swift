@@ -8,6 +8,7 @@ public struct SplitPaneInfo: Sendable {
     public let rating: Int
     public let color: ColorLabel
     public let isChampion: Bool
+    public let aestheticScore: AestheticScoreResult?
 
     public init(
         slot: Int,
@@ -15,7 +16,8 @@ public struct SplitPaneInfo: Sendable {
         pick: PickStatus,
         rating: Int = 0,
         color: ColorLabel = .none,
-        isChampion: Bool = false
+        isChampion: Bool = false,
+        aestheticScore: AestheticScoreResult? = nil
     ) {
         self.slot = slot
         self.filename = filename
@@ -23,10 +25,11 @@ public struct SplitPaneInfo: Sendable {
         self.rating = rating
         self.color = color
         self.isChampion = isChampion
+        self.aestheticScore = aestheticScore
     }
 }
 
-/// Frosted glass floating pill badge labeling panes in 2-UP Split Compare mode (e.g. "[ 1 ] DSC_3088.NEF  ✓ PICK").
+/// Frosted glass floating pill badge labeling panes in 2-UP Split Compare mode (e.g. "[ 1 ] DSC_3088.NEF  ✨ 8.9 BEST  ✓ PICK").
 @MainActor
 public final class SplitPaneBadgeView: NSView {
     private let visualEffectView = NSVisualEffectView()
@@ -40,11 +43,16 @@ public final class SplitPaneBadgeView: NSView {
     // 2. Filename Label
     private let filenameLabel = NSTextField(labelWithString: "")
 
-    // 3. Status Pill: ✓ PICK / ✕ REJECT / PRESS 1
+    // 3. Apple Vision Aesthetic Score Pill: ✨ 8.9 BEST
+    private let aestheticPill = NSView()
+    private let aestheticLabel = NSTextField(labelWithString: "")
+
+    // 4. Status Pill: ✓ PICK / ✕ REJECT / PRESS 1
     private let statusPill = NSView()
     private let statusLabel = NSTextField(labelWithString: "")
 
     public let slot: Int
+    private var currentAestheticScore: AestheticScoreResult?
 
     public init(slot: Int) {
         self.slot = slot
@@ -137,7 +145,28 @@ public final class SplitPaneBadgeView: NSView {
         filenameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         stackView.addArrangedSubview(filenameLabel)
 
-        // 3. Status Pill setup
+        // 3. Aesthetic Score Pill setup
+        aestheticPill.wantsLayer = true
+        aestheticPill.layer?.cornerRadius = 6
+        aestheticPill.layer?.cornerCurve = .continuous
+        aestheticPill.layer?.borderWidth = 0.5
+        aestheticPill.translatesAutoresizingMaskIntoConstraints = false
+        aestheticPill.isHidden = true
+
+        aestheticLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold)
+        aestheticLabel.alignment = .center
+        aestheticLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        aestheticPill.addSubview(aestheticLabel)
+        NSLayoutConstraint.activate([
+            aestheticLabel.topAnchor.constraint(equalTo: aestheticPill.topAnchor, constant: 2),
+            aestheticLabel.bottomAnchor.constraint(equalTo: aestheticPill.bottomAnchor, constant: -2),
+            aestheticLabel.leadingAnchor.constraint(equalTo: aestheticPill.leadingAnchor, constant: 6),
+            aestheticLabel.trailingAnchor.constraint(equalTo: aestheticPill.trailingAnchor, constant: -6)
+        ])
+        stackView.addArrangedSubview(aestheticPill)
+
+        // 4. Status Pill setup
         statusPill.wantsLayer = true
         statusPill.layer?.cornerRadius = 6
         statusPill.layer?.cornerCurve = .continuous
@@ -169,10 +198,12 @@ public final class SplitPaneBadgeView: NSView {
         isHidden = false
         keycapLabel.stringValue = "\(info.slot)"
         filenameLabel.stringValue = info.filename
+        self.currentAestheticScore = info.aestheticScore
 
         let isDark = ThemeManager.shared.isDark
         let starSuffix = info.rating > 0 ? " ★\(info.rating)" : ""
 
+        // Status badge
         switch info.pick {
         case .pick:
             statusLabel.stringValue = (info.isChampion ? "👑 CHAMPION" : "✓ PICK") + starSuffix
@@ -201,7 +232,83 @@ public final class SplitPaneBadgeView: NSView {
             statusPill.isHidden = false
         }
 
+        // Aesthetic Score Pill presentation
+        if let score = info.aestheticScore {
+            if score.isWinner {
+                aestheticLabel.stringValue = "✨ \(score.formattedScore) BEST"
+                aestheticLabel.textColor = .white
+                aestheticPill.layer?.backgroundColor = isDark
+                    ? NSColor(srgbRed: 0.85, green: 0.65, blue: 0.12, alpha: 0.88).cgColor
+                    : NSColor(srgbRed: 0.82, green: 0.58, blue: 0.10, alpha: 0.92).cgColor
+                aestheticPill.layer?.borderColor = NSColor(srgbRed: 1.0, green: 0.85, blue: 0.35, alpha: 0.65).cgColor
+            } else if score.isUtility {
+                aestheticLabel.stringValue = "⚠️ \(score.formattedScore)"
+                aestheticLabel.textColor = isDark ? NSColor.systemYellow : NSColor.systemOrange
+                aestheticPill.layer?.backgroundColor = isDark
+                    ? NSColor(white: 0.20, alpha: 0.40).cgColor
+                    : NSColor(white: 0.85, alpha: 0.50).cgColor
+                aestheticPill.layer?.borderColor = isDark
+                    ? NSColor(white: 1.0, alpha: 0.10).cgColor
+                    : NSColor(white: 0.0, alpha: 0.10).cgColor
+            } else {
+                aestheticLabel.stringValue = "✨ \(score.formattedScore)"
+                aestheticLabel.textColor = isDark ? NSColor(white: 0.90, alpha: 1.0) : NSColor(white: 0.20, alpha: 1.0)
+                aestheticPill.layer?.backgroundColor = isDark
+                    ? NSColor(white: 0.25, alpha: 0.45).cgColor
+                    : NSColor(white: 0.85, alpha: 0.55).cgColor
+                aestheticPill.layer?.borderColor = isDark
+                    ? NSColor(white: 1.0, alpha: 0.15).cgColor
+                    : NSColor(white: 0.0, alpha: 0.12).cgColor
+            }
+            aestheticPill.isHidden = false
+        } else {
+            aestheticPill.isHidden = true
+        }
+
         updateTheme()
+    }
+
+    /// Dynamically updates the aesthetic score independently as soon as background Vision computation finishes
+    public func updateAestheticScore(_ score: AestheticScoreResult?) {
+        self.currentAestheticScore = score
+        let isDark = ThemeManager.shared.isDark
+
+        guard let score = score else {
+            aestheticPill.isHidden = true
+            return
+        }
+
+        if score.isWinner {
+            aestheticLabel.stringValue = "✨ \(score.formattedScore) BEST"
+            aestheticLabel.textColor = .white
+            aestheticPill.layer?.backgroundColor = isDark
+                ? NSColor(srgbRed: 0.85, green: 0.65, blue: 0.12, alpha: 0.88).cgColor
+                : NSColor(srgbRed: 0.82, green: 0.58, blue: 0.10, alpha: 0.92).cgColor
+            aestheticPill.layer?.borderColor = NSColor(srgbRed: 1.0, green: 0.85, blue: 0.35, alpha: 0.65).cgColor
+        } else if score.isUtility {
+            aestheticLabel.stringValue = "⚠️ \(score.formattedScore)"
+            aestheticLabel.textColor = isDark ? NSColor.systemYellow : NSColor.systemOrange
+            aestheticPill.layer?.backgroundColor = isDark
+                ? NSColor(white: 0.20, alpha: 0.40).cgColor
+                : NSColor(white: 0.85, alpha: 0.50).cgColor
+            aestheticPill.layer?.borderColor = isDark
+                ? NSColor(white: 1.0, alpha: 0.10).cgColor
+                : NSColor(white: 0.0, alpha: 0.10).cgColor
+        } else {
+            aestheticLabel.stringValue = "✨ \(score.formattedScore)"
+            aestheticLabel.textColor = isDark ? NSColor(white: 0.90, alpha: 1.0) : NSColor(white: 0.20, alpha: 1.0)
+            aestheticPill.layer?.backgroundColor = isDark
+                ? NSColor(white: 0.25, alpha: 0.45).cgColor
+                : NSColor(white: 0.85, alpha: 0.55).cgColor
+            aestheticPill.layer?.borderColor = isDark
+                ? NSColor(white: 1.0, alpha: 0.15).cgColor
+                : NSColor(white: 0.0, alpha: 0.12).cgColor
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            aestheticPill.animator().isHidden = false
+        }
     }
 
     public func updateTheme() {
