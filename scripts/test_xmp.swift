@@ -764,6 +764,72 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+        // ==========================================
+        // TEST 22: Dual-Pane Zoom Normalization & Symmetrical Tracking
+        // ==========================================
+        do {
+            print("🧪 TEST 22: Dual-Pane Zoom Normalization & Symmetrical Eye Tracking...")
+
+            // 1. Normalized Image Point calculation for aspect-fit letterboxing
+            func computeNormPoint(pt: CGPoint, paneSize: CGSize, imageSize: CGSize) -> CGPoint {
+                guard imageSize.width > 0, imageSize.height > 0, paneSize.width > 0, paneSize.height > 0 else {
+                    return CGPoint(x: 0.5, y: 0.5)
+                }
+                let fitScale = min(paneSize.width / imageSize.width, paneSize.height / imageSize.height)
+                let renderedW = imageSize.width * fitScale
+                let renderedH = imageSize.height * fitScale
+                let originX = (paneSize.width - renderedW) / 2.0
+                let originY = (paneSize.height - renderedH) / 2.0
+                let normX = (pt.x - originX) / renderedW
+                let normY = (pt.y - originY) / renderedH
+                return CGPoint(
+                    x: max(0.0, min(1.0, normX)),
+                    y: max(0.0, min(1.0, normY))
+                )
+            }
+
+            // Pane 900x1200, Image 6000x4000 (3:2 landscape fitted into 3:4 portrait pane)
+            // fitScale = min(900/6000, 1200/4000) = min(0.15, 0.3) = 0.15
+            // renderedW = 900, renderedH = 600. originX = 0, originY = (1200 - 600) / 2 = 300.
+            let pane = CGSize(width: 900, height: 1200)
+            let img = CGSize(width: 6000, height: 4000)
+
+            // Click at dead center of pane (450, 600) -> should be norm (0.5, 0.5)
+            let centerNorm = computeNormPoint(pt: CGPoint(x: 450, y: 600), paneSize: pane, imageSize: img)
+            assertEqual(Double(centerNorm.x), 0.5, "Center X is 0.5")
+            assertEqual(Double(centerNorm.y), 0.5, "Center Y is 0.5")
+
+            // Click at top of rendered image (450, 900) -> normY should be 1.0
+            let topNorm = computeNormPoint(pt: CGPoint(x: 450, y: 900), paneSize: pane, imageSize: img)
+            assertEqual(Double(topNorm.y), 1.0, "Top edge Y is 1.0")
+
+            // Click at bottom of rendered image (450, 300) -> normY should be 0.0
+            let btmNorm = computeNormPoint(pt: CGPoint(x: 450, y: 300), paneSize: pane, imageSize: img)
+            assertEqual(Double(btmNorm.y), 0.0, "Bottom edge Y is 0.0")
+
+            // 2. Symmetrical 2-up pan offset calculation
+            let nativeW: CGFloat = 6000 / 2.0 // 3000pt
+            let nativeH: CGFloat = 4000 / 2.0 // 2000pt
+            let offsetCenter = CGPoint(x: (0.5 - 0.5) * nativeW, y: (0.5 - 0.5) * nativeH)
+            assertEqual(Double(offsetCenter.x), 0.0, "Pan offset center X is 0")
+            assertEqual(Double(offsetCenter.y), 0.0, "Pan offset center Y is 0")
+
+            // 3. Dual-Eye asymmetric fallback
+            let faceLeft = DetectedFace(boundingBox: CGRect(x: 0.3, y: 0.6, width: 0.2, height: 0.2), eyeCenter: CGPoint(x: 0.4, y: 0.7))
+            let detectedLeft: [DetectedFace] = [faceLeft]
+            let detectedRight: [DetectedFace] = [] // No face in challenger
+
+            let lPt = !detectedLeft.isEmpty ? detectedLeft[0].eyeCenter : CGPoint(x: 0.5, y: 0.5)
+            let rPt = !detectedRight.isEmpty ? detectedRight[0].eyeCenter : lPt // Fallback to champion eye center!
+
+            assertEqual(Double(lPt.x), 0.4, "Left eye X tracked")
+            assertEqual(Double(lPt.y), 0.7, "Left eye Y tracked")
+            assertEqual(Double(rPt.x), 0.4, "Right pane falls back to left eye coordinates")
+            assertEqual(Double(rPt.y), 0.7, "Right pane falls back to left eye coordinates")
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

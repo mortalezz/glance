@@ -31,6 +31,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
     // Auto Face & Eye Focus Jump
     private var detectedFacesForCurrentSlide: [DetectedFace] = []
+    private var detectedFacesForChallengerSlide: [DetectedFace] = []
     private var currentFaceIndex: Int = 0
 
     // Multi-Level Undo & Redo
@@ -316,15 +317,29 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 updatePeakingMaskAsync(for: decoded.image, nextImage: splitCgImage)
             }
 
-            // Pre-detect faces asynchronously via Apple Neural Engine (ANE)
+            // Pre-detect faces asynchronously via Apple Neural Engine (ANE) for both frames
             currentFaceIndex = 0
             detectedFacesForCurrentSlide = []
+            detectedFacesForChallengerSlide = []
             let currentPath = item.url.path
+            let cPos = splitChallengerPos ?? (currentFilteredPos + 1)
+            let challengerItem = (isSplit && cPos < filteredIndices.count) ? allItems[filteredIndices[cPos]] : nil
+            let challengerPath = challengerItem?.url.path
+            let rightCg = splitCgImage
+
             Task.detached(priority: .utility) { [weak self] in
-                let faces = await FaceDetectionEngine.shared.detectFaces(in: decoded.image, cacheKey: currentPath)
+                async let f1 = FaceDetectionEngine.shared.detectFaces(in: decoded.image, cacheKey: currentPath)
+                async let f2: [DetectedFace] = {
+                    if let rImg = rightCg, let rPath = challengerPath {
+                        return await FaceDetectionEngine.shared.detectFaces(in: rImg, cacheKey: rPath)
+                    }
+                    return []
+                }()
+                let (faces1, faces2) = await (f1, f2)
                 await MainActor.run { [weak self] in
                     guard let self = self, self.currentRawIndex == rawIndex else { return }
-                    self.detectedFacesForCurrentSlide = faces
+                    self.detectedFacesForCurrentSlide = faces1
+                    self.detectedFacesForChallengerSlide = faces2
                 }
             }
         } catch {
@@ -594,10 +609,11 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             }
 
             // Right faces (Challenger) if in 2-UP split compare mode
-            var rightFaces: [DetectedFace] = []
-            if let rIdx = rightRawIndex, let rItem = rightItem {
+            var rightFaces: [DetectedFace] = self.detectedFacesForChallengerSlide
+            if rightFaces.isEmpty, let rIdx = rightRawIndex, let rItem = rightItem {
                 if let rDecoded = try? await self.pipeline.getImage(at: rIdx) {
                     rightFaces = await FaceDetectionEngine.shared.detectFaces(in: rDecoded.image, cacheKey: rItem.url.path)
+                    self.detectedFacesForChallengerSlide = rightFaces
                 }
             }
 
@@ -617,15 +633,21 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
             let label: String
             if isSplit {
-                label = "👁️ Dual-Eye Focus [⇧Z]"
+                let maxFaces = max(faces.count, rightFaces.count)
+                if maxFaces > 1 {
+                    let faceNum = ((self.currentFaceIndex - 1) % maxFaces) + 1
+                    label = "👁️ Dual-Eye Focus (Face \(faceNum)/\(maxFaces)) [⇧Z]"
+                } else {
+                    label = "👁️ Dual-Eye Focus [⇧Z]"
+                }
             } else if faces.count > 1 {
                 label = "👁️ Face \(((self.currentFaceIndex - 1) % faces.count) + 1)/\(faces.count) (Eye Focus)"
             } else {
                 label = "👁️ Eye Focus"
             }
 
-            let leftPoint = leftFace?.eyeCenter ?? CGPoint(x: 0.5, y: 0.5)
-            let rightPoint = rightFace?.eyeCenter ?? leftPoint
+            let leftPoint = leftFace?.eyeCenter ?? (rightFace?.eyeCenter ?? CGPoint(x: 0.5, y: 0.5))
+            let rightPoint = rightFace?.eyeCenter ?? (leftFace?.eyeCenter ?? CGPoint(x: 0.5, y: 0.5))
 
             self.slideView.zoomToNormalizedPoint(
                 leftPoint,
@@ -643,13 +665,13 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             }()
 
             let (leftFull, rightFull) = await (leftFullTask, rightFullTask)
-            if let fullRes = leftFull {
-                let fullDims = CGSize(width: fullRes.originalWidth, height: fullRes.originalHeight)
+            if leftFull != nil || rightFull != nil {
+                let fullDims = leftFull != nil ? CGSize(width: leftFull!.originalWidth, height: leftFull!.originalHeight) : nil
                 let rightDims = rightFull != nil ? CGSize(width: rightFull!.originalWidth, height: rightFull!.originalHeight) : nil
                 self.slideView.zoomToNormalizedPoint(
                     leftPoint,
                     rightNormPoint: rightPoint,
-                    fullResImage: fullRes.image,
+                    fullResImage: leftFull?.image,
                     originalDimensions: fullDims,
                     rightFullResImage: rightFull?.image,
                     rightOriginalDimensions: rightDims

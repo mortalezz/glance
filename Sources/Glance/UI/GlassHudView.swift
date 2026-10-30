@@ -211,6 +211,8 @@ public final class GlassHudView: NSView {
     private var lastInfo: HudInfo?
 
     private var fadeTimer: Timer?
+    private var messageTimer: Timer?
+
     public var isPersistentlyVisible: Bool = false {
         didSet {
             if isPersistentlyVisible {
@@ -628,6 +630,21 @@ public final class GlassHudView: NSView {
     /// Updates the HUD contents with culling indicators.
     public func update(with info: HudInfo) {
         self.lastInfo = info
+        messageTimer?.invalidate()
+        messageTimer = nil
+        renderInfo(info)
+        pulse()
+    }
+
+    /// Restores the last active photo metadata (clearing any transient status messages)
+    public func restoreLastInfo() {
+        messageTimer?.invalidate()
+        messageTimer = nil
+        guard let info = lastInfo else { return }
+        renderInfo(info)
+    }
+
+    private func renderInfo(_ info: HudInfo) {
         if info.totalCount > 0 {
             indexLabel.stringValue = "\(info.currentIndex + 1) / \(info.totalCount)"
             indexPill.isHidden = false
@@ -710,7 +727,6 @@ public final class GlassHudView: NSView {
             filterPill.isHidden = false
         } else {
             filterPill.isHidden = true
-        profilePill.isHidden = true
         }
 
         if let error = info.errorMessage {
@@ -771,8 +787,6 @@ public final class GlassHudView: NSView {
         } else {
             exportPill.isHidden = true
         }
-
-        pulse()
     }
 
     /// Updates only the slideshow status and interval badge without clearing other metadata
@@ -830,7 +844,11 @@ public final class GlassHudView: NSView {
         pulse()
     }
 
-    public func showMessage(_ message: String) {
+    /// Displays a transient status message (e.g. toggle confirmation), which reverts back to original photo info after timeout.
+    public func showMessage(_ message: String, duration: TimeInterval = 2.0) {
+        messageTimer?.invalidate()
+        fadeTimer?.invalidate()
+
         indexPill.isHidden = true
         pickBadge.isHidden = true
         colorBadge.isHidden = true
@@ -838,15 +856,31 @@ public final class GlassHudView: NSView {
         rawBadge.isHidden = true
         autoPill.isHidden = true
         filterPill.isHidden = true
+        profilePill.isHidden = true
+        zoomPill.isHidden = true
+        slideshowPill.isHidden = true
+        exportPill.isHidden = true
+
         metaLabel.stringValue = ""
         filenameLabel.stringValue = message
         filenameLabel.textColor = ThemeManager.shared.primaryTextColor
-        pulse()
+
+        fadeIn()
+
+        messageTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self = self else { return }
+                self.restoreLastInfo()
+                if !self.isPersistentlyVisible {
+                    self.scheduleFadeOut()
+                }
+            }
+        }
     }
 
     public func pulse() {
         fadeIn()
-        if !isPersistentlyVisible {
+        if !isPersistentlyVisible && messageTimer == nil {
             scheduleFadeOut()
         }
     }
@@ -872,6 +906,10 @@ public final class GlassHudView: NSView {
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.4
                     self.animator().alphaValue = 0.0
+                } completionHandler: {
+                    Task { @MainActor [weak self] in
+                        self?.restoreLastInfo()
+                    }
                 }
             }
         }
@@ -879,5 +917,6 @@ public final class GlassHudView: NSView {
 
     deinit {
         fadeTimer?.invalidate()
+        messageTimer?.invalidate()
     }
 }

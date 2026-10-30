@@ -524,6 +524,26 @@ public final class SlideView: NSView {
 
     // MARK: - 100% Zoom & Pan Mechanics
 
+    /// Converts a point in local pane coordinates to normalized [0, 1] image coordinates
+    private func imageNormalizedPoint(fromPaneLocalPoint pt: CGPoint, paneSize: CGSize, imageSize: CGSize) -> CGPoint {
+        guard imageSize.width > 0, imageSize.height > 0, paneSize.width > 0, paneSize.height > 0 else {
+            return CGPoint(x: 0.5, y: 0.5)
+        }
+        let fitScale = min(paneSize.width / imageSize.width, paneSize.height / imageSize.height)
+        let renderedW = imageSize.width * fitScale
+        let renderedH = imageSize.height * fitScale
+        let originX = (paneSize.width - renderedW) / 2.0
+        let originY = (paneSize.height - renderedH) / 2.0
+
+        let normX = (pt.x - originX) / renderedW
+        let normY = (pt.y - originY) / renderedH
+
+        return CGPoint(
+            x: max(0.0, min(1.0, normX)),
+            y: max(0.0, min(1.0, normY))
+        )
+    }
+
     public func setZoom(
         _ zoomed: Bool,
         anchorPointInView: CGPoint? = nil,
@@ -545,48 +565,59 @@ public final class SlideView: NSView {
             rightImageLayer.contents = rFullImg
         }
 
-        guard isZoomed != zoomed else { return }
+        if isZoomed == zoomed {
+            // When already zoomed and full-res image replaces the preview layer, refresh layout
+            if isZoomed && (fullResImage != nil || originalDimensions != nil || rightFullResImage != nil || rightOriginalDimensions != nil) {
+                updateLayerLayout(animated: false)
+            }
+            return
+        }
+
         isZoomed = zoomed
         hudView.updateZoomState(isZoomed)
 
         if isZoomed {
-            // Anchor zoom around cursor location
             let mousePt = anchorPointInView ?? CGPoint(x: bounds.midX, y: bounds.midY)
             let scale = window?.backingScaleFactor ?? 2.0
 
             if isSplitMode {
-                // In 2-up split mode, treat mouse offset relative to whichever split pane it clicked in
                 let halfWidth = (bounds.width - 2) / 2
-                let paneLocalX = mousePt.x > halfWidth ? (mousePt.x - (halfWidth + 2)) : mousePt.x
-                let centerOffset = CGPoint(
-                    x: (halfWidth / 2) - paneLocalX,
-                    y: bounds.midY - mousePt.y
-                )
-                let nativeW = currentImageSize.width > 0 ? (currentImageSize.width / scale) : halfWidth
-                let nativeH = currentImageSize.height > 0 ? (currentImageSize.height / scale) : bounds.height
+                let isRightPane = mousePt.x > halfWidth
+                let paneLocalX = isRightPane ? (mousePt.x - (halfWidth + 2)) : mousePt.x
+                let paneSize = CGSize(width: halfWidth, height: bounds.height)
 
-                let fitRatioX = nativeW / max(1, halfWidth)
-                let fitRatioY = nativeH / max(1, bounds.height)
+                // Compute exact normalized coordinate in the clicked pane's image
+                let clickedNormPt: CGPoint
+                if isRightPane {
+                    let rSize = rightImageSize.width > 0 ? rightImageSize : currentImageSize
+                    clickedNormPt = imageNormalizedPoint(fromPaneLocalPoint: CGPoint(x: paneLocalX, y: mousePt.y), paneSize: paneSize, imageSize: rSize)
+                } else {
+                    clickedNormPt = imageNormalizedPoint(fromPaneLocalPoint: CGPoint(x: paneLocalX, y: mousePt.y), paneSize: paneSize, imageSize: currentImageSize)
+                }
 
+                // Symmetrically position both left and right panes centered on clickedNormPt
+                let nativeW1 = (currentImageSize.width > 0 ? currentImageSize.width : halfWidth * scale) / scale
+                let nativeH1 = (currentImageSize.height > 0 ? currentImageSize.height : bounds.height * scale) / scale
                 zoomPanOffset = CGPoint(
-                    x: centerOffset.x * fitRatioX,
-                    y: centerOffset.y * fitRatioY
+                    x: (0.5 - clickedNormPt.x) * nativeW1,
+                    y: (0.5 - clickedNormPt.y) * nativeH1
                 )
-                rightZoomPanOffset = zoomPanOffset
+
+                let rSize = rightImageSize.width > 0 ? rightImageSize : currentImageSize
+                let nativeW2 = (rSize.width > 0 ? rSize.width : halfWidth * scale) / scale
+                let nativeH2 = (rSize.height > 0 ? rSize.height : bounds.height * scale) / scale
+                rightZoomPanOffset = CGPoint(
+                    x: (0.5 - clickedNormPt.x) * nativeW2,
+                    y: (0.5 - clickedNormPt.y) * nativeH2
+                )
             } else {
-                let centerOffset = CGPoint(
-                    x: bounds.midX - mousePt.x,
-                    y: bounds.midY - mousePt.y
-                )
-                let nativeW = currentImageSize.width / scale
-                let nativeH = currentImageSize.height / scale
-
-                let fitRatioX = nativeW / max(1, bounds.width)
-                let fitRatioY = nativeH / max(1, bounds.height)
+                let normPt = imageNormalizedPoint(fromPaneLocalPoint: mousePt, paneSize: bounds.size, imageSize: currentImageSize)
+                let nativeW = (currentImageSize.width > 0 ? currentImageSize.width : bounds.width * scale) / scale
+                let nativeH = (currentImageSize.height > 0 ? currentImageSize.height : bounds.height * scale) / scale
 
                 zoomPanOffset = CGPoint(
-                    x: centerOffset.x * fitRatioX,
-                    y: centerOffset.y * fitRatioY
+                    x: (0.5 - normPt.x) * nativeW,
+                    y: (0.5 - normPt.y) * nativeH
                 )
                 rightZoomPanOffset = zoomPanOffset
             }
