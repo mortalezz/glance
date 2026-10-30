@@ -521,6 +521,37 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+        // TEST 16: FaceDetectionEngine & Eye Focus Jump
+        do {
+            print("▶ Testing FaceDetectionEngine Apple Vision integration and caching...")
+            let engine = FaceDetectionEngine.shared
+            engine.clearCache()
+
+            // 1. Test blank synthetic image (safely returns 0 faces)
+            let blankImg = makeTestCGImage(width: 100, height: 100, r: 120, g: 120, b: 120)
+            let emptyFaces = await engine.detectFaces(in: blankImg, cacheKey: "blank_test")
+            assertEqual(emptyFaces.count, 0, "Blank synthetic image has 0 faces")
+
+            // 2. Test cache hit
+            let cached = engine.cachedFaces(for: "blank_test")
+            assertTrue(cached != nil, "Face results should be cached by key")
+            assertEqual(cached?.count, 0, "Cached count matches")
+
+            // 3. Test coordinate math for DetectedFace
+            let mockBox = CGRect(x: 0.3, y: 0.4, width: 0.4, height: 0.4)
+            let mockFace = DetectedFace(
+                boundingBox: mockBox,
+                eyeCenter: CGPoint(x: 0.5, y: 0.65),
+                leftEye: CGPoint(x: 0.4, y: 0.65),
+                rightEye: CGPoint(x: 0.6, y: 0.65),
+                confidence: 0.95
+            )
+            assertEqual(mockFace.eyeCenter.x, 0.5, "Eye center X coordinate")
+            assertEqual(mockFace.eyeCenter.y, 0.65, "Eye center Y coordinate")
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

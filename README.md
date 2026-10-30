@@ -48,6 +48,8 @@
 | :--- | :--- |
 | 🚀 **Zero-Latency Keyboard Navigation** | Speculative triple-buffering and asynchronous background lookahead decode make folder traversal instantaneous on 45MP+ RAW and high-resolution JPEG files. |
 | 🔍 **100% 1:1 Pixel Peep (`Z` / Click)** | Instant zoom to actual device sensor pixels centered right under your mouse cursor, with silky-smooth trackpad and mouse panning. |
+| 👁️ **Auto Face & Eye Jump (`Shift + Z` / `2×Z`)** | Offline Apple Vision & Neural Engine detects faces and eyes, automatically centering 1:1 zoom directly on the subject's eye without manual panning across 60MP sensors. |
+| 🎛️ **Tactile Trackpad Haptics** | Subtle physical clicks via `NSHapticFeedbackManager` whenever ratings (`1`–`5`), picks (`P`), rejects (`X`), or auto-advance are triggered. |
 | 👥 **2-Up Burst Compare (`S` / `Tab`)** | Side-by-side split comparison to catch micro-blur, closed eyes, and critical focus differences between consecutive frames, complete with synchronous 1:1 panning. |
 | 🏷️ **Adobe XMP Sidecar Synchronization** | Real-time, non-destructive rating (`★`), color tagging, and flag management fully compatible with **Adobe Lightroom Classic, Capture One, Darktable, and Photo Mechanic**. |
 | 🗂️ **RAW + JPEG Sibling Stacking** | Automatically pairs camera RAWs (`.ARW`, `.CR2`, `.CR3`, `.NEF`, `.RAF`, `.DNG`, etc.) with companion JPEGs, browsing the fast preview and inspecting master RAW sensor data during zoom. |
@@ -82,6 +84,7 @@ Press **`?`** (`Shift + /`) at any time inside Glance to toggle the interactive 
 | Key | Action | Description |
 | :---: | :--- | :--- |
 | **`Z`** / **Click** | **100% Pixel Peep 🔍** | Zoom to 1:1 sensor pixels at cursor; drag to pan |
+| **`Shift + Z`** / **`2×Z`** | **Auto Face & Eye Jump 👁️** | Centers 1:1 zoom directly on subject's eye; press again to cycle faces |
 | **`S`** / **`Tab`** | **2-Up Compare 👥** | Side-by-side comparison with synchronous 1:1 zoom & pan |
 | **`\`** | **Cycle Filters 🔀** | Cycles: `All` ➔ `Hide Rejects` ➔ `Picks Only` ➔ `Rejects Only` ➔ `Unrated` ➔ `3+ Stars` ➔ `5 Stars` |
 
@@ -141,7 +144,7 @@ brew upgrade --cask glance
 
 ### Option 2: Direct Download 📦
 Download the latest pre-compiled application bundle from the [**Releases Page**](https://github.com/mortalezz/glance/releases/latest):
-1. Download **`Glance-v1.1.1-macOS.zip`**.
+1. Download **`Glance-v1.1.2-macOS.zip`**.
 2. Unzip and drag `Glance.app` into your `/Applications` folder.
 3. Right-click any image in Finder ➔ *Open With* ➔ *Glance* (or set Glance as your default image viewer for instant full-screen glory).
 
@@ -176,6 +179,7 @@ swiftc -o /tmp/test_glance \
   Sources/Glance/Engine/ClippingEngine.swift \
   Sources/Glance/Engine/ExportManager.swift \
   Sources/Glance/Engine/LosslessRotationEngine.swift \
+  Sources/Glance/Engine/FaceDetectionEngine.swift \
   scripts/test_xmp.swift && /tmp/test_glance
 ```
 

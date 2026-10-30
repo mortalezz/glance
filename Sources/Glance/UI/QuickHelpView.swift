@@ -118,7 +118,7 @@ public final class QuickHelpView: NSView {
         grid.rowSpacing = 8
 
         let compactPairs: [(col1: (key: String, desc: String), col2: (key: String, desc: String))] = [
-            (("P", "Pick"), ("Z", "100% Zoom / Pan")),
+            (("P", "Pick"), ("Z / ⇧Z", "100% / Eye Jump")),
             (("X", "Reject"), ("S", "Split compare")),
             (("U", "Unflag"), ("H", "RGB Histogram")),
             (("1 – 5", "Rating"), ("O", "Clipping warning")),
@@ -206,7 +206,7 @@ public final class QuickHelpView: NSView {
         )] = [
             (
                 ("P", "Pick (Keeper)", "Flags photo as keeper. Writes crs:PickStatus to Adobe XMP sidecar."),
-                ("Z", "100% Pixel Peep", "Instant 1:1 sensor inspection centered at cursor. Drag to pan."),
+                ("Z / ⇧Z", "100% / Eye Jump", "Z: 1:1 at cursor. ⇧Z or 2×Z: Offline Apple Vision auto-detects and centers subject's eye."),
                 ("Return", "Slideshow", "Automated timed presentation. Any key or click stops it.")
             ),
             (

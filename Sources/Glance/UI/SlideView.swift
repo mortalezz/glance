@@ -24,6 +24,7 @@ public protocol SlideViewDelegate: AnyObject {
 
     // 100% Zoom Action
     func slideViewRequestZoomToggle(mouseLocation: CGPoint)
+    func slideViewJumpToFaceEye()
 
     // Phase 3: Histogram & Exposure Clipping
     func slideViewToggleHistogram()
@@ -78,6 +79,7 @@ public final class SlideView: NSView {
 
     private var cursorTimer: Timer?
     private var trackingArea: NSTrackingArea?
+    private var lastZPressTime: TimeInterval = 0
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -504,6 +506,48 @@ public final class SlideView: NSView {
         updateLayerLayout(animated: true)
     }
 
+    /// Zooms into 100% 1:1 pixel peeping centered precisely on a normalized image coordinate (e.g. detected subject eye)
+    public func zoomToNormalizedPoint(
+        _ normPoint: CGPoint,
+        fullResImage: CGImage? = nil,
+        originalDimensions: CGSize? = nil,
+        label: String? = nil
+    ) {
+        if let dims = originalDimensions {
+            currentImageSize = dims
+        }
+        if let fullImg = fullResImage {
+            leftImageLayer.contents = fullImg
+        }
+
+        isZoomed = true
+        hudView.updateZoomState(true)
+
+        let scale = window?.backingScaleFactor ?? 2.0
+        if isSplitMode {
+            let halfWidth = (bounds.width - 2) / 2
+            let nativeW = currentImageSize.width > 0 ? (currentImageSize.width / scale) : halfWidth
+            let nativeH = currentImageSize.height > 0 ? (currentImageSize.height / scale) : bounds.height
+            zoomPanOffset = CGPoint(
+                x: (0.5 - normPoint.x) * nativeW,
+                y: (0.5 - normPoint.y) * nativeH
+            )
+        } else {
+            let nativeW = currentImageSize.width > 0 ? (currentImageSize.width / scale) : bounds.width
+            let nativeH = currentImageSize.height > 0 ? (currentImageSize.height / scale) : bounds.height
+            zoomPanOffset = CGPoint(
+                x: (0.5 - normPoint.x) * nativeW,
+                y: (0.5 - normPoint.y) * nativeH
+            )
+        }
+
+        updateLayerLayout(animated: true)
+
+        if let msg = label {
+            hudView.showMessage(msg)
+        }
+    }
+
     public override func mouseDown(with event: NSEvent) {
         delegate?.slideViewStopSlideshow()
 
@@ -654,6 +698,25 @@ public final class SlideView: NSView {
             return
         }
 
+        // 100% Zoom & Auto Face/Eye Jump: 'Z' (KeyCode 6)
+        if lower == "z" || event.keyCode == 6 {
+            delegate?.slideViewStopSlideshow()
+            if isShift {
+                delegate?.slideViewJumpToFaceEye()
+            } else {
+                let now = ProcessInfo.processInfo.systemUptime
+                if now - lastZPressTime < 0.35 {
+                    delegate?.slideViewJumpToFaceEye()
+                } else {
+                    let mouseInWindow = window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: bounds.midX, y: bounds.midY)
+                    let localPt = convert(mouseInWindow, from: nil)
+                    delegate?.slideViewRequestZoomToggle(mouseLocation: localPt)
+                }
+                lastZPressTime = now
+            }
+            return
+        }
+
         // Quick Help Cheatsheet: '?' only (Shift + /)
         if chars == "?" || (event.keyCode == 44 && isShift) {
             toggleHelp()
@@ -681,11 +744,7 @@ public final class SlideView: NSView {
             if isZoomed { setZoom(false) }
             delegate?.slideViewRequestLast()
 
-        // 'Z' key (KeyCode 6) -> 100% 1:1 Pixel Peep Zoom
-        case 6:
-            let mouseInWindow = window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: bounds.midX, y: bounds.midY)
-            let localPt = convert(mouseInWindow, from: nil)
-            delegate?.slideViewRequestZoomToggle(mouseLocation: localPt)
+        // 'Z' key handled in layout-independent section above
 
         // Delete / Backspace
         case 51, 117:

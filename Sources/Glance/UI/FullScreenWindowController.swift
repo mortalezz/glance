@@ -28,6 +28,10 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     private var slideshowInterval: Double = 3.0
     private var slideshowTimer: Timer? = nil
 
+    // Auto Face & Eye Focus Jump
+    private var detectedFacesForCurrentSlide: [DetectedFace] = []
+    private var currentFaceIndex: Int = 0
+
     private var isExporting: Bool = false
     private var exportProgressText: String? = nil
 
@@ -228,6 +232,18 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             if isClippingVisible {
                 updateClippingMaskAsync(for: decoded.image, nextImage: splitCgImage)
             }
+
+            // Pre-detect faces asynchronously via Apple Neural Engine (ANE)
+            currentFaceIndex = 0
+            detectedFacesForCurrentSlide = []
+            let currentPath = item.url.path
+            Task.detached(priority: .utility) { [weak self] in
+                let faces = await FaceDetectionEngine.shared.detectFaces(in: decoded.image, cacheKey: currentPath)
+                await MainActor.run { [weak self] in
+                    guard let self = self, self.currentRawIndex == rawIndex else { return }
+                    self.detectedFacesForCurrentSlide = faces
+                }
+            }
         } catch {
             let info = HudInfo(
                 currentIndex: currentFilteredPos,
@@ -384,6 +400,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     public func slideViewRequestZoomToggle(mouseLocation: CGPoint) {
         stopSlideshowIfRunning()
         if slideView.isZoomed {
+            currentFaceIndex = 0
             slideView.setZoom(false)
         } else {
             guard let rawIndex = currentRawIndex else { return }
@@ -421,6 +438,55 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                         rightOriginalDimensions: rightDims
                     )
                 }
+            }
+        }
+    }
+
+    // MARK: - Auto Face & Eye Focus Jump
+
+    public func slideViewJumpToFaceEye() {
+        stopSlideshowIfRunning()
+        guard let rawIndex = currentRawIndex else { return }
+        let item = allItems[rawIndex]
+
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+
+        Task {
+            var faces = self.detectedFacesForCurrentSlide
+            if faces.isEmpty {
+                if let decoded = try? await self.pipeline.getImage(at: rawIndex) {
+                    faces = await FaceDetectionEngine.shared.detectFaces(in: decoded.image, cacheKey: item.url.path)
+                    self.detectedFacesForCurrentSlide = faces
+                }
+            }
+
+            guard !faces.isEmpty else {
+                self.slideView.hudView.showMessage("No faces detected in frame")
+                if !self.slideView.isZoomed {
+                    let mouseInWindow = self.window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: self.slideView.bounds.midX, y: self.slideView.bounds.midY)
+                    let localPt = self.slideView.convert(mouseInWindow, from: nil)
+                    self.slideView.setZoom(true, anchorPointInView: localPt)
+                }
+                return
+            }
+
+            let faceIdx = self.currentFaceIndex % faces.count
+            let targetFace = faces[faceIdx]
+            self.currentFaceIndex += 1
+
+            let label = faces.count > 1
+                ? "👁️ Face \(faceIdx + 1)/\(faces.count) (Eye Focus)"
+                : "👁️ Eye Focus"
+
+            self.slideView.zoomToNormalizedPoint(targetFace.eyeCenter, label: label)
+
+            if let fullRes = try? await self.pipeline.getFullResolutionImage(at: rawIndex) {
+                let fullDims = CGSize(width: fullRes.originalWidth, height: fullRes.originalHeight)
+                self.slideView.zoomToNormalizedPoint(
+                    targetFace.eyeCenter,
+                    fullResImage: fullRes.image,
+                    originalDimensions: fullDims
+                )
             }
         }
     }
@@ -494,6 +560,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
     public func slideViewSetRating(_ rating: Int) {
         guard let rawIndex = currentRawIndex else { return }
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
         let item = allItems[rawIndex]
         var meta = cullingData[item.id] ?? CullingMetadata()
         meta.rating = (meta.rating == rating) ? 0 : rating
@@ -505,6 +572,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
     public func slideViewSetPick(_ pick: PickStatus) {
         guard let rawIndex = currentRawIndex else { return }
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
         let item = allItems[rawIndex]
         var meta = cullingData[item.id] ?? CullingMetadata()
         meta.pick = (meta.pick == pick) ? .unflagged : pick
@@ -516,6 +584,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
     public func slideViewSetColor(_ color: ColorLabel) {
         guard let rawIndex = currentRawIndex else { return }
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
         let item = allItems[rawIndex]
         var meta = cullingData[item.id] ?? CullingMetadata()
         meta.color = (meta.color == color) ? .none : color
@@ -553,6 +622,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
     public func slideViewToggleAutoAdvance() {
         autoAdvance.toggle()
+        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .default)
         let status = autoAdvance ? "Auto-Advance: ON [C]" : "Auto-Advance: OFF [C]"
         slideView.hudView.showMessage(status)
         Task {
