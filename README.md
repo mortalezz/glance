@@ -117,13 +117,24 @@ Press **`?`** (`Shift + /`) at any time inside Glance to toggle the interactive 
 
 ## 🚀 Download & Installation
 
-### Option 1: Direct Download (Recommended) 📦
+### Option 1: Install via Homebrew 🍺 (Recommended)
+```bash
+brew install --cask mortalezz/tap/glance
+```
+
+*Or tap the repository first:*
+```bash
+brew tap mortalezz/tap
+brew install --cask glance
+```
+
+### Option 2: Direct Download 📦
 Download the latest pre-compiled application bundle from the [**Releases Page**](https://github.com/mortalezz/glance/releases/latest):
 1. Download **`Glance-v1.1.0-macOS.zip`**.
 2. Unzip and drag `Glance.app` into your `/Applications` folder.
 3. Right-click any image in Finder ➔ *Open With* ➔ *Glance* (or set Glance as your default image viewer for instant full-screen glory).
 
-### Option 2: Build from Source 🛠️
+### Option 3: Build from Source 🛠️
 ```bash
 # Clone the repository
 git clone https://github.com/mortalezz/glance.git
