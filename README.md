@@ -59,6 +59,7 @@
 | 🛡️ **Silent FSEvents Directory Sync** | Monitors folder for new photos with `kFSEventStreamCreateFlagIgnoreSelf` and path filters, completely ignoring Glance’s own XMP writes to eliminate cache thrashing. |
 | 📊 **Hardware RGB & Luminance Histogram (`H`)** | 256-bin SIMD/vImage hardware-accelerated histogram rendered inside an Apple Vibrancy frosted-glass HUD with shadow and highlight clipping indicators. |
 | 🚨 **Exposure Clipping Warnings / "Blinkies" (`O`)** | Animated pulsating zebra overlays for overexposed blown highlights (Red) and underexposed crushed shadows (Blue). |
+| 🎯 **Real-Time Focus Peaking Overlay (`Shift + F`)** | Camera EVF-style neon green (#00FF50) edge highlight powered by Accelerate.vImage Laplacian convolution to instantly verify critical plane of focus. |
 | 📷 **Dedicated Frosted EXIF HUD (`I`)** | Displays lens model, camera body, shutter speed, aperture, ISO, focal length, and capture date in a clean glass overlay. |
 | 🔄 **Lossless EXIF Rotation (`R` / `]` and `L` / `[` )** | Rotates JPEGs, HEICs, and RAW XMP sidecars in 90° increments without re-compressing pixels. |
 | 📦 **One-Key Quick Export (`E`)** | Copies all flagged Picks (or current photo) and companion sidecars to `./Picks` with sound confirmation and Finder reveal. |
@@ -87,6 +88,7 @@ Press **`?`** (`Shift + /`) at any time inside Glance to toggle the interactive 
 | :---: | :--- | :--- |
 | **`Z`** / **Click** | **100% Pixel Peep 🔍** | Zoom to 1:1 sensor pixels at cursor; drag to pan |
 | **`Shift + Z`** / **`2×Z`** | **Auto Face & Eye Jump 👁️** | Centers 1:1 zoom directly on subject's eye; press again to cycle faces |
+| **`Shift + F`** | **Focus Peaking Overlay 🎯** | Real-time camera EVF neon green highlight on in-focus contrast edges |
 | **`S`** / **`Tab`** | **2-Up Compare 👥** | Side-by-side comparison with synchronous 1:1 zoom & pan |
 | **`\`** | **Cycle Filters 🔀** | Cycles: `All` ➔ `Hide Rejects` ➔ `Picks Only` ➔ `Rejects Only` ➔ `Unrated` ➔ `3+ Stars` ➔ `5 Stars` |
 
@@ -182,6 +184,7 @@ swiftc -o /tmp/test_glance \
   Sources/Glance/Engine/XmpSidecarManager.swift \
   Sources/Glance/Engine/HistogramEngine.swift \
   Sources/Glance/Engine/ClippingEngine.swift \
+  Sources/Glance/Engine/FocusPeakingEngine.swift \
   Sources/Glance/Engine/ExportManager.swift \
   Sources/Glance/Engine/LosslessRotationEngine.swift \
   Sources/Glance/Engine/FaceDetectionEngine.swift \

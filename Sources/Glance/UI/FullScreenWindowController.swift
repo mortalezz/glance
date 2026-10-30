@@ -21,6 +21,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     // Phase 3: Histogram & Clipping Warnings
     private var isHistogramVisible: Bool = false
     private var isClippingVisible: Bool = false
+    private var isFocusPeakingVisible: Bool = false
     private var isExifVisible: Bool = false
 
     // Phase 4: Output & Productivity
@@ -236,6 +237,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             if isClippingVisible {
                 updateClippingMaskAsync(for: decoded.image, nextImage: splitCgImage)
             }
+            if isFocusPeakingVisible {
+                updatePeakingMaskAsync(for: decoded.image, nextImage: splitCgImage)
+            }
 
             // Pre-detect faces asynchronously via Apple Neural Engine (ANE)
             currentFaceIndex = 0
@@ -264,6 +268,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             )
             slideView.displayImage(nil, info: info)
             slideView.updateClippingMask(nil, rightMask: nil)
+            slideView.updatePeakingMask(nil, rightMask: nil)
         }
     }
 
@@ -553,6 +558,28 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         }
     }
 
+    public func slideViewToggleFocusPeaking() {
+        isFocusPeakingVisible.toggle()
+        slideView.setPeakingActive(isFocusPeakingVisible)
+        let msg = isFocusPeakingVisible ? "Focus Peaking: ON [⇧F]" : "Focus Peaking: OFF [⇧F]"
+        slideView.hudView.showMessage(msg)
+
+        if isFocusPeakingVisible, let rawIndex = currentRawIndex {
+            Task {
+                if let decoded = try? await pipeline.getImage(at: rawIndex) {
+                    var nextImg: CGImage? = nil
+                    if slideView.isSplitMode && currentFilteredPos + 1 < filteredIndices.count {
+                        let nextRaw = filteredIndices[currentFilteredPos + 1]
+                        nextImg = (try? await pipeline.getImage(at: nextRaw))?.image
+                    }
+                    updatePeakingMaskAsync(for: decoded.image, nextImage: nextImg)
+                }
+            }
+        } else {
+            slideView.updatePeakingMask(nil, rightMask: nil)
+        }
+    }
+
     private func updateHistogramAsync(for cgImage: CGImage) {
         Task.detached(priority: .userInitiated) { [weak self] in
             let data = HistogramEngine.compute(for: cgImage)
@@ -563,11 +590,25 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     }
 
     private func updateClippingMaskAsync(for cgImage: CGImage, nextImage: CGImage? = nil) {
+        let expectedIndex = currentRawIndex
         Task.detached(priority: .userInitiated) { [weak self] in
             let mask = ClippingEngine.generateClippingMask(for: cgImage)
             let rightMask: CGImage? = (nextImage != nil) ? ClippingEngine.generateClippingMask(for: nextImage!) : nil
             Task { @MainActor [weak self] in
-                self?.slideView.updateClippingMask(mask, rightMask: rightMask)
+                guard let self = self, self.currentRawIndex == expectedIndex else { return }
+                self.slideView.updateClippingMask(mask, rightMask: rightMask)
+            }
+        }
+    }
+
+    private func updatePeakingMaskAsync(for cgImage: CGImage, nextImage: CGImage? = nil) {
+        let expectedIndex = currentRawIndex
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let mask = FocusPeakingEngine.generatePeakingMask(for: cgImage)
+            let rightMask: CGImage? = (nextImage != nil) ? FocusPeakingEngine.generatePeakingMask(for: nextImage!) : nil
+            Task { @MainActor [weak self] in
+                guard let self = self, self.currentRawIndex == expectedIndex else { return }
+                self.slideView.updatePeakingMask(mask, rightMask: rightMask)
             }
         }
     }

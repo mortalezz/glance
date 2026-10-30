@@ -128,7 +128,7 @@ public final class QuickHelpView: NSView {
             (("E", "Export picks"), ("+ / -", "Slideshow speed")),
             (("R / L", "Rotate 90°"), ("\\", "Cycle filter")),
             (("⌫", "Trash photo"), ("⇧ ⌫", "Purge rejects")),
-            (("F", "Full screen"), ("Space", "Next / Expand")),
+            (("F / ⇧F", "Screen / Peaking"), ("Space", "Next / Expand")),
             (("⌘Z", "Undo / Redo"), ("⌘↵", "Open in Editor")),
             (("?", "Cheatsheet"), ("Esc / Q", "Quit to Finder"))
         ]
@@ -242,7 +242,7 @@ public final class QuickHelpView: NSView {
             ),
             (
                 ("Space", "Traverse / Expand", "Next photo. In cheatsheet, toggles compact and detailed views."),
-                ("F", "Full Screen", "Toggles edge-to-edge full screen presentation mode."),
+                ("F / ⇧F", "Full Screen / Peaking", "F: edge-to-edge presentation mode. ⇧F: live EVF focus peaking overlay."),
                 ("?", "Cheatsheet", "Toggles this keyboard shortcut help overlay.")
             ),
             (

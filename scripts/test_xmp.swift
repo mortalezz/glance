@@ -607,6 +607,32 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+        // TEST 18: FocusPeakingEngine (Accelerate vImage Laplacian Edge Detection & Neon Mask Generation)
+        do {
+            print("▶ Testing FocusPeakingEngine Laplacian edge detection and EVF neon mask generation...")
+
+            // Uniform color image: zero contrast edges -> nil mask
+            let flatImg = makeTestCGImage(width: 64, height: 64, r: 128, g: 128, b: 128)
+            let flatMask = FocusPeakingEngine.generatePeakingMask(for: flatImg)
+            assertTrue(flatMask == nil, "Uniform flat image must produce nil focus peaking mask")
+
+            // High-contrast sharp edge image: black background with bright white square
+            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let ctx = CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 64 * 4, space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+            ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+            ctx.fill(CGRect(x: 16, y: 16, width: 32, height: 32))
+            let edgeImg = ctx.makeImage()!
+
+            let edgeMask = FocusPeakingEngine.generatePeakingMask(for: edgeImg, threshold: 30)
+            assertTrue(edgeMask != nil, "High-contrast sharp edge must produce non-nil peaking mask")
+            assertEqual(edgeMask?.width, 64, "Peaking mask width matches")
+            assertEqual(edgeMask?.height, 64, "Peaking mask height matches")
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

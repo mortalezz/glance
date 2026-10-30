@@ -29,6 +29,7 @@ public protocol SlideViewDelegate: AnyObject {
     // Phase 3: Histogram & Exposure Clipping
     func slideViewToggleHistogram()
     func slideViewToggleClipping()
+    func slideViewToggleFocusPeaking()
     func slideViewToggleExif()
 
     // Undo & Redo Actions
@@ -55,10 +56,12 @@ public final class SlideView: NSView {
     private let leftContainerLayer = CALayer()
     private let leftImageLayer = CALayer()
     private let leftClippingLayer = CALayer()
+    private let leftPeakingLayer = CALayer()
 
     private let rightContainerLayer = CALayer()
     private let rightImageLayer = CALayer()
     private let rightClippingLayer = CALayer()
+    private let rightPeakingLayer = CALayer()
 
     // Aliases for compatibility
     private var containerLayer: CALayer { leftContainerLayer }
@@ -73,6 +76,7 @@ public final class SlideView: NSView {
     public private(set) var isSplitMode: Bool = false
     public private(set) var isZoomed: Bool = false
     public private(set) var isClippingActive: Bool = false
+    public private(set) var isPeakingActive: Bool = false
 
     // Zoom & Pan state
     private var zoomPanOffset: CGPoint = .zero
@@ -132,6 +136,18 @@ public final class SlideView: NSView {
         leftClippingLayer.isHidden = true
         leftImageLayer.addSublayer(leftClippingLayer)
 
+        // Left Focus Peaking Overlay Layer (EVF Neon Green)
+        leftPeakingLayer.backgroundColor = NSColor.clear.cgColor
+        leftPeakingLayer.actions = [
+            "contents": NSNull(),
+            "bounds": NSNull(),
+            "position": NSNull(),
+            "transform": NSNull(),
+            "opacity": NSNull()
+        ]
+        leftPeakingLayer.isHidden = true
+        leftImageLayer.addSublayer(leftPeakingLayer)
+
         // Right Container Layer (for 2-Up Split Compare)
         rightContainerLayer.backgroundColor = NSColor.black.cgColor
         rightContainerLayer.masksToBounds = true
@@ -160,6 +176,18 @@ public final class SlideView: NSView {
         ]
         rightClippingLayer.isHidden = true
         rightImageLayer.addSublayer(rightClippingLayer)
+
+        // Right Focus Peaking Overlay Layer
+        rightPeakingLayer.backgroundColor = NSColor.clear.cgColor
+        rightPeakingLayer.actions = [
+            "contents": NSNull(),
+            "bounds": NSNull(),
+            "position": NSNull(),
+            "transform": NSNull(),
+            "opacity": NSNull()
+        ]
+        rightPeakingLayer.isHidden = true
+        rightImageLayer.addSublayer(rightPeakingLayer)
     }
 
     private func setupHud() {
@@ -314,6 +342,8 @@ public final class SlideView: NSView {
 
         leftClippingLayer.frame = leftImageLayer.bounds
         rightClippingLayer.frame = rightImageLayer.bounds
+        leftPeakingLayer.frame = leftImageLayer.bounds
+        rightPeakingLayer.frame = rightImageLayer.bounds
 
         CATransaction.commit()
     }
@@ -370,6 +400,8 @@ public final class SlideView: NSView {
         splitLayer.contents = nil
         leftClippingLayer.contents = nil
         rightClippingLayer.contents = nil
+        leftPeakingLayer.contents = nil
+        rightPeakingLayer.contents = nil
         CATransaction.commit()
 
         hudView.showMessage(message)
@@ -436,6 +468,20 @@ public final class SlideView: NSView {
     private func stopBlinkyAnimation() {
         leftClippingLayer.removeAnimation(forKey: "blinkyPulse")
         rightClippingLayer.removeAnimation(forKey: "blinkyPulse")
+    }
+
+    public func setPeakingActive(_ active: Bool) {
+        isPeakingActive = active
+        leftPeakingLayer.isHidden = !active
+        rightPeakingLayer.isHidden = !active
+    }
+
+    public func updatePeakingMask(_ mask: CGImage?, rightMask: CGImage? = nil) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        leftPeakingLayer.contents = mask
+        rightPeakingLayer.contents = rightMask
+        CATransaction.commit()
     }
 
     // MARK: - 100% Zoom & Pan Mechanics
@@ -738,6 +784,12 @@ public final class SlideView: NSView {
                 }
                 lastZPressTime = now
             }
+            return
+        }
+
+        // Focus Peaking: Shift + F
+        if isShift && (lower == "f" || event.keyCode == 3) {
+            delegate?.slideViewToggleFocusPeaking()
             return
         }
 
