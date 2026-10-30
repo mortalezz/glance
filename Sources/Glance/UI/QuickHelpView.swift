@@ -114,7 +114,7 @@ public final class QuickHelpView: NSView {
         // Balanced 2-column table grid (12 rows each, perfectly aligned horizontally)
         let grid = NSGridView()
         grid.translatesAutoresizingMaskIntoConstraints = false
-        grid.columnSpacing = 38
+        grid.columnSpacing = 32
         grid.rowSpacing = 8
 
         let compactPairs: [(col1: (key: String, desc: String), col2: (key: String, desc: String))] = [
@@ -129,7 +129,7 @@ public final class QuickHelpView: NSView {
             (("R / L", "Rotate 90°"), ("\\", "Cycle filter")),
             (("⌫", "Trash photo"), ("⇧ ⌫", "Purge rejects")),
             (("F", "Full screen"), ("Space", "Next / Expand")),
-            (("⌘Z / ⇧⌘Z", "Undo / Redo"), ("⌘↵", "Open in Editor")),
+            (("⌘Z / ⇧Z", "Undo / Redo"), ("⌘↵", "Open in Editor")),
             (("?", "Cheatsheet"), ("Esc / Q", "Quit to Finder"))
         ]
 
@@ -139,8 +139,8 @@ public final class QuickHelpView: NSView {
             grid.addRow(with: [rowCell1, rowCell2])
         }
 
-        grid.column(at: 0).width = 175
-        grid.column(at: 1).width = 185
+        grid.column(at: 0).width = 185
+        grid.column(at: 1).width = 200
 
         stack.addArrangedSubview(grid)
         compactContainer.addSubview(stack)
@@ -241,7 +241,7 @@ public final class QuickHelpView: NSView {
                 ("?", "Cheatsheet", "Toggles this keyboard shortcut help overlay.")
             ),
             (
-                ("⌘Z / ⇧⌘Z", "Undo / Redo", "Reverts ratings, flags, color tags, rotations, and restores trashed photos."),
+                ("⌘Z / ⇧Z", "Undo / Redo", "Reverts ratings, flags, color tags, rotations, and restores trashed photos."),
                 ("⌘↵ / ⌘O", "Open in Editor", "Opens active RAW/photo in default editor (Lightroom, Photoshop, Preview)."),
                 ("Esc / Q", "Quit to Finder", "Unequivocally quits Glance to reveal Finder immediately.")
             )
@@ -254,10 +254,10 @@ public final class QuickHelpView: NSView {
             grid.addRow(with: [cell1, cell2, cell3])
         }
 
-        // Explicit generous 265pt width per column gives ample breathing room
-        grid.column(at: 0).width = 265
-        grid.column(at: 1).width = 265
-        grid.column(at: 2).width = 265
+        grid.rowSpacing = 12
+        grid.column(at: 0).width = 275
+        grid.column(at: 1).width = 275
+        grid.column(at: 2).width = 275
 
         stack.addArrangedSubview(grid)
         expandedContainer.addSubview(stack)
@@ -327,11 +327,15 @@ public final class QuickHelpView: NSView {
 
         keycap.addSubview(keyLabel)
         NSLayoutConstraint.activate([
-            keycap.widthAnchor.constraint(equalToConstant: 46),
             keycap.heightAnchor.constraint(equalToConstant: 21),
+            keycap.widthAnchor.constraint(greaterThanOrEqualToConstant: 58),
+            keycap.widthAnchor.constraint(greaterThanOrEqualTo: keyLabel.widthAnchor, constant: 14),
             keyLabel.centerXAnchor.constraint(equalTo: keycap.centerXAnchor),
             keyLabel.centerYAnchor.constraint(equalTo: keycap.centerYAnchor)
         ])
+
+        keycap.setContentHuggingPriority(.required, for: .horizontal)
+        keycap.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         keycaps.append(keycap)
         keyLabels.append(keyLabel)
