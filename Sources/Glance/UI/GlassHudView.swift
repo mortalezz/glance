@@ -193,6 +193,9 @@ public final class GlassHudView: NSView {
     private let filterPill = NSView()
     private let filterLabel = NSTextField(labelWithString: "")
 
+    private let profilePill = NSView()
+    private let profileLabel = NSTextField(labelWithString: "")
+
     private let zoomPill = NSView()
     private let zoomLabel = NSTextField(labelWithString: "100%")
 
@@ -440,6 +443,30 @@ public final class GlassHudView: NSView {
         ])
         stackView.addArrangedSubview(filterPill)
 
+        // Profile / Picture Control Pill
+        profilePill.wantsLayer = true
+        profilePill.layer?.backgroundColor = NSColor.systemIndigo.withAlphaComponent(0.25).cgColor
+        profilePill.layer?.borderColor = NSColor.systemIndigo.withAlphaComponent(0.55).cgColor
+        profilePill.layer?.borderWidth = 0.5
+        profilePill.layer?.cornerRadius = 5
+        profilePill.layer?.cornerCurve = .continuous
+        profilePill.translatesAutoresizingMaskIntoConstraints = false
+
+        profilePill.isHidden = true
+        profileLabel.font = NSFont.systemFont(ofSize: 9, weight: .bold)
+        profileLabel.textColor = NSColor.systemIndigo
+        profileLabel.alignment = .center
+        profileLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        profilePill.addSubview(profileLabel)
+        NSLayoutConstraint.activate([
+            profileLabel.topAnchor.constraint(equalTo: profilePill.topAnchor, constant: 2),
+            profileLabel.bottomAnchor.constraint(equalTo: profilePill.bottomAnchor, constant: -2),
+            profileLabel.leadingAnchor.constraint(equalTo: profilePill.leadingAnchor, constant: 6),
+            profileLabel.trailingAnchor.constraint(equalTo: profilePill.trailingAnchor, constant: -6)
+        ])
+        stackView.addArrangedSubview(profilePill)
+
         // 9. Zoom 100% Indicator Pill
         zoomPill.wantsLayer = true
         zoomPill.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.2).cgColor
@@ -683,6 +710,7 @@ public final class GlassHudView: NSView {
             filterPill.isHidden = false
         } else {
             filterPill.isHidden = true
+        profilePill.isHidden = true
         }
 
         if let error = info.errorMessage {
@@ -717,6 +745,14 @@ public final class GlassHudView: NSView {
             } else {
                 rawBadge.isHidden = true
             }
+        }
+
+        // Profile Pill
+        if let prof = info.culling.cameraProfile, prof != .asShot {
+            profileLabel.stringValue = prof.displayName.uppercased()
+            profilePill.isHidden = false
+        } else {
+            profilePill.isHidden = true
         }
 
         // 100% Zoom Pill

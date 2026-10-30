@@ -660,11 +660,11 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
         cullingUndoManager.record(.profile(itemID: item.id, rawIndex: rawIndex, previous: previous, new: nextProfile))
 
-        slideView.hudView.showMessage("Profile: \(nextProfile.displayName) [V]")
         saveMetadataAsync(meta: meta, for: item)
 
         Task {
             await loadAndDisplayCurrent()
+            slideView.hudView.showMessage("Profile: \(nextProfile.displayName) [V]")
         }
     }
 
