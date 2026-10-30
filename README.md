@@ -128,13 +128,10 @@ brew tap mortalezz/tap
 brew install --cask glance
 ```
 
-> **Note:** The cask automatically strips the macOS Gatekeeper quarantine attribute upon pouring into `/Applications`. If you previously installed Glance, run `brew reinstall --cask glance` to apply the updated cask.
-
-*Or tap the repository first:*
-```bash
-brew tap mortalezz/tap
-brew install --cask glance
-```
+> **First Launch:** On first launch, if macOS displays an *"unverified developer"* notice (as Glance is distributed outside the Mac App Store), simply **Right-Click (Control-Click) `Glance.app` in `/Applications` ➔ Open** once, or run:
+> ```bash
+> xattr -cr /Applications/Glance.app
+> ```
 
 ### Option 2: Direct Download 📦
 Download the latest pre-compiled application bundle from the [**Releases Page**](https://github.com/mortalezz/glance/releases/latest):
