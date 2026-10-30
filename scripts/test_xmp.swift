@@ -552,6 +552,61 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+        // TEST 17: Multi-Level Undo & Redo (CullingUndoManager & Trash Restoration)
+        do {
+            print("▶ Testing CullingUndoManager action recording, undo/redo stacks, and trash restoration...")
+            let undoMgr = CullingUndoManager()
+            undoMgr.clear()
+            assertTrue(!undoMgr.canUndo, "Undo stack should initially be empty")
+            assertTrue(!undoMgr.canRedo, "Redo stack should initially be empty")
+
+            // 1. Record rating action
+            undoMgr.record(.rating(itemID: "item1", rawIndex: 0, previous: 0, new: 5))
+            assertTrue(undoMgr.canUndo, "Should be able to undo after recording")
+            assertTrue(!undoMgr.canRedo, "Redo stack cleared on new action")
+
+            // 2. Undo rating
+            guard let poppedAction = undoMgr.popUndo() else {
+                fatalError("Expected action to pop")
+            }
+            if case .rating(let id, _, let prev, let new) = poppedAction {
+                assertEqual(id, "item1", "Item ID matches")
+                assertEqual(prev, 0, "Previous rating restored to 0")
+                assertEqual(new, 5, "New rating was 5")
+            } else {
+                fatalError("Unexpected action type")
+            }
+            assertTrue(undoMgr.canRedo, "Should be able to redo after undo")
+
+            // 3. Redo rating
+            guard let redoAction = undoMgr.popRedo() else {
+                fatalError("Expected redo action")
+            }
+            if case .rating(let id, _, _, let new) = redoAction {
+                assertEqual(id, "item1", "Item ID matches")
+                assertEqual(new, 5, "Redone rating is 5")
+            } else {
+                fatalError("Unexpected redo action type")
+            }
+
+            // 4. Test physical trash and restoration via TrashManager
+            let trashTestDir = tempDir.appendingPathComponent("TrashTest_\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: trashTestDir, withIntermediateDirectories: true)
+            let testFile = trashTestDir.appendingPathComponent("undo_test.jpg")
+            try Data("PHOTO-BYTES".utf8).write(to: testFile)
+
+            let trashedURL = try await TrashManager.moveToTrash(url: testFile)
+            assertTrue(!FileManager.default.fileExists(atPath: testFile.path), "Original file moved to trash")
+
+            let record = TrashedFileRecord(originalURL: testFile, trashedURL: trashedURL)
+            try await TrashManager.restore(record: record)
+            assertTrue(FileManager.default.fileExists(atPath: testFile.path), "File restored to original path")
+            let restoredData = try Data(contentsOf: testFile)
+            assertEqual(String(data: restoredData, encoding: .utf8), "PHOTO-BYTES", "Restored content intact")
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

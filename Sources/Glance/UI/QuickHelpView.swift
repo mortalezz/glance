@@ -129,6 +129,7 @@ public final class QuickHelpView: NSView {
             (("R / L", "Rotate 90°"), ("\\", "Cycle filter")),
             (("⌫", "Trash photo"), ("⇧ ⌫", "Purge rejects")),
             (("F", "Full screen"), ("Space", "Next / Expand")),
+            (("⌘Z / ⇧⌘Z", "Undo / Redo"), ("⌘↵", "Open in Editor")),
             (("?", "Cheatsheet"), ("Esc / Q", "Quit to Finder"))
         ]
 
@@ -237,6 +238,11 @@ public final class QuickHelpView: NSView {
             (
                 ("Space", "Traverse / Expand", "Next photo. In cheatsheet, toggles compact and detailed views."),
                 ("F", "Full Screen", "Toggles edge-to-edge full screen presentation mode."),
+                ("?", "Cheatsheet", "Toggles this keyboard shortcut help overlay.")
+            ),
+            (
+                ("⌘Z / ⇧⌘Z", "Undo / Redo", "Reverts ratings, flags, color tags, rotations, and restores trashed photos."),
+                ("⌘↵ / ⌘O", "Open in Editor", "Opens active RAW/photo in default editor (Lightroom, Photoshop, Preview)."),
                 ("Esc / Q", "Quit to Finder", "Unequivocally quits Glance to reveal Finder immediately.")
             )
         ]

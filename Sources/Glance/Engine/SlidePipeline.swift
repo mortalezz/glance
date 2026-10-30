@@ -208,6 +208,36 @@ public actor SlidePipeline {
         return currentIndex
     }
 
+    /// Inserts an item at the given index and shifts internal cache keys appropriately.
+    public func insertItem(_ item: SlideItem, at index: Int) -> Int {
+        let insertIdx = max(0, min(index, items.count))
+        items.insert(item, at: insertIdx)
+
+        var newCache: [Int: DecodedImage] = [:]
+        for (k, v) in cache {
+            if k < insertIdx {
+                newCache[k] = v
+            } else {
+                newCache[k + 1] = v
+            }
+        }
+        cache = newCache
+
+        var newTasks: [Int: Task<DecodedImage, Error>] = [:]
+        for (k, v) in inFlightTasks {
+            if k < insertIdx {
+                newTasks[k] = v
+            } else {
+                newTasks[k + 1] = v
+            }
+        }
+        inFlightTasks = newTasks
+
+        currentIndex = insertIdx
+        pruneAndPreload(around: currentIndex, direction: .forward)
+        return currentIndex
+    }
+
     /// Invalidates cached decoded representations for a specific item (e.g. after lossless rotation).
     public func invalidateCache(at index: Int) {
         cache.removeValue(forKey: index)

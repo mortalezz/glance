@@ -4,6 +4,14 @@ public enum PickStatus: Int, Sendable, Codable {
     case unflagged = 0
     case pick = 1
     case reject = -1
+
+    public var title: String {
+        switch self {
+        case .unflagged: return "Unflagged"
+        case .pick: return "Pick (Keeper)"
+        case .reject: return "Reject"
+        }
+    }
 }
 
 public enum ColorLabel: Int, Sendable, Codable {

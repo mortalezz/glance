@@ -50,6 +50,8 @@
 | 🔍 **100% 1:1 Pixel Peep (`Z` / Click)** | Instant zoom to actual device sensor pixels centered right under your mouse cursor, with silky-smooth trackpad and mouse panning. |
 | 👁️ **Auto Face & Eye Jump (`Shift + Z` / `2×Z`)** | Offline Apple Vision & Neural Engine detects faces and eyes, automatically centering 1:1 zoom directly on the subject's eye without manual panning across 60MP sensors. |
 | 🎛️ **Tactile Trackpad Haptics** | Subtle physical clicks via `NSHapticFeedbackManager` whenever ratings (`1`–`5`), picks (`P`), rejects (`X`), or auto-advance are triggered. |
+| ↩️ **Multi-Level Undo & Redo (`Cmd + Z` / `Cmd + Shift + Z`)** | 100-step in-memory undo/redo stack for star ratings, color tags, picks, lossless rotations, and physical trash recovery. |
+| 🎨 **External App Handoff (`Cmd + Enter` / `Cmd + O`)** | One-key handoff to immediately launch the active RAW/photo in your default editor (Lightroom, Photoshop, Capture One, Preview). |
 | 👥 **2-Up Burst Compare (`S` / `Tab`)** | Side-by-side split comparison to catch micro-blur, closed eyes, and critical focus differences between consecutive frames, complete with synchronous 1:1 panning. |
 | 🏷️ **Adobe XMP Sidecar Synchronization** | Real-time, non-destructive rating (`★`), color tagging, and flag management fully compatible with **Adobe Lightroom Classic, Capture One, Darktable, and Photo Mechanic**. |
 | 🗂️ **RAW + JPEG Sibling Stacking** | Automatically pairs camera RAWs (`.ARW`, `.CR2`, `.CR3`, `.NEF`, `.RAF`, `.DNG`, etc.) with companion JPEGs, browsing the fast preview and inspecting master RAW sensor data during zoom. |
@@ -104,6 +106,9 @@ Press **`?`** (`Shift + /`) at any time inside Glance to toggle the interactive 
 | **`E`** | **Quick Export 📦** | Copies all Picks (or current photo) to `./Picks` folder |
 | **`Return`** | **Slideshow 📽️** | Start/stop automated hands-free slideshow |
 | **`+`** / **`-`** | **Slideshow Speed ⏱️** | Increase / decrease slideshow interval at set steps (1s – 30s) |
+| **`Cmd + Z`** | **Undo ↩️** | Reverts ratings, flags, colors, rotations, or restores trashed photos |
+| **`Cmd + Shift + Z`** | **Redo ↪️** | Re-applies reverted culling actions |
+| **`Cmd + Enter`** / **`Cmd + O`** | **Open in Editor 🎨** | Launches active RAW/photo in default macOS editor |
 | **`Delete`** / **`Backspace`** | **Trash 🗑️** | Move active file (and its RAW / XMP pair) to macOS Trash |
 | **`Shift + Delete`** | **Purge Rejects 💥** | Safely batch moves all rejected (`X`) images to macOS Trash |
 
@@ -144,7 +149,7 @@ brew upgrade --cask glance
 
 ### Option 2: Direct Download 📦
 Download the latest pre-compiled application bundle from the [**Releases Page**](https://github.com/mortalezz/glance/releases/latest):
-1. Download **`Glance-v1.1.2-macOS.zip`**.
+1. Download **`Glance-v1.1.3-macOS.zip`**.
 2. Unzip and drag `Glance.app` into your `/Applications` folder.
 3. Right-click any image in Finder ➔ *Open With* ➔ *Glance* (or set Glance as your default image viewer for instant full-screen glory).
 
@@ -180,6 +185,8 @@ swiftc -o /tmp/test_glance \
   Sources/Glance/Engine/ExportManager.swift \
   Sources/Glance/Engine/LosslessRotationEngine.swift \
   Sources/Glance/Engine/FaceDetectionEngine.swift \
+  Sources/Glance/Engine/TrashManager.swift \
+  Sources/Glance/Engine/CullingUndoManager.swift \
   scripts/test_xmp.swift && /tmp/test_glance
 ```
 

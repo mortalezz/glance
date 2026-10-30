@@ -31,6 +31,11 @@ public protocol SlideViewDelegate: AnyObject {
     func slideViewToggleClipping()
     func slideViewToggleExif()
 
+    // Undo & Redo Actions
+    func slideViewRequestUndo()
+    func slideViewRequestRedo()
+    func slideViewRequestOpenInEditor()
+
     // Phase 4: Output & Workflow Productivity
     func slideViewRequestExport()
     func slideViewRotate(direction: RotationDirection)
@@ -631,10 +636,29 @@ public final class SlideView: NSView {
         let chars = event.charactersIgnoringModifiers ?? ""
         let lower = chars.lowercased()
         let isShift = event.modifierFlags.contains(.shift)
+        let isCmd = event.modifierFlags.contains(.command)
 
         // Esc (KeyCode 53) or 'Q' (KeyCode 12): Unequivocally quit Glance to reveal Finder
         if event.keyCode == 53 || lower == "q" || event.keyCode == 12 {
             delegate?.slideViewClose()
+            return
+        }
+
+        // Multi-Level Undo (Cmd + Z) & Redo (Cmd + Shift + Z)
+        if isCmd && (lower == "z" || event.keyCode == 6) {
+            delegate?.slideViewStopSlideshow()
+            if isShift {
+                delegate?.slideViewRequestRedo()
+            } else {
+                delegate?.slideViewRequestUndo()
+            }
+            return
+        }
+
+        // External App Quick Handoff (Cmd + Enter or Cmd + O)
+        if isCmd && (lower == "\r" || event.keyCode == 36 || lower == "o" || event.keyCode == 31) {
+            delegate?.slideViewStopSlideshow()
+            delegate?.slideViewRequestOpenInEditor()
             return
         }
 

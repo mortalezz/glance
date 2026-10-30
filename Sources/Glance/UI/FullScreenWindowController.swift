@@ -32,6 +32,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     private var detectedFacesForCurrentSlide: [DetectedFace] = []
     private var currentFaceIndex: Int = 0
 
+    // Multi-Level Undo & Redo
+    private let cullingUndoManager = CullingUndoManager.shared
+
     private var isExporting: Bool = false
     private var exportProgressText: String? = nil
 
@@ -88,6 +91,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 }
 
                 self.allItems = scanResult.items
+                self.cullingUndoManager.clear()
 
                 // Concurrently load all existing Adobe XMP sidecar metadata in background
                 self.cullingData = await XmpSidecarManager.loadAllSidecars(for: self.allItems)
@@ -300,17 +304,28 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         stopSlideshowIfRunning()
         guard let rawIndex = currentRawIndex, !isDeleting else { return }
         let itemToDelete = allItems[rawIndex]
+        let previousMeta = cullingData[itemToDelete.id]
         isDeleting = true
 
         Task {
             do {
-                // Move all sibling files (RAW + companion JPEG/HEIC) and their sidecars safely to macOS Trash
+                var trashedRecords: [TrashedFileRecord] = []
                 for fileURL in itemToDelete.allURLs {
-                    _ = try await TrashManager.moveToTrash(url: fileURL)
+                    let trashed = try await TrashManager.moveToTrash(url: fileURL)
+                    trashedRecords.append(TrashedFileRecord(originalURL: fileURL, trashedURL: trashed))
                     if let sidecarURL = XmpSidecarManager.existingSidecarURL(for: fileURL) {
-                        _ = try? await TrashManager.moveToTrash(url: sidecarURL)
+                        if let trashedSidecar = try? await TrashManager.moveToTrash(url: sidecarURL) {
+                            trashedRecords.append(TrashedFileRecord(originalURL: sidecarURL, trashedURL: trashedSidecar))
+                        }
                     }
                 }
+
+                self.cullingUndoManager.record(.delete(
+                    item: itemToDelete,
+                    rawIndex: rawIndex,
+                    previousMeta: previousMeta,
+                    trashedRecords: trashedRecords
+                ))
 
                 _ = await self.pipeline.removeItem(at: rawIndex)
                 self.allItems.remove(at: rawIndex)
@@ -324,6 +339,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 } else {
                     await self.loadAndDisplayCurrent()
                 }
+                self.slideView.hudView.showMessage("Moved to Trash [⌘Z to Undo]")
             } catch {
                 self.isDeleting = false
                 self.displayEmptyState("Failed to trash: \(error.localizedDescription)")
@@ -563,8 +579,12 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
         let item = allItems[rawIndex]
         var meta = cullingData[item.id] ?? CullingMetadata()
-        meta.rating = (meta.rating == rating) ? 0 : rating
+        let previous = meta.rating
+        let newRating = (meta.rating == rating) ? 0 : rating
+        meta.rating = newRating
         cullingData[item.id] = meta
+
+        cullingUndoManager.record(.rating(itemID: item.id, rawIndex: rawIndex, previous: previous, new: newRating))
 
         applyCullingUpdate()
         saveMetadataAsync(meta: meta, for: item)
@@ -575,8 +595,12 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
         let item = allItems[rawIndex]
         var meta = cullingData[item.id] ?? CullingMetadata()
-        meta.pick = (meta.pick == pick) ? .unflagged : pick
+        let previous = meta.pick
+        let newPick = (meta.pick == pick) ? .unflagged : pick
+        meta.pick = newPick
         cullingData[item.id] = meta
+
+        cullingUndoManager.record(.pick(itemID: item.id, rawIndex: rawIndex, previous: previous, new: newPick))
 
         applyCullingUpdate()
         saveMetadataAsync(meta: meta, for: item)
@@ -587,8 +611,12 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
         let item = allItems[rawIndex]
         var meta = cullingData[item.id] ?? CullingMetadata()
-        meta.color = (meta.color == color) ? .none : color
+        let previous = meta.color
+        let newColor = (meta.color == color) ? .none : color
+        meta.color = newColor
         cullingData[item.id] = meta
+
+        cullingUndoManager.record(.color(itemID: item.id, rawIndex: rawIndex, previous: previous, new: newColor))
 
         applyCullingUpdate()
         saveMetadataAsync(meta: meta, for: item)
@@ -749,6 +777,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         guard let rawIndex = currentRawIndex, rawIndex >= 0 && rawIndex < allItems.count else { return }
         let item = allItems[rawIndex]
 
+        cullingUndoManager.record(.rotate(itemID: item.id, rawIndex: rawIndex, direction: direction))
         slideView.hudView.showMessage("Rotating...")
         Task.detached(priority: .userInitiated) { [weak self] in
             do {
@@ -877,5 +906,178 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
                 maxPixelSize: self.pipelineMaxPixelSize
             )
         }
+    }
+
+    // MARK: - Multi-Level Undo & Redo
+
+    public func slideViewRequestUndo() {
+        stopSlideshowIfRunning()
+        guard let action = cullingUndoManager.popUndo() else {
+            slideView.hudView.showMessage("Nothing to Undo [⌘Z]")
+            return
+        }
+
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+
+        switch action {
+        case .rating(let itemID, _, let previous, _):
+            guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
+            let item = allItems[idx]
+            var meta = cullingData[itemID] ?? CullingMetadata()
+            meta.rating = previous
+            cullingData[itemID] = meta
+            saveMetadataAsync(meta: meta, for: item)
+            jumpToRawIndex(idx)
+            let starText = previous > 0 ? "★ \(previous)" : "Cleared"
+            slideView.hudView.showMessage("↩ Undone Rating: \(starText) [⌘Z]")
+
+        case .pick(let itemID, _, let previous, _):
+            guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
+            let item = allItems[idx]
+            var meta = cullingData[itemID] ?? CullingMetadata()
+            meta.pick = previous
+            cullingData[itemID] = meta
+            saveMetadataAsync(meta: meta, for: item)
+            jumpToRawIndex(idx)
+            slideView.hudView.showMessage("↩ Undone Flag: \(previous.title) [⌘Z]")
+
+        case .color(let itemID, _, let previous, _):
+            guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
+            let item = allItems[idx]
+            var meta = cullingData[itemID] ?? CullingMetadata()
+            meta.color = previous
+            cullingData[itemID] = meta
+            saveMetadataAsync(meta: meta, for: item)
+            jumpToRawIndex(idx)
+            slideView.hudView.showMessage("↩ Undone Color: \(previous.title) [⌘Z]")
+
+        case .rotate(let itemID, _, let direction):
+            guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
+            let item = allItems[idx]
+            let reverseDir: RotationDirection = (direction == .clockwise) ? .counterClockwise : .clockwise
+            Task.detached(priority: .userInitiated) { [weak self] in
+                _ = try? LosslessRotationEngine.rotate(item: item, direction: reverseDir)
+                await self?.pipeline.invalidateCache(at: idx)
+                Task { @MainActor [weak self] in
+                    self?.jumpToRawIndex(idx)
+                    self?.slideView.hudView.showMessage("↩ Undone Rotation [⌘Z]")
+                }
+            }
+
+        case .delete(let item, let rawIndex, let previousMeta, let trashedRecords):
+            Task {
+                for rec in trashedRecords {
+                    try? await TrashManager.restore(record: rec)
+                }
+                let insertIdx = min(rawIndex, self.allItems.count)
+                self.allItems.insert(item, at: insertIdx)
+                if let pMeta = previousMeta {
+                    self.cullingData[item.id] = pMeta
+                }
+                _ = await self.pipeline.insertItem(item, at: insertIdx)
+                self.rebuildFilter()
+                if let fPos = self.filteredIndices.firstIndex(of: insertIdx) {
+                    self.currentFilteredPos = fPos
+                }
+                await self.loadAndDisplayCurrent()
+                self.slideView.hudView.showMessage("↩ Restored: \(item.displayName) [⌘Z]")
+            }
+        }
+    }
+
+    public func slideViewRequestRedo() {
+        stopSlideshowIfRunning()
+        guard let action = cullingUndoManager.popRedo() else {
+            slideView.hudView.showMessage("Nothing to Redo [⇧⌘Z]")
+            return
+        }
+
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+
+        switch action {
+        case .rating(let itemID, _, _, let new):
+            guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
+            let item = allItems[idx]
+            var meta = cullingData[itemID] ?? CullingMetadata()
+            meta.rating = new
+            cullingData[itemID] = meta
+            saveMetadataAsync(meta: meta, for: item)
+            jumpToRawIndex(idx)
+            let starText = new > 0 ? "★ \(new)" : "Cleared"
+            slideView.hudView.showMessage("↪ Redone Rating: \(starText) [⇧⌘Z]")
+
+        case .pick(let itemID, _, _, let new):
+            guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
+            let item = allItems[idx]
+            var meta = cullingData[itemID] ?? CullingMetadata()
+            meta.pick = new
+            cullingData[itemID] = meta
+            saveMetadataAsync(meta: meta, for: item)
+            jumpToRawIndex(idx)
+            slideView.hudView.showMessage("↪ Redone Flag: \(new.title) [⇧⌘Z]")
+
+        case .color(let itemID, _, _, let new):
+            guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
+            let item = allItems[idx]
+            var meta = cullingData[itemID] ?? CullingMetadata()
+            meta.color = new
+            cullingData[itemID] = meta
+            saveMetadataAsync(meta: meta, for: item)
+            jumpToRawIndex(idx)
+            slideView.hudView.showMessage("↪ Redone Color: \(new.title) [⇧⌘Z]")
+
+        case .rotate(let itemID, _, let direction):
+            guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
+            let item = allItems[idx]
+            Task.detached(priority: .userInitiated) { [weak self] in
+                _ = try? LosslessRotationEngine.rotate(item: item, direction: direction)
+                await self?.pipeline.invalidateCache(at: idx)
+                Task { @MainActor [weak self] in
+                    self?.jumpToRawIndex(idx)
+                    self?.slideView.hudView.showMessage("↪ Redone Rotation [⇧⌘Z]")
+                }
+            }
+
+        case .delete(let item, _, _, let trashedRecords):
+            Task {
+                guard let idx = self.allItems.firstIndex(where: { $0.id == item.id }) else { return }
+                for rec in trashedRecords {
+                    _ = try? await TrashManager.moveToTrash(url: rec.originalURL)
+                }
+                _ = await self.pipeline.removeItem(at: idx)
+                self.allItems.remove(at: idx)
+                self.cullingData.removeValue(forKey: item.id)
+                self.rebuildFilter()
+                if self.allItems.isEmpty {
+                    self.displayEmptyState("Directory is now empty.")
+                } else {
+                    await self.loadAndDisplayCurrent()
+                }
+                self.slideView.hudView.showMessage("↪ Trashed again [⇧⌘Z]")
+            }
+        }
+    }
+
+    private func jumpToRawIndex(_ rawIndex: Int) {
+        rebuildFilter()
+        if let fPos = filteredIndices.firstIndex(of: rawIndex) {
+            currentFilteredPos = fPos
+        }
+        Task {
+            await loadAndDisplayCurrent()
+        }
+    }
+
+    // MARK: - External App Handoff
+
+    public func slideViewRequestOpenInEditor() {
+        stopSlideshowIfRunning()
+        guard let rawIndex = currentRawIndex else { return }
+        let item = allItems[rawIndex]
+        let targetURL = item.rawURL ?? item.url
+
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+        NSWorkspace.shared.open(targetURL)
+        slideView.hudView.showMessage("Opening: \(targetURL.lastPathComponent)")
     }
 }
