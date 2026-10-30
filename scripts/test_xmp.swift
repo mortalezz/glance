@@ -951,6 +951,65 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+        // ==========================================
+        // TEST 25: Apple Vision Aesthetics on Glass HUD During Folder Traversal
+        // ==========================================
+        do {
+            print("🧪 TEST 25: Apple Vision Aesthetics on Glass HUD During Traversal...")
+
+            // 1. AestheticsEngine synchronous LRU cache hit
+            let testImg = makeTestCGImage(width: 64, height: 64, r: 180, g: 120, b: 60)
+            let cacheKey = "/path/to/test_photo.jpg"
+            assertEqual(AestheticsEngine.shared.cachedScore(for: cacheKey) == nil, true, "Initially not cached")
+
+            let computed = await AestheticsEngine.shared.computeScore(for: testImg, cacheKey: cacheKey)
+            let cached = AestheticsEngine.shared.cachedScore(for: cacheKey)
+            assertEqual(cached != nil, true, "LRU cache holds computed score")
+            assertEqual(cached?.score, computed.score, "Cached score equals computed score")
+
+            // 2. HudInfo model verification with aestheticScore
+            let scoreHigh = AestheticScoreResult(score: 8.9, rawAestheticScore: 0.85, isUtility: false)
+            let hudInfo = HudInfo(
+                currentIndex: 0,
+                totalCount: 10,
+                filename: "photo.jpg",
+                dimensions: "6000x4000",
+                fileSize: "24MB",
+                isRaw: true,
+                culling: CullingMetadata(rating: 5, pick: .pick),
+                aestheticScore: scoreHigh
+            )
+            assertEqual(hudInfo.aestheticScore?.formattedScore, "8.9", "HudInfo preserves aestheticScore")
+            assertEqual(hudInfo.aestheticScore?.score, 8.9, "Score value matches")
+            assertEqual(hudInfo.aestheticScore?.isUtility, false, "Not utility")
+
+            // 3. Score ranges & classifications
+            let scoreUtility = AestheticScoreResult(score: 3.2, isUtility: true)
+            assertEqual(scoreUtility.formattedScore, "3.2", "Formatted score 3.2")
+            assertEqual(scoreUtility.isUtility, true, "Utility photo correctly tagged")
+
+            let scoreStandard = AestheticScoreResult(score: 7.1)
+            assertEqual(scoreStandard.formattedScore, "7.1", "Formatted score 7.1")
+
+            // 4. MainActor GlassHudView testing
+            await MainActor.run {
+                let hudView = GlassHudView()
+                hudView.update(with: hudInfo)
+
+                // Verify updateAestheticScore dynamically preserves lastInfo
+                let updatedScore = AestheticScoreResult(score: 9.3)
+                hudView.updateAestheticScore(updatedScore)
+
+                // Show transient message
+                hudView.showMessage("Focus Peaking: ON", duration: 0.1)
+
+                // Restore last info
+                hudView.restoreLastInfo()
+            }
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

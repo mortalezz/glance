@@ -246,6 +246,8 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 hudMeta.cameraProfile = .asShot
             }
 
+            let cachedAesthetic = isSplit ? nil : AestheticsEngine.shared.cachedScore(for: item.url.path)
+
             let info = HudInfo(
                 currentIndex: currentFilteredPos,
                 totalCount: filteredIndices.count,
@@ -284,7 +286,8 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 }(),
                 isSlideshow: isSlideshowActive,
                 slideshowInterval: slideshowInterval,
-                exportProgressText: exportProgressText
+                exportProgressText: exportProgressText,
+                aestheticScore: cachedAesthetic
             )
 
             // Detect camera brand for tailored profile color science and naming
@@ -344,7 +347,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 }
             }
 
-            // Evaluate Apple Vision aesthetic & integral quality scores for 2-UP burst comparison
+            // Evaluate Apple Vision aesthetic & integral quality scores
             if isSplit, let rImg = rightCg, let rPath = challengerPath {
                 Task.detached(priority: .utility) { [weak self] in
                     async let s1 = AestheticsEngine.shared.computeScore(for: decoded.image, cacheKey: currentPath)
@@ -354,6 +357,14 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                     await MainActor.run { [weak self] in
                         guard let self = self, self.currentRawIndex == rawIndex else { return }
                         self.slideView.updateSplitAesthetics(left: compared1, right: compared2)
+                    }
+                }
+            } else if !isSplit {
+                Task.detached(priority: .utility) { [weak self] in
+                    let score = await AestheticsEngine.shared.computeScore(for: decoded.image, cacheKey: currentPath)
+                    await MainActor.run { [weak self] in
+                        guard let self = self, self.currentRawIndex == rawIndex else { return }
+                        self.slideView.updateAestheticScore(score)
                     }
                 }
             }

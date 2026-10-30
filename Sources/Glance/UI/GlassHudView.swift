@@ -19,6 +19,7 @@ public struct HudInfo: Sendable {
     public let isSlideshow: Bool
     public let slideshowInterval: Double
     public let exportProgressText: String?
+    public let aestheticScore: AestheticScoreResult?
 
     public init(
         currentIndex: Int,
@@ -37,7 +38,8 @@ public struct HudInfo: Sendable {
         exif: ExifMetadata? = nil,
         isSlideshow: Bool = false,
         slideshowInterval: Double = 3.0,
-        exportProgressText: String? = nil
+        exportProgressText: String? = nil,
+        aestheticScore: AestheticScoreResult? = nil
     ) {
         self.currentIndex = currentIndex
         self.totalCount = totalCount
@@ -56,6 +58,7 @@ public struct HudInfo: Sendable {
         self.isSlideshow = isSlideshow
         self.slideshowInterval = slideshowInterval
         self.exportProgressText = exportProgressText
+        self.aestheticScore = aestheticScore
     }
 }
 
@@ -164,7 +167,7 @@ final class ThemePillButton: NSView {
 }
 
 /// Modern macOS frosted-glass HUD overlay container.
-/// Displays index, filename, resolution, stars (★), picks/rejects, colors, culling stats, and theme toggle.
+/// Displays index, filename, resolution, stars (★), picks/rejects, colors, culling stats, aesthetic appeal score, and theme toggle.
 @MainActor
 public final class GlassHudView: NSView {
     private let visualEffectView = NSVisualEffectView()
@@ -183,6 +186,10 @@ public final class GlassHudView: NSView {
 
     private let filenameLabel = NSTextField(labelWithString: "")
     private let metaLabel = NSTextField(labelWithString: "")
+
+    // Aesthetic Appeal Score Pill (✨ 8.9 / ⚠️ 3.2)
+    private let aestheticPill = NSView()
+    private let aestheticLabel = NSTextField(labelWithString: "")
 
     private let rawBadge = NSView()
     private let rawLabel = NSTextField(labelWithString: "RAW")
@@ -375,6 +382,27 @@ public final class GlassHudView: NSView {
         metaLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         metaLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         stackView.addArrangedSubview(metaLabel)
+
+        // 5b. Aesthetic Appeal Score Pill (✨ 8.9 / ⚠️ 3.2)
+        aestheticPill.wantsLayer = true
+        aestheticPill.layer?.cornerRadius = 5
+        aestheticPill.layer?.cornerCurve = .continuous
+        aestheticPill.layer?.borderWidth = 0.5
+        aestheticPill.translatesAutoresizingMaskIntoConstraints = false
+        aestheticPill.isHidden = true
+
+        aestheticLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold)
+        aestheticLabel.alignment = .center
+        aestheticLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        aestheticPill.addSubview(aestheticLabel)
+        NSLayoutConstraint.activate([
+            aestheticLabel.topAnchor.constraint(equalTo: aestheticPill.topAnchor, constant: 2),
+            aestheticLabel.bottomAnchor.constraint(equalTo: aestheticPill.bottomAnchor, constant: -2),
+            aestheticLabel.leadingAnchor.constraint(equalTo: aestheticPill.leadingAnchor, constant: 6),
+            aestheticLabel.trailingAnchor.constraint(equalTo: aestheticPill.trailingAnchor, constant: -6)
+        ])
+        stackView.addArrangedSubview(aestheticPill)
 
         // 6. RAW / Stack Badge
         rawBadge.wantsLayer = true
@@ -607,6 +635,44 @@ public final class GlassHudView: NSView {
         indexPill.layer?.borderColor = theme.pillBorderColor
 
         themeButton.update(isDark: theme.isDark)
+
+        if let score = lastInfo?.aestheticScore {
+            applyAestheticScore(score)
+        }
+    }
+
+    private func applyAestheticScore(_ score: AestheticScoreResult) {
+        let isDark = ThemeManager.shared.isDark
+        if score.isUtility || score.score < 4.0 {
+            aestheticLabel.stringValue = "⚠️ \(score.formattedScore)"
+            aestheticLabel.textColor = isDark ? NSColor.systemYellow : NSColor.systemOrange
+            aestheticPill.layer?.backgroundColor = isDark
+                ? NSColor(white: 0.20, alpha: 0.40).cgColor
+                : NSColor(white: 0.85, alpha: 0.50).cgColor
+            aestheticPill.layer?.borderColor = isDark
+                ? NSColor.systemOrange.withAlphaComponent(0.4).cgColor
+                : NSColor.systemOrange.withAlphaComponent(0.5).cgColor
+            aestheticPill.toolTip = "Appeal: \(score.formattedScore)/10 (Utility / Flawed Capture)"
+        } else if score.score >= 8.5 {
+            aestheticLabel.stringValue = "✨ \(score.formattedScore)"
+            aestheticLabel.textColor = isDark ? NSColor.white : NSColor(srgbRed: 0.82, green: 0.58, blue: 0.10, alpha: 1.0)
+            aestheticPill.layer?.backgroundColor = isDark
+                ? NSColor(srgbRed: 0.85, green: 0.65, blue: 0.12, alpha: 0.85).cgColor
+                : NSColor(srgbRed: 0.95, green: 0.82, blue: 0.35, alpha: 0.40).cgColor
+            aestheticPill.layer?.borderColor = NSColor(srgbRed: 1.0, green: 0.85, blue: 0.35, alpha: 0.65).cgColor
+            aestheticPill.toolTip = "Appeal: \(score.formattedScore)/10 (High Aesthetic Score)"
+        } else {
+            aestheticLabel.stringValue = "✨ \(score.formattedScore)"
+            aestheticLabel.textColor = isDark ? NSColor(white: 0.92, alpha: 1.0) : NSColor(white: 0.20, alpha: 1.0)
+            aestheticPill.layer?.backgroundColor = isDark
+                ? NSColor(white: 0.25, alpha: 0.45).cgColor
+                : NSColor(white: 0.85, alpha: 0.55).cgColor
+            aestheticPill.layer?.borderColor = isDark
+                ? NSColor(white: 1.0, alpha: 0.15).cgColor
+                : NSColor(white: 0.0, alpha: 0.12).cgColor
+            aestheticPill.toolTip = "Appeal: \(score.formattedScore)/10"
+        }
+        aestheticPill.isHidden = false
     }
 
     public override func layout() {
@@ -732,6 +798,7 @@ public final class GlassHudView: NSView {
         if let error = info.errorMessage {
             metaLabel.stringValue = error
             metaLabel.textColor = NSColor.systemRed
+            aestheticPill.isHidden = true
             rawBadge.isHidden = true
         } else {
             var parts: [String] = []
@@ -746,6 +813,13 @@ public final class GlassHudView: NSView {
             }
             metaLabel.stringValue = parts.joined(separator: "  •  ")
             metaLabel.textColor = ThemeManager.shared.secondaryTextColor
+
+            // Aesthetic Score Pill presentation
+            if let score = info.aestheticScore {
+                applyAestheticScore(score)
+            } else {
+                aestheticPill.isHidden = true
+            }
 
             // RAW / Stack Badge
             if info.isStacked {
@@ -789,6 +863,38 @@ public final class GlassHudView: NSView {
         }
     }
 
+    /// Updates only the aesthetic score pill with smooth transition without re-rendering all metadata
+    public func updateAestheticScore(_ score: AestheticScoreResult?) {
+        if let score = score {
+            applyAestheticScore(score)
+        } else {
+            aestheticPill.isHidden = true
+        }
+        if let current = lastInfo {
+            let updated = HudInfo(
+                currentIndex: current.currentIndex,
+                totalCount: current.totalCount,
+                filename: current.filename,
+                dimensions: current.dimensions,
+                fileSize: current.fileSize,
+                isRaw: current.isRaw,
+                isStacked: current.isStacked,
+                isDownscaled: current.isDownscaled,
+                culling: current.culling,
+                autoAdvance: current.autoAdvance,
+                filterTitle: current.filterTitle,
+                isZoomed: current.isZoomed,
+                errorMessage: current.errorMessage,
+                exif: current.exif,
+                isSlideshow: current.isSlideshow,
+                slideshowInterval: current.slideshowInterval,
+                exportProgressText: current.exportProgressText,
+                aestheticScore: score
+            )
+            self.lastInfo = updated
+        }
+    }
+
     /// Updates only the slideshow status and interval badge without clearing other metadata
     public func updateSlideshowState(isActive: Bool, interval: Double) {
         slideshowPill.isHidden = !isActive
@@ -813,7 +919,8 @@ public final class GlassHudView: NSView {
                 exif: current.exif,
                 isSlideshow: isActive,
                 slideshowInterval: interval,
-                exportProgressText: current.exportProgressText
+                exportProgressText: current.exportProgressText,
+                aestheticScore: current.aestheticScore
             )
             self.lastInfo = updated
         }
@@ -837,7 +944,12 @@ public final class GlassHudView: NSView {
                 autoAdvance: current.autoAdvance,
                 filterTitle: current.filterTitle,
                 isZoomed: isZoomed,
-                errorMessage: current.errorMessage
+                errorMessage: current.errorMessage,
+                exif: current.exif,
+                isSlideshow: current.isSlideshow,
+                slideshowInterval: current.slideshowInterval,
+                exportProgressText: current.exportProgressText,
+                aestheticScore: current.aestheticScore
             )
             self.lastInfo = updated
         }
@@ -854,6 +966,7 @@ public final class GlassHudView: NSView {
         colorBadge.isHidden = true
         ratingLabel.isHidden = true
         rawBadge.isHidden = true
+        aestheticPill.isHidden = true
         autoPill.isHidden = true
         filterPill.isHidden = true
         profilePill.isHidden = true

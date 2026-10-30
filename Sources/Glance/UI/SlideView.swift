@@ -428,6 +428,10 @@ public final class SlideView: NSView {
         rightSplitBadge.updateAestheticScore(right)
     }
 
+    public func updateAestheticScore(_ score: AestheticScoreResult?) {
+        hudView.updateAestheticScore(score)
+    }
+
     public func setSplitMode(_ enabled: Bool) {
         isSplitMode = enabled
         leftSplitBadge.isHidden = !enabled

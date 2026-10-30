@@ -94,6 +94,12 @@ public final class AestheticsEngine: @unchecked Sendable {
         cache.countLimit = 250
     }
 
+    /// Synchronous LRU cache check for zero-latency retrieval during folder traversal.
+    public func cachedScore(for cacheKey: String?) -> AestheticScoreResult? {
+        guard let key = cacheKey as NSString? else { return nil }
+        return cache.object(forKey: key)?.result
+    }
+
     /// Computes an integral aesthetic score for an image.
     /// Fast and non-blocking: dispatches to background queue utilizing Apple Neural Engine.
     public func computeScore(for cgImage: CGImage, cacheKey: String? = nil) async -> AestheticScoreResult {
