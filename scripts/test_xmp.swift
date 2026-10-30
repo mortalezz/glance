@@ -880,6 +880,77 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+        // ==========================================
+        // TEST 24: Multi-UP Auto .hideRejects & King-of-the-Hill Filtration
+        // ==========================================
+        do {
+            print("🧪 TEST 24: Multi-UP Auto .hideRejects & Elimination Invariants...")
+
+            // 1. Filter transition logic: .all -> .hideRejects
+            var currentFilter: CullingFilter = .all
+            var filterBeforeMultiUp: CullingFilter? = nil
+
+            // Transition into 2-UP
+            if currentFilter == .all || currentFilter == .rejectsOnly {
+                filterBeforeMultiUp = currentFilter
+                currentFilter = .hideRejects
+            }
+            assertEqual(currentFilter, .hideRejects, "Multi-UP must auto-promote .all to .hideRejects")
+            assertEqual(filterBeforeMultiUp, .all, "filterBeforeMultiUp records .all")
+
+            // Transition out of 2-UP
+            if let prev = filterBeforeMultiUp {
+                currentFilter = prev
+                filterBeforeMultiUp = nil
+            }
+            assertEqual(currentFilter, .all, "Exiting multi-UP restores original .all filter")
+            assertEqual(filterBeforeMultiUp == nil, true, "filterBeforeMultiUp is cleared")
+
+            // 2. Custom filter preservation: .picksOnly should NOT be downgraded
+            currentFilter = .picksOnly
+            filterBeforeMultiUp = nil
+            if currentFilter == .all || currentFilter == .rejectsOnly {
+                filterBeforeMultiUp = currentFilter
+                currentFilter = .hideRejects
+            }
+            assertEqual(currentFilter, .picksOnly, "Multi-UP preserves existing .picksOnly filter")
+            assertEqual(filterBeforeMultiUp == nil, true, "filterBeforeMultiUp remains nil for custom filter")
+
+            // 3. Loser elimination from filteredIndices in .hideRejects
+            var metadataMap: [String: CullingMetadata] = [
+                "item0": CullingMetadata(pick: .unflagged),
+                "item1": CullingMetadata(pick: .unflagged),
+                "item2": CullingMetadata(pick: .unflagged),
+                "item3": CullingMetadata(pick: .unflagged)
+            ]
+            let allItemIDs = ["item0", "item1", "item2", "item3"]
+
+            func buildFiltered(filter: CullingFilter) -> [Int] {
+                allItemIDs.indices.filter { idx in
+                    let m = metadataMap[allItemIDs[idx]] ?? CullingMetadata()
+                    return filter.matches(meta: m)
+                }
+            }
+
+            var filtered = buildFiltered(filter: .hideRejects)
+            assertEqual(filtered, [0, 1, 2, 3], "Initial unflagged items all visible")
+
+            // Slot 1 (item0) beats Slot 2 (item1) -> item1 is rejected!
+            metadataMap["item0"]?.pick = .pick
+            metadataMap["item1"]?.pick = .reject
+
+            filtered = buildFiltered(filter: .hideRejects)
+            assertEqual(filtered, [0, 2, 3], "Rejected item1 immediately purged from filteredIndices")
+
+            // Challenger advances to next survivor (index 2)
+            let championIndex = filtered.firstIndex(of: 0)!
+            let challengerIndex = (championIndex + 1 < filtered.count) ? (championIndex + 1) : nil
+            assertEqual(challengerIndex, 1, "Next challenger is item at pos 1 (raw index 2)")
+            assertEqual(filtered[challengerIndex!], 2, "Challenger is item2")
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

@@ -46,6 +46,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
     // Split Compare King-of-the-Hill State
     private var splitChallengerPos: Int? = nil
+    private var filterBeforeMultiUp: CullingFilter? = nil
 
     public init() {
         let screenRect = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
@@ -887,9 +888,8 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             slideView.hudView.showMessage(msg)
 
             if pick == .reject {
-                let nextLeft = min(filteredIndices.count - 1, cPos + 1)
-                currentFilteredPos = nextLeft
-                splitChallengerPos = (nextLeft + 1 < filteredIndices.count) ? (nextLeft + 1) : nil
+                rebuildFilter(targetIndex: nil)
+                splitChallengerPos = (currentFilteredPos + 1 < filteredIndices.count) ? (currentFilteredPos + 1) : nil
             }
 
             Task {
@@ -963,25 +963,11 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         cullingUndoManager.record(.compound([action1, action2]))
 
         // King of the Hill progression:
-        if slot == 2 {
-            currentFilteredPos = cPos
-        }
+        let championRaw = (slot == 1) ? leftRaw : rightRaw
+        rebuildFilter(targetIndex: championRaw)
 
-        // Advance challenger to next unrejected photo
-        var nextChallenger: Int? = nil
-        let startSearch = cPos + 1
-        for p in startSearch..<filteredIndices.count {
-            let item = allItems[filteredIndices[p]]
-            let m = cullingData[item.id] ?? CullingMetadata()
-            if m.pick != .reject {
-                nextChallenger = p
-                break
-            }
-        }
-        if nextChallenger == nil && startSearch < filteredIndices.count {
-            nextChallenger = startSearch
-        }
-
+        // Advance challenger to next unrejected photo in filteredIndices
+        let nextChallenger = (currentFilteredPos + 1 < filteredIndices.count) ? (currentFilteredPos + 1) : nil
         splitChallengerPos = nextChallenger
 
         Task {
@@ -1051,6 +1037,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     }
 
     public func slideViewCycleFilter() {
+        filterBeforeMultiUp = nil // User manually changed filter; do not override upon exit
         switch currentFilter {
         case .all:
             currentFilter = .hideRejects
@@ -1079,9 +1066,21 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         let newState = !slideView.isSplitMode
         slideView.setSplitMode(newState)
         if newState {
+            // Auto-engage .hideRejects so rejected photos are not cycled in comparison arena
+            if currentFilter == .all || currentFilter == .rejectsOnly {
+                filterBeforeMultiUp = currentFilter
+                currentFilter = .hideRejects
+                rebuildFilter(targetIndex: currentRawIndex)
+            }
             splitChallengerPos = (currentFilteredPos + 1 < filteredIndices.count) ? (currentFilteredPos + 1) : nil
             slideView.hudView.showMessage("2-UP Compare: Press [ 1 ] or [ 2 ] to Pick Winner [S]")
         } else {
+            // Restore previous filter when exiting multi-up compare if user did not manually change it
+            if let prev = filterBeforeMultiUp {
+                currentFilter = prev
+                filterBeforeMultiUp = nil
+                rebuildFilter(targetIndex: currentRawIndex)
+            }
             splitChallengerPos = nil
             slideView.hudView.showMessage("Single Fullscreen [S]")
         }
@@ -1367,6 +1366,10 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
                         await pipeline.invalidateCache(at: rawIndex)
                     }
                 }
+                if slideView.isSplitMode {
+                    rebuildFilter(targetIndex: currentRawIndex)
+                    splitChallengerPos = (currentFilteredPos + 1 < filteredIndices.count) ? (currentFilteredPos + 1) : nil
+                }
                 await loadAndDisplayCurrent()
             }
             return
@@ -1467,6 +1470,10 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
                     if case .rotate(_, let rawIndex, _) = act {
                         await pipeline.invalidateCache(at: rawIndex)
                     }
+                }
+                if slideView.isSplitMode {
+                    rebuildFilter(targetIndex: currentRawIndex)
+                    splitChallengerPos = (currentFilteredPos + 1 < filteredIndices.count) ? (currentFilteredPos + 1) : nil
                 }
                 await loadAndDisplayCurrent()
             }
