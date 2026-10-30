@@ -114,7 +114,7 @@ public final class QuickHelpView: NSView {
         // Balanced 2-column table grid (12 rows each, perfectly aligned horizontally)
         let grid = NSGridView()
         grid.translatesAutoresizingMaskIntoConstraints = false
-        grid.columnSpacing = 32
+        grid.columnSpacing = 36
         grid.rowSpacing = 8
 
         let compactPairs: [(col1: (key: String, desc: String), col2: (key: String, desc: String))] = [
@@ -129,7 +129,7 @@ public final class QuickHelpView: NSView {
             (("R / L", "Rotate 90°"), ("\\", "Cycle filter")),
             (("⌫", "Trash photo"), ("⇧ ⌫", "Purge rejects")),
             (("F", "Full screen"), ("Space", "Next / Expand")),
-            (("⌘Z / ⇧Z", "Undo / Redo"), ("⌘↵", "Open in Editor")),
+            (("⌘Z", "Undo / Redo"), ("⌘↵", "Open in Editor")),
             (("?", "Cheatsheet"), ("Esc / Q", "Quit to Finder"))
         ]
 
@@ -139,8 +139,8 @@ public final class QuickHelpView: NSView {
             grid.addRow(with: [rowCell1, rowCell2])
         }
 
-        grid.column(at: 0).width = 185
-        grid.column(at: 1).width = 200
+        grid.column(at: 0).width = 175
+        grid.column(at: 1).width = 185
 
         stack.addArrangedSubview(grid)
         compactContainer.addSubview(stack)
@@ -159,10 +159,10 @@ public final class QuickHelpView: NSView {
         let row = NSStackView()
         row.orientation = .horizontal
         row.alignment = .centerY
-        row.spacing = 11
+        row.spacing = 10
         row.translatesAutoresizingMaskIntoConstraints = false
 
-        let keycap = makeKeycap(text: key)
+        let keycap = makeKeycap(text: key, fixedWidth: 50)
         row.addArrangedSubview(keycap)
 
         let descLabel = NSTextField(labelWithString: desc)
@@ -170,6 +170,11 @@ public final class QuickHelpView: NSView {
         descLabel.lineBreakMode = .byClipping
         primaryLabels.append(descLabel)
         row.addArrangedSubview(descLabel)
+
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        row.addArrangedSubview(spacer)
 
         return row
     }
@@ -312,7 +317,7 @@ public final class QuickHelpView: NSView {
         label.attributedStringValue = attr
     }
 
-    private func makeKeycap(text: String) -> NSView {
+    private func makeKeycap(text: String, fixedWidth: CGFloat? = nil) -> NSView {
         let keycap = NSView()
         keycap.wantsLayer = true
         keycap.layer?.borderWidth = 0.5
@@ -320,22 +325,32 @@ public final class QuickHelpView: NSView {
         keycap.layer?.cornerCurve = .continuous
         keycap.translatesAutoresizingMaskIntoConstraints = false
 
+        let fontSize: CGFloat = (fixedWidth != nil) ? 10.0 : 10.5
         let keyLabel = NSTextField(labelWithString: text)
-        keyLabel.font = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .semibold)
+        keyLabel.font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .semibold)
         keyLabel.alignment = .center
         keyLabel.translatesAutoresizingMaskIntoConstraints = false
 
         keycap.addSubview(keyLabel)
-        NSLayoutConstraint.activate([
-            keycap.heightAnchor.constraint(equalToConstant: 21),
-            keycap.widthAnchor.constraint(greaterThanOrEqualToConstant: 58),
-            keycap.widthAnchor.constraint(greaterThanOrEqualTo: keyLabel.widthAnchor, constant: 14),
-            keyLabel.centerXAnchor.constraint(equalTo: keycap.centerXAnchor),
-            keyLabel.centerYAnchor.constraint(equalTo: keycap.centerYAnchor)
-        ])
 
-        keycap.setContentHuggingPriority(.required, for: .horizontal)
-        keycap.setContentCompressionResistancePriority(.required, for: .horizontal)
+        if let width = fixedWidth {
+            NSLayoutConstraint.activate([
+                keycap.heightAnchor.constraint(equalToConstant: 20),
+                keycap.widthAnchor.constraint(equalToConstant: width),
+                keyLabel.centerXAnchor.constraint(equalTo: keycap.centerXAnchor),
+                keyLabel.centerYAnchor.constraint(equalTo: keycap.centerYAnchor)
+            ])
+        } else {
+            NSLayoutConstraint.activate([
+                keycap.heightAnchor.constraint(equalToConstant: 21),
+                keycap.widthAnchor.constraint(greaterThanOrEqualToConstant: 58),
+                keycap.widthAnchor.constraint(greaterThanOrEqualTo: keyLabel.widthAnchor, constant: 14),
+                keyLabel.centerXAnchor.constraint(equalTo: keycap.centerXAnchor),
+                keyLabel.centerYAnchor.constraint(equalTo: keycap.centerYAnchor)
+            ])
+            keycap.setContentHuggingPriority(.required, for: .horizontal)
+            keycap.setContentCompressionResistancePriority(.required, for: .horizontal)
+        }
 
         keycaps.append(keycap)
         keyLabels.append(keyLabel)
