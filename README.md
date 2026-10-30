@@ -60,6 +60,7 @@
 | 📊 **Hardware RGB & Luminance Histogram (`H`)** | 256-bin SIMD/vImage hardware-accelerated histogram rendered inside an Apple Vibrancy frosted-glass HUD with shadow and highlight clipping indicators. |
 | 🚨 **Exposure Clipping Warnings / "Blinkies" (`O`)** | Animated pulsating zebra overlays for overexposed blown highlights (Red) and underexposed crushed shadows (Blue). |
 | 🎯 **Real-Time Focus Peaking Overlay (`Shift + F`)** | Camera EVF-style neon green (#00FF50) edge highlight powered by Accelerate.vImage directional Sobel spatial gradient convolution to instantly verify critical plane of focus. |
+| 🎞️ **Camera Profiles & Film Simulations (`V`)** | Hardware-accelerated picture controls with brand intelligence: **Fujifilm Film Simulations** (Velvia, Provia, Astia, Classic Chrome, Acros, Classic Neg) on `.RAF` and **Nikon Picture Controls** (Standard, Vivid, Neutral, Landscape, Monochrome) on `.NEF` with Adobe XMP sync. |
 | 📷 **Dedicated Frosted EXIF HUD (`I`)** | Displays lens model, camera body, shutter speed, aperture, ISO, focal length, and capture date in a clean glass overlay. |
 | 🔄 **Lossless EXIF Rotation (`R` / `]` and `L` / `[` )** | Rotates JPEGs, HEICs, and RAW XMP sidecars in 90° increments without re-compressing pixels. |
 | 📦 **One-Key Quick Export (`E`)** | Copies all flagged Picks (or current photo) and companion sidecars to `./Picks` with sound confirmation and Finder reveal. |
@@ -80,6 +81,7 @@ Press **`?`** (`Shift + /`) at any time inside Glance to toggle the interactive 
 | **`U`** | **Unflag ⚪** | Clear pick / reject status to neutral |
 | **`1` – `5`** | **Star Rating ⭐** | Rates image `★` to `★★★★★` (vibrant gold) |
 | **`0`** | **Clear Rating ✖️** | Clears star rating |
+| **`V`** | **Camera Profile / Film Sim 🎞️** | Cycle brand-aware profiles (Fujifilm Velvia/Classic Chrome, Nikon Vivid, etc.) |
 | **`6` – `9`** | **Color Labels 🎨** | `6`: Red 🟥 &nbsp; `7`: Yellow 🟨 &nbsp; `8`: Green 🟩 &nbsp; `9`: Blue 🟦 |
 | **`C`** | **Auto-Advance ⚡** | **Speed Culling**: Any tag/rating automatically steps to the next photo |
 
@@ -151,7 +153,7 @@ brew upgrade --cask glance
 
 ### Option 2: Direct Download 📦
 Download the latest pre-compiled application bundle from the [**Releases Page**](https://github.com/mortalezz/glance/releases/latest):
-1. Download **`Glance-v1.2.0-macOS.zip`**.
+1. Download **`Glance-v1.2.5-macOS.zip`**.
 2. Unzip and drag `Glance.app` into your `/Applications` folder.
 3. Right-click any image in Finder ➔ *Open With* ➔ *Glance* (or set Glance as your default image viewer for instant full-screen glory).
 
