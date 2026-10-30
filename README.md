@@ -59,7 +59,7 @@
 | 🛡️ **Silent FSEvents Directory Sync** | Monitors folder for new photos with `kFSEventStreamCreateFlagIgnoreSelf` and path filters, completely ignoring Glance’s own XMP writes to eliminate cache thrashing. |
 | 📊 **Hardware RGB & Luminance Histogram (`H`)** | 256-bin SIMD/vImage hardware-accelerated histogram rendered inside an Apple Vibrancy frosted-glass HUD with shadow and highlight clipping indicators. |
 | 🚨 **Exposure Clipping Warnings / "Blinkies" (`O`)** | Animated pulsating zebra overlays for overexposed blown highlights (Red) and underexposed crushed shadows (Blue). |
-| 🎯 **Real-Time Focus Peaking Overlay (`Shift + F`)** | Camera EVF-style neon green (#00FF50) edge highlight powered by Accelerate.vImage Laplacian convolution to instantly verify critical plane of focus. |
+| 🎯 **Real-Time Focus Peaking Overlay (`Shift + F`)** | Camera EVF-style neon green (#00FF50) edge highlight powered by Accelerate.vImage directional Sobel spatial gradient convolution to instantly verify critical plane of focus. |
 | 📷 **Dedicated Frosted EXIF HUD (`I`)** | Displays lens model, camera body, shutter speed, aperture, ISO, focal length, and capture date in a clean glass overlay. |
 | 🔄 **Lossless EXIF Rotation (`R` / `]` and `L` / `[` )** | Rotates JPEGs, HEICs, and RAW XMP sidecars in 90° increments without re-compressing pixels. |
 | 📦 **One-Key Quick Export (`E`)** | Copies all flagged Picks (or current photo) and companion sidecars to `./Picks` with sound confirmation and Finder reveal. |
@@ -151,7 +151,7 @@ brew upgrade --cask glance
 
 ### Option 2: Direct Download 📦
 Download the latest pre-compiled application bundle from the [**Releases Page**](https://github.com/mortalezz/glance/releases/latest):
-1. Download **`Glance-v1.1.4-macOS.zip`**.
+1. Download **`Glance-v1.2.0-macOS.zip`**.
 2. Unzip and drag `Glance.app` into your `/Applications` folder.
 3. Right-click any image in Finder ➔ *Open With* ➔ *Glance* (or set Glance as your default image viewer for instant full-screen glory).
 
@@ -195,39 +195,35 @@ swiftc -o /tmp/test_glance \
 
 ---
 
-## 🔮 Looking Ahead: v1.2.0 Roadmap
+## 🔮 Looking Ahead: v1.3.0 & Beyond Roadmap
 
-<details>
-<summary><b>Click to expand planned features for Glance 1.2.0 (Theme: <i>Focus & Velocity</i>)</b></summary>
+<details open>
+<summary><b>Planned features for Glance 1.3.0 (Theme: <i>Burst Mastery & Studio Color</i>)</b></summary>
 
 <br />
 
-### 👁️ Focus & Sharpness Superpowers (Apple Neural Engine / Vision)
-- **Auto Face & Eye Jump (`Z` Double-Tap / `Shift + Z`)**:
-  - Leverages macOS’s built-in, offline `Vision.framework` on Apple Silicon.
-  - Automatically detects subject faces and eyes in portrait/event shoots. Double-tapping `Z` centers 100% zoom directly on the primary subject’s eye without manual panning across 60MP sensors.
-- **Focus Peaking Overlay (`Shift + F`)**:
-  - Real-time neon edge-contrast highlighting overlay (similar to camera EVFs).
-  - Instantly reveals whether critical pupil focus was nailed in under 100ms.
-
-### 👥 High-Speed Burst Culling & Safety
+### 👥 High-Speed Burst Culling (4-Up Quad Compare)
 - **4-Up Quad Compare (`Shift + S`)**:
-  - 2×2 grid comparison for consecutive high-speed burst shots with synchronous 1:1 zoom and pan.
-  - Number keys `1`–`4` instantly select the winning frame and mark the others for rejection.
-- **Multi-Level Undo & Redo (`Cmd + Z` / `Cmd + Shift + Z`)**:
-  - Dedicated in-memory undo buffer for culling tags, star ratings, color labels, and accidental file trashing.
+  - 2×2 split-screen grid comparison for 4 consecutive high-speed burst shots with synchronous 1:1 zoom and pan.
+  - Number keys `1`–`4` instantly select the winning hero frame and mark the remainder for reject/purge in one keystroke.
 
 ### 🎨 Color Fidelity & Apple XDR Display Engine
+- **Liquid Retina XDR / EDR Specular Highlights**:
+  - Harness 1,000–1,600 nit specular highlight headroom on MacBook Pro Liquid Retina XDR displays and Apple Pro Display XDR via Apple’s Extended Dynamic Range (`CAEDRMetadata`) pipeline.
 - **Camera Film Simulation & Picture Profiles**:
-  - Native rendering of embedded camera color styles (Fujifilm Film Simulations like Classic Chrome/Astia, Sony Creative Looks, and Nikon Picture Controls).
-- **Liquid Retina XDR / EDR Highlights**:
-  - Leverages 1,000–1,600 nit specular highlight headroom on MacBook Pro and Pro Display XDR screens via Apple’s Extended Dynamic Range pipeline.
+  - Native rendering of embedded camera color styles (Fujifilm Film Simulations like Classic Chrome, Astia, and Velvia; Sony Creative Looks; Nikon Picture Controls).
 
-### 🎛️ Tactile Polish & External Retouch Handoff
-- **Force Touch Trackpad Haptics**:
-  - Subtle mechanical click feedback via `NSHapticFeedbackManager` whenever a rating (`1`–`5`), pick (`P`), or reject (`X`) is toggled.
-- **External App Quick Handoff (`Cmd + Enter`)**:
-  - One-key handoff to immediately open the current master RAW or photo in Photoshop, Lightroom Classic, or Capture One for detailed retouching.
+### 🔍 Advanced Inspection Tools
+- **Split-Screen Magnifier Loupe**:
+  - Interactive circular loupe (2× / 4× magnification) hovering over the cursor without displacing overall image framing.
+- **RGB Curve & False Color Exposure HUD**:
+  - ARRI-style False Color exposure IRE scale overlay for cinematography and studio flash exposure verification.
+
+### ⚡ Batch Automation & Tethered Ingestion
+- **Tethered Hot Folder Auto-Ingest**:
+  - Zero-latency auto-culling mode that detects fresh camera dumps or tethered shooting sessions and jumps to incoming captures with pre-applied flag rules.
+- **Batch Metadata Stamping**:
+  - Stamp copyright, artist credit, and IPTC caption presets directly into Adobe XMP sidecars across all selected picks on export.
 
 </details>
 
