@@ -65,18 +65,21 @@ public final class SplitPaneBadgeView: NSView {
     private let statusLabel = NSTextField(labelWithString: "")
 
     public let slot: Int
+    private var currentInfo: SplitPaneInfo?
     private var currentAestheticScore: AestheticScoreResult?
 
     public init(slot: Int) {
         self.slot = slot
         super.init(frame: .zero)
         setupView()
+        setupThemeObserver()
     }
 
     required init?(coder: NSCoder) {
         self.slot = 1
         super.init(coder: coder)
         setupView()
+        setupThemeObserver()
     }
 
     /// Completely transparent to mouse clicks so user can click anywhere in the window to zoom in/out
@@ -119,6 +122,13 @@ public final class SplitPaneBadgeView: NSView {
             visualEffectView.leadingAnchor.constraint(equalTo: leadingAnchor),
             visualEffectView.trailingAnchor.constraint(equalTo: trailingAnchor)
         ])
+
+        // Soft floating HUD shadow
+        let shadow = NSShadow()
+        shadow.shadowColor = ThemeManager.shared.shadowColor
+        shadow.shadowOffset = NSSize(width: 0, height: -4)
+        shadow.shadowBlurRadius = 14
+        self.shadow = shadow
 
         // Stack View
         stackView.orientation = .horizontal
@@ -190,13 +200,10 @@ public final class SplitPaneBadgeView: NSView {
         burstPill.layer?.cornerRadius = 6
         burstPill.layer?.cornerCurve = .continuous
         burstPill.layer?.borderWidth = 0.5
-        burstPill.layer?.backgroundColor = NSColor.systemTeal.withAlphaComponent(0.25).cgColor
-        burstPill.layer?.borderColor = NSColor.systemTeal.withAlphaComponent(0.55).cgColor
         burstPill.translatesAutoresizingMaskIntoConstraints = false
         burstPill.isHidden = true
 
         burstLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .bold)
-        burstLabel.textColor = NSColor.systemTeal
         burstLabel.alignment = .center
         burstLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -232,7 +239,20 @@ public final class SplitPaneBadgeView: NSView {
         updateTheme()
     }
 
+    private func setupThemeObserver() {
+        NotificationCenter.default.addObserver(
+            forName: ThemeManager.themeDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.updateTheme()
+            }
+        }
+    }
+
     public func update(with info: SplitPaneInfo?) {
+        self.currentInfo = info
         guard let info = info else {
             isHidden = true
             return
@@ -243,10 +263,85 @@ public final class SplitPaneBadgeView: NSView {
         filenameLabel.stringValue = info.filename
         self.currentAestheticScore = info.aestheticScore
 
-        let isDark = ThemeManager.shared.isDark
+        updateTheme()
+    }
+
+    /// Dynamically updates the burst / scene pill description
+    public func updateBurstDescription(_ desc: String?) {
+        if let current = currentInfo {
+            self.currentInfo = SplitPaneInfo(
+                slot: current.slot,
+                filename: current.filename,
+                pick: current.pick,
+                rating: current.rating,
+                color: current.color,
+                isChampion: current.isChampion,
+                isChallenger: current.isChallenger,
+                isPairScouting: current.isPairScouting,
+                aestheticScore: current.aestheticScore,
+                burstDescription: desc
+            )
+        }
+        updateTheme()
+        if desc != nil {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.15
+                burstPill.animator().isHidden = false
+            }
+        }
+    }
+
+    /// Dynamically updates the aesthetic score independently as soon as background Vision computation finishes
+    public func updateAestheticScore(_ score: AestheticScoreResult?) {
+        self.currentAestheticScore = score
+        updateTheme()
+        if score != nil {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.15
+                aestheticPill.animator().isHidden = false
+            }
+        }
+    }
+
+    public func updateTheme() {
+        let theme = ThemeManager.shared
+        let isDark = theme.isDark
+
+        visualEffectView.material = .hudWindow
+        visualEffectView.appearance = theme.glassAppearance
+        visualEffectView.layer?.borderColor = theme.glassBorderColor
+        scrimView.layer?.backgroundColor = theme.scrimColor.cgColor
+
+        let shadow = NSShadow()
+        shadow.shadowColor = theme.shadowColor
+        shadow.shadowOffset = NSSize(width: 0, height: -4)
+        shadow.shadowBlurRadius = 14
+        self.shadow = shadow
+
+        filenameLabel.textColor = theme.primaryTextColor
+
+        // Keycap appearance
+        if slot == 1 {
+            // Teal / Cyan for Slot 1
+            keycapPill.layer?.backgroundColor = isDark
+                ? NSColor(srgbRed: 0.15, green: 0.50, blue: 0.70, alpha: 0.85).cgColor
+                : NSColor(srgbRed: 0.10, green: 0.55, blue: 0.75, alpha: 0.88).cgColor
+            keycapPill.layer?.borderColor = NSColor(srgbRed: 0.30, green: 0.75, blue: 0.95, alpha: 0.50).cgColor
+            keycapLabel.textColor = .white
+        } else {
+            // Amber / Orange for Slot 2
+            keycapPill.layer?.backgroundColor = isDark
+                ? NSColor(srgbRed: 0.85, green: 0.45, blue: 0.15, alpha: 0.85).cgColor
+                : NSColor(srgbRed: 0.90, green: 0.50, blue: 0.15, alpha: 0.88).cgColor
+            keycapPill.layer?.borderColor = NSColor(srgbRed: 1.0, green: 0.70, blue: 0.35, alpha: 0.50).cgColor
+            keycapLabel.textColor = .white
+        }
+
+        guard let info = currentInfo else { return }
+
         let starSuffix = info.rating > 0 ? " ★\(info.rating)" : ""
 
-        // Status badge: Handle King-of-the-Hill (Champion vs Challenger) vs Pair Scouting
+        // Status badge: Handle King-of-the-Hill vs Pair Scouting
         if info.isChampion {
             statusLabel.stringValue = "👑 CHAMPION" + starSuffix
             statusLabel.textColor = .white
@@ -278,13 +373,9 @@ public final class SplitPaneBadgeView: NSView {
             case .unflagged:
                 let starPrefix = info.rating > 0 ? "★\(info.rating) • " : ""
                 statusLabel.stringValue = starPrefix + "PRESS \(info.slot)"
-                statusLabel.textColor = isDark ? NSColor.secondaryLabelColor : NSColor.tertiaryLabelColor
-                statusPill.layer?.backgroundColor = isDark
-                    ? NSColor(white: 0.20, alpha: 0.40).cgColor
-                    : NSColor(white: 0.85, alpha: 0.50).cgColor
-                statusPill.layer?.borderColor = isDark
-                    ? NSColor(white: 1.0, alpha: 0.10).cgColor
-                    : NSColor(white: 0.0, alpha: 0.10).cgColor
+                statusLabel.textColor = theme.secondaryTextColor
+                statusPill.layer?.backgroundColor = theme.pillBackgroundColor
+                statusPill.layer?.borderColor = theme.pillBorderColor
                 statusPill.isHidden = false
             }
         }
@@ -292,132 +383,47 @@ public final class SplitPaneBadgeView: NSView {
         // Burst / Scene Pill
         if let burst = info.burstDescription {
             burstLabel.stringValue = burst
+            burstLabel.textColor = isDark ? NSColor.systemTeal : NSColor(srgbRed: 0.0, green: 0.52, blue: 0.58, alpha: 1.0)
+            burstPill.layer?.backgroundColor = isDark
+                ? NSColor.systemTeal.withAlphaComponent(0.22).cgColor
+                : NSColor.systemTeal.withAlphaComponent(0.12).cgColor
+            burstPill.layer?.borderColor = isDark
+                ? NSColor.systemTeal.withAlphaComponent(0.50).cgColor
+                : NSColor.systemTeal.withAlphaComponent(0.35).cgColor
             burstPill.isHidden = false
         } else {
             burstPill.isHidden = true
         }
 
-        // Aesthetic Score Pill presentation
-        if let score = info.aestheticScore {
-            if score.isWinner {
+        // Aesthetic Score Pill presentation (unified with GlassHudView)
+        if let score = currentAestheticScore ?? info.aestheticScore {
+            if score.isWinner || score.score >= 8.5 {
                 aestheticLabel.stringValue = "✨ \(score.formattedScore) BEST"
-                aestheticLabel.textColor = .white
+                aestheticLabel.textColor = isDark ? NSColor.white : NSColor(srgbRed: 0.82, green: 0.58, blue: 0.10, alpha: 1.0)
                 aestheticPill.layer?.backgroundColor = isDark
-                    ? NSColor(srgbRed: 0.85, green: 0.65, blue: 0.12, alpha: 0.88).cgColor
-                    : NSColor(srgbRed: 0.82, green: 0.58, blue: 0.10, alpha: 0.92).cgColor
-                aestheticPill.layer?.borderColor = NSColor(srgbRed: 1.0, green: 0.85, blue: 0.35, alpha: 0.65).cgColor
-            } else if score.isUtility {
+                    ? NSColor(srgbRed: 0.85, green: 0.65, blue: 0.12, alpha: 0.85).cgColor
+                    : NSColor(srgbRed: 0.95, green: 0.82, blue: 0.35, alpha: 0.30).cgColor
+                aestheticPill.layer?.borderColor = isDark
+                    ? NSColor(srgbRed: 1.0, green: 0.85, blue: 0.35, alpha: 0.65).cgColor
+                    : NSColor(srgbRed: 0.85, green: 0.65, blue: 0.12, alpha: 0.60).cgColor
+            } else if score.isUtility || score.score < 4.0 {
                 aestheticLabel.stringValue = "⚠️ \(score.formattedScore)"
                 aestheticLabel.textColor = isDark ? NSColor.systemYellow : NSColor.systemOrange
                 aestheticPill.layer?.backgroundColor = isDark
                     ? NSColor(white: 0.20, alpha: 0.40).cgColor
                     : NSColor(white: 0.85, alpha: 0.50).cgColor
                 aestheticPill.layer?.borderColor = isDark
-                    ? NSColor(white: 1.0, alpha: 0.10).cgColor
-                    : NSColor(white: 0.0, alpha: 0.10).cgColor
+                    ? NSColor.systemOrange.withAlphaComponent(0.4).cgColor
+                    : NSColor.systemOrange.withAlphaComponent(0.5).cgColor
             } else {
                 aestheticLabel.stringValue = "✨ \(score.formattedScore)"
-                aestheticLabel.textColor = isDark ? NSColor(white: 0.90, alpha: 1.0) : NSColor(white: 0.20, alpha: 1.0)
-                aestheticPill.layer?.backgroundColor = isDark
-                    ? NSColor(white: 0.25, alpha: 0.45).cgColor
-                    : NSColor(white: 0.85, alpha: 0.55).cgColor
-                aestheticPill.layer?.borderColor = isDark
-                    ? NSColor(white: 1.0, alpha: 0.15).cgColor
-                    : NSColor(white: 0.0, alpha: 0.12).cgColor
+                aestheticLabel.textColor = theme.secondaryTextColor
+                aestheticPill.layer?.backgroundColor = theme.pillBackgroundColor
+                aestheticPill.layer?.borderColor = theme.pillBorderColor
             }
             aestheticPill.isHidden = false
         } else {
             aestheticPill.isHidden = true
         }
-
-        updateTheme()
-    }
-
-    /// Dynamically updates the burst / scene pill description
-    public func updateBurstDescription(_ desc: String?) {
-        if let desc = desc {
-            burstLabel.stringValue = desc
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.15
-                burstPill.animator().isHidden = false
-            }
-        } else {
-            burstPill.isHidden = true
-        }
-    }
-
-    /// Dynamically updates the aesthetic score independently as soon as background Vision computation finishes
-    public func updateAestheticScore(_ score: AestheticScoreResult?) {
-        self.currentAestheticScore = score
-        let isDark = ThemeManager.shared.isDark
-
-        guard let score = score else {
-            aestheticPill.isHidden = true
-            return
-        }
-
-        if score.isWinner {
-            aestheticLabel.stringValue = "✨ \(score.formattedScore) BEST"
-            aestheticLabel.textColor = .white
-            aestheticPill.layer?.backgroundColor = isDark
-                ? NSColor(srgbRed: 0.85, green: 0.65, blue: 0.12, alpha: 0.88).cgColor
-                : NSColor(srgbRed: 0.82, green: 0.58, blue: 0.10, alpha: 0.92).cgColor
-            aestheticPill.layer?.borderColor = NSColor(srgbRed: 1.0, green: 0.85, blue: 0.35, alpha: 0.65).cgColor
-        } else if score.isUtility {
-            aestheticLabel.stringValue = "⚠️ \(score.formattedScore)"
-            aestheticLabel.textColor = isDark ? NSColor.systemYellow : NSColor.systemOrange
-            aestheticPill.layer?.backgroundColor = isDark
-                ? NSColor(white: 0.20, alpha: 0.40).cgColor
-                : NSColor(white: 0.85, alpha: 0.50).cgColor
-            aestheticPill.layer?.borderColor = isDark
-                ? NSColor(white: 1.0, alpha: 0.10).cgColor
-                : NSColor(white: 0.0, alpha: 0.10).cgColor
-        } else {
-            aestheticLabel.stringValue = "✨ \(score.formattedScore)"
-            aestheticLabel.textColor = isDark ? NSColor(white: 0.90, alpha: 1.0) : NSColor(white: 0.20, alpha: 1.0)
-            aestheticPill.layer?.backgroundColor = isDark
-                ? NSColor(white: 0.25, alpha: 0.45).cgColor
-                : NSColor(white: 0.85, alpha: 0.55).cgColor
-            aestheticPill.layer?.borderColor = isDark
-                ? NSColor(white: 1.0, alpha: 0.15).cgColor
-                : NSColor(white: 0.0, alpha: 0.12).cgColor
-        }
-
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.15
-            aestheticPill.animator().isHidden = false
-        }
-    }
-
-    public func updateTheme() {
-        let isDark = ThemeManager.shared.isDark
-
-        visualEffectView.material = isDark ? .hudWindow : .headerView
-        visualEffectView.layer?.borderColor = isDark
-            ? NSColor(white: 1.0, alpha: 0.15).cgColor
-            : NSColor(white: 0.0, alpha: 0.12).cgColor
-
-        scrimView.layer?.backgroundColor = isDark
-            ? NSColor(white: 0.05, alpha: 0.25).cgColor
-            : NSColor(white: 1.0, alpha: 0.35).cgColor
-
-        // Keycap appearance
-        if slot == 1 {
-            // Indigo / Blue for Slot 1
-            keycapPill.layer?.backgroundColor = isDark
-                ? NSColor(srgbRed: 0.25, green: 0.38, blue: 0.85, alpha: 0.85).cgColor
-                : NSColor(srgbRed: 0.20, green: 0.45, blue: 0.90, alpha: 0.85).cgColor
-            keycapPill.layer?.borderColor = NSColor(srgbRed: 0.45, green: 0.65, blue: 1.0, alpha: 0.50).cgColor
-            keycapLabel.textColor = .white
-        } else {
-            // Amber / Orange for Slot 2
-            keycapPill.layer?.backgroundColor = isDark
-                ? NSColor(srgbRed: 0.85, green: 0.45, blue: 0.15, alpha: 0.85).cgColor
-                : NSColor(srgbRed: 0.90, green: 0.50, blue: 0.15, alpha: 0.85).cgColor
-            keycapPill.layer?.borderColor = NSColor(srgbRed: 1.0, green: 0.70, blue: 0.35, alpha: 0.50).cgColor
-            keycapLabel.textColor = .white
-        }
-
-        filenameLabel.textColor = isDark ? .white : .black
     }
 }
