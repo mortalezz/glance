@@ -121,14 +121,14 @@ public final class QuickHelpView: NSView {
 
         let compactPairs: [(col1: (key: String, desc: String), col2: (key: String, desc: String))] = [
             (("P / ⇧P", "Pick / Knockout"), ("Z / ⇧Z", "100% / Eye Jump")),
-            (("X", "Reject"), ("S", "Multi-Up (1/2/4-UP)")),
+            (("X", "Reject"), ("A / S", "Faces / Multi-Up")),
             (("U", "Unflag"), ("H", "RGB Histogram")),
             (("1 – 5", "Rating"), ("O", "Clipping warning")),
             (("0", "Clear rating"), ("I", "EXIF Info")),
             (("6 – 9", "Color label"), ("V / T", "Profile / Theme")),
             (("C", "Auto-advance"), ("Return", "Slideshow")),
-            (("E", "Export picks"), ("+ / -", "Slideshow speed")),
-            (("R / L", "Rotate 90°"), ("\\", "Cycle filter")),
+            (("E / ⇧E", "Export / Batch"), ("+ / -", "Slideshow speed")),
+            (("R / L", "Rotate 90°"), ("\\ / ⇧\\", "Filter / Picks")),
             (("⌫", "Trash photo"), ("⇧ ⌫", "Purge rejects")),
             (("F / ⇧F", "Screen / Peaking"), ("Space", "Next / Expand")),
             (("⌘Z", "Undo / Redo"), ("⌘↵", "Open in Editor")),
@@ -214,7 +214,7 @@ public final class QuickHelpView: NSView {
         )] = [
             (
                 ("P / ⇧P", "Pick / Knockout", "P: Flag keeper. ⇧P: Burst Knockout (pick best, auto-reject all burst siblings)."),
-                ("Z / ⇧Z", "100% / Eye Jump", "Hold Z: spring-loaded 100% Loupe & pan. ⇧Z: Apple Vision centers eye on hovered frame."),
+                ("A / ⇧Z", "Faces / Eye Jump", "A: Toggle Narrative-style Face & Eye Inspection dock. ⇧Z: 100% Loupe eye jump."),
                 ("Return", "Slideshow", "Automated timed presentation. Any key or click stops it.")
             ),
             (
@@ -230,7 +230,7 @@ public final class QuickHelpView: NSView {
             (
                 ("1 – 5", "Star Ratings", "Rates 1 to 5 stars (xmp:Rating). 0 clears stars."),
                 ("O", "Clipping Warnings", "Pulsing blinkies: Red for blown highlights, Blue for shadows."),
-                ("E", "Quick Export", "Copies all Picks (or current photo) to ./Picks with sound chime.")
+                ("E / ⇧E", "Export / Batch Picks", "E: Quick export active shot. ⇧E: Batch export all ✓ Picks to ./Selects.")
             ),
             (
                 ("6 – 9", "Color Labels", "6: Red, 7: Yellow, 8: Green, 9: Blue in Adobe XMP."),
@@ -239,7 +239,7 @@ public final class QuickHelpView: NSView {
             ),
             (
                 ("C", "Auto-Advance", "Speed culling: automatically advances after rating or flag."),
-                ("\\", "Cycle Filters", "All ➔ Hide Rejects ➔ Picks Only ➔ Rejects Only ➔ Stars."),
+                ("\\ / ⇧\\", "Filters / Picks Review", "\\: Cycle all filters. ⇧\\: Quick toggle between Picks Only and All Files."),
                 ("⌫ / ⇧⌫", "Trash / Purge", "⌫ trashes active shot. ⇧⌫ batch-purges all rejected photos.")
             ),
             (

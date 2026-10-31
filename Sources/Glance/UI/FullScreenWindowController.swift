@@ -40,6 +40,8 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     private var slideshowTimer: Timer? = nil
 
     // Auto Face & Eye Focus Jump
+    private var isFaceOverlayVisible: Bool = false
+    private var filterBeforePicksToggle: CullingFilter? = nil
     private var detectedFacesForCurrentSlide: [DetectedFace] = []
     private var detectedFacesForChallengerSlide: [DetectedFace] = []
     private var detectedFacesByRawIndex: [Int: [DetectedFace]] = [:]
@@ -389,6 +391,10 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             info: info
         )
 
+        if isFaceOverlayVisible {
+            refreshFaceOverlay(for: decoded.image, faces: detectedFacesForCurrentSlide)
+        }
+
         // Asynchronous Histogram calculations for all visible panes
         if isHistogramVisible {
             updateHistogramAsync(for: slotImages)
@@ -416,6 +422,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                     self.detectedFacesByRawIndex[rIdx] = faces
                     if s == 0 {
                         self.detectedFacesForCurrentSlide = faces
+                    }
+                    if self.isFaceOverlayVisible && s == (self.activeHoverSlot - 1) {
+                        self.refreshFaceOverlay(for: img, faces: faces)
                     }
                 }
             }
@@ -1092,6 +1101,144 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
     // MARK: - Auto Face & Eye Focus Jump
 
+    // MARK: - Face & Eye Focus Inspection Overlay (Narrative Select Style)
+
+    public func slideViewToggleFaceOverlay() {
+        isFaceOverlayVisible.toggle()
+        slideView.setFaceOverlayVisible(isFaceOverlayVisible)
+        if isFaceOverlayVisible {
+            slideView.showToast("Face Inspection On", icon: "👥", shortcut: "A", tint: .systemCyan)
+            refreshFaceOverlay()
+        } else {
+            slideView.showToast("Face Inspection Off", icon: "👥", shortcut: "A")
+        }
+    }
+
+    public func slideViewJumpToFace(index: Int) {
+        let slotOffset: Int
+        if multiUpMode == .single {
+            slotOffset = 0
+        } else {
+            let targetSlot = activeHoverSlot
+            slotOffset = max(0, min(multiUpMode.rawValue - 1, targetSlot - 1))
+        }
+
+        let targetFilteredPos = (slotOffset < displayedMultiUpPositions.count)
+            ? displayedMultiUpPositions[slotOffset]
+            : currentFilteredPos
+        guard targetFilteredPos < filteredIndices.count else { return }
+        let targetRawIndex = filteredIndices[targetFilteredPos]
+
+        let faces = self.detectedFacesByRawIndex[targetRawIndex] ?? self.detectedFacesForCurrentSlide
+        guard index >= 1, index <= faces.count else { return }
+        let face = faces[index - 1]
+
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+        let label = "👁️ Face \(index)/\(faces.count) (Eye Focus)"
+        slideView.zoomToNormalizedPoint(face.eyeCenter, targetPaneIndex: slotOffset, label: label)
+
+        Task {
+            if let fullDec = try? await self.pipeline.getFullResolutionImage(at: targetRawIndex) {
+                guard self.slideView.isZoomed else { return }
+                let dims = CGSize(width: fullDec.originalWidth, height: fullDec.originalHeight)
+                self.slideView.zoomToNormalizedPoint(
+                    face.eyeCenter,
+                    targetPaneIndex: slotOffset,
+                    fullResImage: (slotOffset == 0) ? fullDec.image : nil,
+                    originalDimensions: (slotOffset == 0) ? dims : nil,
+                    rightFullResImage: (slotOffset == 1) ? fullDec.image : nil,
+                    rightOriginalDimensions: (slotOffset == 1) ? dims : nil,
+                    label: nil
+                )
+            }
+        }
+    }
+
+    private func refreshFaceOverlay(for cgImage: CGImage? = nil, faces: [DetectedFace]? = nil) {
+        guard isFaceOverlayVisible else { return }
+
+        let activePos = (activeHoverSlot <= displayedMultiUpPositions.count)
+            ? displayedMultiUpPositions[activeHoverSlot - 1]
+            : currentFilteredPos
+        guard activePos < filteredIndices.count else {
+            slideView.updateFaceTiles([])
+            return
+        }
+
+        let rIdx = filteredIndices[activePos]
+        let item = allItems[rIdx]
+
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+
+            let faceList: [DetectedFace]
+            if let f = faces {
+                faceList = f
+            } else if let cached = self.detectedFacesByRawIndex[rIdx] {
+                faceList = cached
+            } else if let dec = try? await self.pipeline.getImage(at: rIdx) {
+                let detected = await FaceDetectionEngine.shared.detectFaces(in: dec.image, cacheKey: item.url.path)
+                self.detectedFacesByRawIndex[rIdx] = detected
+                faceList = detected
+            } else {
+                faceList = []
+            }
+
+            guard !faceList.isEmpty else {
+                self.slideView.updateFaceTiles([])
+                return
+            }
+
+            let img: CGImage?
+            if let i = cgImage {
+                img = i
+            } else if let dec = try? await self.pipeline.getImage(at: rIdx) {
+                img = dec.image
+            } else {
+                img = nil
+            }
+
+            guard let image = img else {
+                self.slideView.updateFaceTiles([])
+                return
+            }
+
+            let W = CGFloat(image.width)
+            let H = CGFloat(image.height)
+            var tiles: [FaceTileData] = []
+
+            for (i, face) in faceList.prefix(8).enumerated() {
+                let eyeX = face.eyeCenter.x * W
+                let eyeY = (1.0 - face.eyeCenter.y) * H
+                let boxW = face.boundingBox.width * W
+                let boxH = face.boundingBox.height * H
+                let cropDim = max(140.0, max(boxW, boxH) * 1.5)
+
+                let cropOriginX = max(0, min(W - cropDim, eyeX - cropDim / 2.0))
+                let cropOriginY = max(0, min(H - cropDim, eyeY - cropDim / 2.0))
+                let cropW = min(cropDim, W - cropOriginX)
+                let cropH = min(cropDim, H - cropOriginY)
+
+                let cropRect = CGRect(x: cropOriginX, y: cropOriginY, width: cropW, height: cropH)
+                guard let cropped = image.cropping(to: cropRect) else { continue }
+
+                let isSharp = (face.leftEye != nil || face.rightEye != nil)
+                let hasEyes = (face.leftEye != nil && face.rightEye != nil)
+
+                tiles.append(FaceTileData(
+                    index: i + 1,
+                    image: cropped,
+                    eyeCenterNormalized: face.eyeCenter,
+                    isEyeSharp: isSharp,
+                    hasOpenEyes: hasEyes,
+                    confidence: face.confidence
+                ))
+            }
+
+            self.slideView.updateFaceTiles(tiles)
+        }
+    }
+
     public func slideViewJumpToFaceEye() {
         stopSlideshowIfRunning()
 
@@ -1332,6 +1479,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         guard activeHoverSlot != slot else { return }
         activeHoverSlot = slot
         updateCullingDisplay()
+        if isFaceOverlayVisible {
+            refreshFaceOverlay()
+        }
 
         if isHistogramVisible {
             let data = paneHistogramData[slot] ?? .empty
@@ -1832,6 +1982,70 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                     self?.slideView.showToast("Rotation Failed", icon: "⚠️")
                 }
             }
+        }
+    }
+
+    /// Batch Exports all flagged ✓ Picks to `./Selects` directory
+    public func slideViewRequestBatchExportPicks() {
+        stopSlideshowIfRunning()
+        guard !allItems.isEmpty, !isExporting else { return }
+
+        let picks = allItems.filter { item in
+            let meta = cullingData[item.id] ?? CullingMetadata()
+            return meta.pick == .pick
+        }
+
+        guard !picks.isEmpty else {
+            slideView.showToast("No Picks Flagged • Flag keepers with [P]", icon: "📁", shortcut: "⇧E", tint: .systemOrange)
+            return
+        }
+
+        guard let firstItem = allItems.first else { return }
+        let parentDir = firstItem.url.deletingLastPathComponent()
+        let destination = parentDir.appendingPathComponent("Selects")
+
+        isExporting = true
+        slideView.showToast("Batch Exporting \(picks.count) Picks to ./Selects...", icon: "📁", shortcut: "⇧E", tint: .systemCyan)
+
+        Task { [weak self] in
+            guard let self = self else { return }
+            do {
+                let summary = try await ExportManager.shared.export(
+                    items: picks,
+                    destinationDirectory: destination
+                ) { [weak self] progress in
+                    Task { @MainActor in
+                        self?.slideView.showToast("Exporting \(progress.current) / \(progress.total) Picks...", icon: "📁", shortcut: "⇧E")
+                    }
+                }
+
+                self.isExporting = false
+                let finishMsg = "✓ Exported \(summary.exportedCount) Picks (\(summary.totalFilesWritten) files) to ./Selects"
+                self.slideView.showToast(finishMsg, icon: "📁", shortcut: "⇧E", tint: .systemGreen)
+                NSSound(named: "Glass")?.play()
+                NSWorkspace.shared.activateFileViewerSelecting([destination])
+            } catch {
+                self.isExporting = false
+                self.slideView.showToast("Export Failed", icon: "⚠️", tint: .systemRed)
+            }
+        }
+    }
+
+    /// Quick toggle between Picks Only filter and All Files
+    public func slideViewTogglePicksFilter() {
+        stopSlideshowIfRunning()
+        if currentFilter == .picksOnly {
+            currentFilter = filterBeforePicksToggle ?? .all
+            filterBeforePicksToggle = nil
+            slideView.showToast("Filter: \(currentFilter.title)", icon: "🔍", shortcut: "⇧\\")
+        } else {
+            filterBeforePicksToggle = currentFilter
+            currentFilter = .picksOnly
+            slideView.showToast("Filter: Picks Only (✓)", icon: "✓", shortcut: "⇧\\", tint: .systemGreen)
+        }
+        rebuildFilter(targetIndex: currentRawIndex)
+        Task {
+            await loadAndDisplayCurrent()
         }
     }
 

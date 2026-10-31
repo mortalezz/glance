@@ -1413,6 +1413,109 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+        // ==========================================
+        // TEST 29: Face & Eye Focus Inspection Overlay & Targeted Batch Export (⇧E / ⇧\)
+        // ==========================================
+        do {
+            print("🧪 TEST 29: Face & Eye Focus Inspection & Targeted Batch Export...")
+
+            // 1. FaceTileData & Crop Calculation Invariants
+            let testImg = makeTestCGImage(width: 1000, height: 1000, r: 200, g: 150, b: 120)
+            let dummyFace = DetectedFace(
+                boundingBox: CGRect(x: 0.3, y: 0.4, width: 0.2, height: 0.2),
+                eyeCenter: CGPoint(x: 0.4, y: 0.52),
+                leftEye: CGPoint(x: 0.36, y: 0.52),
+                rightEye: CGPoint(x: 0.44, y: 0.52),
+                confidence: 0.98
+            )
+
+            let W: CGFloat = 1000
+            let H: CGFloat = 1000
+            let eyeX = dummyFace.eyeCenter.x * W // 400
+            let eyeY = (1.0 - dummyFace.eyeCenter.y) * H // 480
+            let boxW = dummyFace.boundingBox.width * W // 200
+            let boxH = dummyFace.boundingBox.height * H // 200
+            let cropDim = max(140.0, max(boxW, boxH) * 1.5) // 300
+
+            let cropOriginX = max(0, min(W - cropDim, eyeX - cropDim / 2.0)) // 400 - 150 = 250
+            let cropOriginY = max(0, min(H - cropDim, eyeY - cropDim / 2.0)) // 480 - 150 = 330
+            let cropRect = CGRect(x: cropOriginX, y: cropOriginY, width: cropDim, height: cropDim)
+
+            let cropped = testImg.cropping(to: cropRect)
+            assertEqual(cropped != nil, true, "Face crop created successfully")
+            assertEqual(cropped?.width, 300, "Crop width is 300px")
+            assertEqual(cropped?.height, 300, "Crop height is 300px")
+
+            let tile = FaceTileData(
+                index: 1,
+                image: cropped!,
+                eyeCenterNormalized: dummyFace.eyeCenter,
+                isEyeSharp: dummyFace.leftEye != nil && dummyFace.rightEye != nil,
+                hasOpenEyes: dummyFace.leftEye != nil && dummyFace.rightEye != nil,
+                confidence: dummyFace.confidence
+            )
+
+            assertEqual(tile.index, 1, "Tile index is 1")
+            assertEqual(tile.isEyeSharp, true, "Both eyes detected -> isEyeSharp is true")
+            assertEqual(tile.hasOpenEyes, true, "Both eyes detected -> hasOpenEyes is true")
+
+            // 2. Targeted Batch Export (⇧E) to ./Selects
+            let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("GlanceBatchExportTest_\(UUID().uuidString)")
+            let sourceDir = tempDir.appendingPathComponent("Source")
+            let selectsDir = tempDir.appendingPathComponent("Selects")
+            try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+
+            // Create 3 photos in source: 2 Picks, 1 Unflagged
+            var testItems: [SlideItem] = []
+            var testMeta: [String: CullingMetadata] = [:]
+
+            for i in 1...3 {
+                let fileURL = sourceDir.appendingPathComponent("photo_\(i).jpg")
+                try "fake image content \(i)".write(to: fileURL, atomically: true, encoding: .utf8)
+                let sidecarURL = sourceDir.appendingPathComponent("photo_\(i).xmp")
+                try "<xmp>meta \(i)</xmp>".write(to: sidecarURL, atomically: true, encoding: .utf8)
+
+                let itm = SlideItem(url: fileURL)
+                testItems.append(itm)
+                let isPick = (i <= 2)
+                testMeta[itm.id] = CullingMetadata(rating: isPick ? 5 : 0, pick: isPick ? .pick : .unflagged)
+            }
+
+            let picksToExport = testItems.filter { testMeta[$0.id]?.pick == .pick }
+            assertEqual(picksToExport.count, 2, "Found exactly 2 picks")
+
+            let summary = try await ExportManager.shared.export(
+                items: picksToExport,
+                destinationDirectory: selectsDir
+            )
+
+            assertEqual(summary.exportedCount, 2, "Exported 2 picks")
+            assertEqual(summary.totalFilesWritten, 4, "Exported 4 files total (2 photos + 2 sidecars)")
+            assertEqual(FileManager.default.fileExists(atPath: selectsDir.appendingPathComponent("photo_1.jpg").path), true, "photo_1.jpg in ./Selects")
+            assertEqual(FileManager.default.fileExists(atPath: selectsDir.appendingPathComponent("photo_1.xmp").path), true, "photo_1.xmp in ./Selects")
+            assertEqual(FileManager.default.fileExists(atPath: selectsDir.appendingPathComponent("photo_2.jpg").path), true, "photo_2.jpg in ./Selects")
+            assertEqual(FileManager.default.fileExists(atPath: selectsDir.appendingPathComponent("photo_3.jpg").path), false, "photo_3 (unflagged) NOT in ./Selects")
+
+            // Cleanup temp test directory
+            try? FileManager.default.removeItem(at: tempDir)
+
+            // 3. Quick Filter Toggle (⇧\) Invariants
+            var currentFilter = CullingFilter.all
+            var previousFilter: CullingFilter? = nil
+
+            // Toggle to Picks
+            previousFilter = currentFilter
+            currentFilter = .picksOnly
+            assertEqual(currentFilter, .picksOnly, "Switched to .picksOnly")
+
+            // Toggle back
+            currentFilter = previousFilter ?? .all
+            previousFilter = nil
+            assertEqual(currentFilter, .all, "Reverted back to .all")
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

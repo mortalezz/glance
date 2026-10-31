@@ -32,6 +32,14 @@ public protocol SlideViewDelegate: AnyObject {
     func slideViewRequestPreviousScene()
     func slideViewRequestJumpToHero()
 
+    // Face & Eye Inspection Overlay
+    func slideViewToggleFaceOverlay()
+    func slideViewJumpToFace(index: Int)
+
+    // Targeted Batch Export & Filtering
+    func slideViewRequestBatchExportPicks()
+    func slideViewTogglePicksFilter()
+
     // 100% Zoom Action
     func slideViewRequestZoomToggle(mouseLocation: CGPoint)
     func slideViewJumpToFaceEye()
@@ -99,6 +107,7 @@ public final class SlideView: NSView {
     public let exifHud = ExifHudView()
     public let quickHelpView = QuickHelpView()
     public let topToastView = TopToastView()
+    public let faceOverlayView = FaceLoupeOverlayView()
 
     public let splitBadges: [SplitPaneBadgeView] = (1...4).map { SplitPaneBadgeView(slot: $0) }
     public var leftSplitBadge: SplitPaneBadgeView { splitBadges[0] }
@@ -257,6 +266,15 @@ public final class SlideView: NSView {
         topToastView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(topToastView)
 
+        faceOverlayView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(faceOverlayView)
+        faceOverlayView.onFaceSelected = { [weak self] faceIndex in
+            self?.delegate?.slideViewJumpToFace(index: faceIndex)
+        }
+        faceOverlayView.onClose = { [weak self] in
+            self?.delegate?.slideViewToggleFaceOverlay()
+        }
+
         // Split Badges: positioned manually via frames in updateLayerLayout
         for badge in splitBadges {
             badge.translatesAutoresizingMaskIntoConstraints = true
@@ -292,7 +310,10 @@ public final class SlideView: NSView {
 
             topToastView.centerXAnchor.constraint(equalTo: centerXAnchor),
             topToastView.topAnchor.constraint(equalTo: topAnchor, constant: 24),
-            topToastView.heightAnchor.constraint(greaterThanOrEqualToConstant: 32)
+            topToastView.heightAnchor.constraint(greaterThanOrEqualToConstant: 32),
+
+            faceOverlayView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -28),
+            faceOverlayView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -76)
         ])
     }
 
@@ -721,6 +742,22 @@ public final class SlideView: NSView {
         quickHelpView.toggle()
     }
 
+    public func updateFaceTiles(_ tiles: [FaceTileData]) {
+        faceOverlayView.update(with: tiles)
+    }
+
+    public func toggleFaceOverlay() {
+        faceOverlayView.toggle()
+    }
+
+    public func setFaceOverlayVisible(_ visible: Bool) {
+        if visible {
+            faceOverlayView.present()
+        } else {
+            faceOverlayView.dismiss()
+        }
+    }
+
     public func showToast(
         _ message: String,
         icon: String? = nil,
@@ -743,6 +780,7 @@ public final class SlideView: NSView {
         guard !isHelpPresented else { return }
         isHelpPresented = true
         topToastView.dismiss(animated: false)
+        faceOverlayView.dismiss()
         savedHistogramAlpha = histogramHud.alphaValue
         savedExifAlpha = exifHud.alphaValue
         for i in 0..<4 {
@@ -1256,6 +1294,12 @@ public final class SlideView: NSView {
             quickHelpView.dismiss()
         }
 
+        // Esc closes Face Inspection Overlay if open
+        if faceOverlayView.isPresented {
+            faceOverlayView.dismiss()
+            return
+        }
+
         // Esc (KeyCode 53): If zoomed, exit zoom to grid/fit; otherwise quit Glance
         if event.keyCode == 53 {
             if isZoomed {
@@ -1307,6 +1351,12 @@ public final class SlideView: NSView {
         }
 
         // --- Layout-Independent Primary Hotkeys ---
+        // Face & Eye Focus Inspection Overlay: 'A' (KeyCode 0)
+        if !isCmd && !isShift && (lower == "a" || event.keyCode == 0) {
+            delegate?.slideViewToggleFaceOverlay()
+            return
+        }
+
         // Rotate Right 90°: 'R' (KeyCode 15)
         if lower == "r" || event.keyCode == 15 {
             delegate?.slideViewStopSlideshow()
@@ -1321,10 +1371,14 @@ public final class SlideView: NSView {
             return
         }
 
-        // Quick Export: 'E'
+        // Quick Export: 'E' (⇧E: Batch Export Picks to ./Selects)
         if lower == "e" || event.keyCode == 14 {
             delegate?.slideViewStopSlideshow()
-            delegate?.slideViewRequestExport()
+            if isShift {
+                delegate?.slideViewRequestBatchExportPicks()
+            } else {
+                delegate?.slideViewRequestExport()
+            }
             return
         }
 
@@ -1484,7 +1538,11 @@ public final class SlideView: NSView {
 
         // Cycle Filter: '\\'
         if chars == "\\" || event.keyCode == 42 {
-            delegate?.slideViewCycleFilter()
+            if isShift {
+                delegate?.slideViewTogglePicksFilter()
+            } else {
+                delegate?.slideViewCycleFilter()
+            }
             return
         }
 
