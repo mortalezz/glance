@@ -718,67 +718,72 @@ public final class GlassHudView: NSView {
             indexPill.isHidden = true
         }
 
-        // Culling: Pick / Reject
-        switch info.culling.pick {
-        case .pick:
-            pickLabel.stringValue = "PICK"
-            pickLabel.textColor = NSColor.systemGreen
-            pickBadge.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.25).cgColor
-            pickBadge.layer?.borderColor = NSColor.systemGreen.withAlphaComponent(0.6).cgColor
-            pickBadge.layer?.borderWidth = 0.5
-            pickBadge.isHidden = false
-        case .reject:
-            pickLabel.stringValue = "REJECT"
-            pickLabel.textColor = NSColor.systemRed
-            pickBadge.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.25).cgColor
-            pickBadge.layer?.borderColor = NSColor.systemRed.withAlphaComponent(0.6).cgColor
-            pickBadge.layer?.borderWidth = 0.5
-            pickBadge.isHidden = false
-        case .unflagged:
-            pickBadge.isHidden = true
-        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.12
+            context.allowsImplicitAnimation = true
 
-        // Culling: Color Label
-        switch info.culling.color {
-        case .red:
-            colorLabel.stringValue = "RED"
-            colorLabel.textColor = NSColor.systemRed
-            colorBadge.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.25).cgColor
-            colorBadge.layer?.borderColor = NSColor.systemRed.withAlphaComponent(0.6).cgColor
-            colorBadge.layer?.borderWidth = 0.5
-            colorBadge.isHidden = false
-        case .yellow:
-            colorLabel.stringValue = "YELLOW"
-            colorLabel.textColor = NSColor.systemYellow
-            colorBadge.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.25).cgColor
-            colorBadge.layer?.borderColor = NSColor.systemYellow.withAlphaComponent(0.6).cgColor
-            colorBadge.layer?.borderWidth = 0.5
-            colorBadge.isHidden = false
-        case .green:
-            colorLabel.stringValue = "GREEN"
-            colorLabel.textColor = NSColor.systemGreen
-            colorBadge.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.25).cgColor
-            colorBadge.layer?.borderColor = NSColor.systemGreen.withAlphaComponent(0.6).cgColor
-            colorBadge.layer?.borderWidth = 0.5
-            colorBadge.isHidden = false
-        case .blue:
-            colorLabel.stringValue = "BLUE"
-            colorLabel.textColor = NSColor.systemBlue
-            colorBadge.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.25).cgColor
-            colorBadge.layer?.borderColor = NSColor.systemBlue.withAlphaComponent(0.6).cgColor
-            colorBadge.layer?.borderWidth = 0.5
-            colorBadge.isHidden = false
-        case .none:
-            colorBadge.isHidden = true
-        }
+            // Culling: Pick / Reject
+            switch info.culling.pick {
+            case .pick:
+                pickLabel.stringValue = "PICK"
+                pickLabel.textColor = NSColor.systemGreen
+                pickBadge.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.25).cgColor
+                pickBadge.layer?.borderColor = NSColor.systemGreen.withAlphaComponent(0.6).cgColor
+                pickBadge.layer?.borderWidth = 0.5
+                pickBadge.isHidden = false
+            case .reject:
+                pickLabel.stringValue = "REJECT"
+                pickLabel.textColor = NSColor.systemRed
+                pickBadge.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.25).cgColor
+                pickBadge.layer?.borderColor = NSColor.systemRed.withAlphaComponent(0.6).cgColor
+                pickBadge.layer?.borderWidth = 0.5
+                pickBadge.isHidden = false
+            case .unflagged:
+                pickBadge.isHidden = true
+            }
 
-        // Culling: Star Rating
-        if info.culling.rating > 0 {
-            let stars = String(repeating: "★", count: info.culling.rating) + String(repeating: "☆", count: 5 - info.culling.rating)
-            ratingLabel.stringValue = stars
-            ratingLabel.isHidden = false
-        } else {
-            ratingLabel.isHidden = true
+            // Culling: Color Label
+            switch info.culling.color {
+            case .red:
+                colorLabel.stringValue = "RED"
+                colorLabel.textColor = NSColor.systemRed
+                colorBadge.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.25).cgColor
+                colorBadge.layer?.borderColor = NSColor.systemRed.withAlphaComponent(0.6).cgColor
+                colorBadge.layer?.borderWidth = 0.5
+                colorBadge.isHidden = false
+            case .yellow:
+                colorLabel.stringValue = "YELLOW"
+                colorLabel.textColor = NSColor.systemYellow
+                colorBadge.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.25).cgColor
+                colorBadge.layer?.borderColor = NSColor.systemYellow.withAlphaComponent(0.6).cgColor
+                colorBadge.layer?.borderWidth = 0.5
+                colorBadge.isHidden = false
+            case .green:
+                colorLabel.stringValue = "GREEN"
+                colorLabel.textColor = NSColor.systemGreen
+                colorBadge.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.25).cgColor
+                colorBadge.layer?.borderColor = NSColor.systemGreen.withAlphaComponent(0.6).cgColor
+                colorBadge.layer?.borderWidth = 0.5
+                colorBadge.isHidden = false
+            case .blue:
+                colorLabel.stringValue = "BLUE"
+                colorLabel.textColor = NSColor.systemBlue
+                colorBadge.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.25).cgColor
+                colorBadge.layer?.borderColor = NSColor.systemBlue.withAlphaComponent(0.6).cgColor
+                colorBadge.layer?.borderWidth = 0.5
+                colorBadge.isHidden = false
+            case .none:
+                colorBadge.isHidden = true
+            }
+
+            // Culling: Star Rating
+            if info.culling.rating > 0 {
+                let stars = String(repeating: "★", count: info.culling.rating) + String(repeating: "☆", count: 5 - info.culling.rating)
+                ratingLabel.stringValue = stars
+                ratingLabel.isHidden = false
+            } else {
+                ratingLabel.isHidden = true
+            }
         }
 
         filenameLabel.stringValue = info.filename

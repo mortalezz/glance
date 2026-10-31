@@ -30,6 +30,8 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     private var isExifVisible: Bool = false
     private var paneHistogramData: [Int: HistogramData] = [:]
     private var paneExifData: [Int: (exif: ExifMetadata?, dims: String, size: String?)] = [:]
+    private var cachedSlotItems: [SlideItem?] = Array(repeating: nil, count: 4)
+    private var cachedSlotDecoded: [DecodedImage?] = Array(repeating: nil, count: 4)
 
     // Phase 4: Output & Productivity
     private var isSlideshowActive: Bool = false
@@ -306,6 +308,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             exportProgressText: exportProgressText,
             aestheticScore: cachedAesthetic
         )
+
+        self.cachedSlotItems = slotItems
+        self.cachedSlotDecoded = slotDecoded
 
         slideView.displayMultiUp(
             images: slotImages,
@@ -702,10 +707,74 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         }
     }
 
+    private func updateCullingDisplay() {
+        guard let rawIndex = currentRawIndex, rawIndex >= 0 && rawIndex < allItems.count else { return }
+        let slotCount = multiUpMode.rawValue
+
+        if multiUpMode != .single {
+            for s in 0..<slotCount {
+                let pos = currentFilteredPos + s
+                guard pos < filteredIndices.count else { continue }
+                let raw = filteredIndices[pos]
+                let itm = allItems[raw]
+                let m = cullingData[itm.id] ?? CullingMetadata()
+                let sInfo = SplitPaneInfo(
+                    slot: s + 1,
+                    filename: itm.displayName,
+                    pick: m.pick,
+                    rating: m.rating,
+                    color: m.color,
+                    isPairScouting: true
+                )
+                slideView.updateSplitPaneInfo(slot: s + 1, info: sInfo)
+            }
+        }
+
+        let primaryIdx = min(activeHoverSlot - 1, slotCount - 1)
+        guard let item = cachedSlotItems[primaryIdx] ?? cachedSlotItems[0] ?? (rawIndex < allItems.count ? allItems[rawIndex] : nil) else { return }
+        let decoded = cachedSlotDecoded[primaryIdx] ?? cachedSlotDecoded[0]
+
+        let meta = cullingData[item.id] ?? CullingMetadata()
+        let formattedSize = item.totalStackSize > 0
+            ? ByteCountFormatter.string(fromByteCount: item.totalStackSize, countStyle: .file)
+            : nil
+        let resText = (decoded != nil) ? "\(decoded!.originalWidth) × \(decoded!.originalHeight)" : nil
+        let filterBadge = currentFilter == .all ? nil : currentFilter.title
+
+        var hudMeta = meta
+        if multiUpMode != .single {
+            hudMeta.cameraProfile = .asShot
+        }
+
+        let cachedAesthetic = (multiUpMode != .single) ? nil : AestheticsEngine.shared.cachedScore(for: item.url.path)
+
+        let info = HudInfo(
+            currentIndex: currentFilteredPos,
+            totalCount: filteredIndices.count,
+            filename: item.displayName,
+            dimensions: resText,
+            fileSize: formattedSize,
+            isRaw: (decoded?.isRaw == true) || item.rawURL != nil,
+            isStacked: item.isStacked,
+            isDownscaled: decoded?.isDownscaled ?? false,
+            culling: hudMeta,
+            autoAdvance: autoAdvance,
+            filterTitle: filterBadge,
+            isZoomed: slideView.isZoomed,
+            exif: decoded?.exif,
+            isSlideshow: isSlideshowActive,
+            slideshowInterval: slideshowInterval,
+            exportProgressText: exportProgressText,
+            aestheticScore: cachedAesthetic
+        )
+        slideView.hudView.update(with: info)
+    }
+
     public func slideViewHoverPaneChanged(to slot: Int) {
         guard multiUpMode != .single else { return }
         guard activeHoverSlot != slot else { return }
         activeHoverSlot = slot
+        updateCullingDisplay()
 
         if isHistogramVisible {
             let data = paneHistogramData[slot] ?? .empty
@@ -825,12 +894,13 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
         cullingUndoManager.record(.rating(itemID: item.id, rawIndex: targetRawIndex, previous: previous, new: newRating))
 
-        if multiUpMode != .single {
-            let starText = newRating > 0 ? "★ \(newRating)" : "Cleared"
-            slideView.hudView.showMessage("Slot [ \(activeHoverSlot) ] Rating: \(starText)")
-            Task { await loadAndDisplayCurrent() }
-        } else {
+        if currentFilter != .all && !currentFilter.matches(meta: meta) {
             applyCullingUpdate()
+        } else {
+            updateCullingDisplay()
+            if autoAdvance && multiUpMode == .single {
+                slideViewRequestNext()
+            }
         }
         saveMetadataAsync(meta: meta, for: item)
     }
@@ -850,18 +920,14 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
         cullingUndoManager.record(.pick(itemID: item.id, rawIndex: targetRawIndex, previous: previous, new: newPick))
 
-        let msg: String
-        switch newPick {
-        case .pick: msg = (multiUpMode != .single) ? "✓ Picked [ \(activeHoverSlot) ]" : "✓ Picked [P]"
-        case .reject: msg = (multiUpMode != .single) ? "✕ Rejected [ \(activeHoverSlot) ]" : "✕ Rejected [X]"
-        case .unflagged: msg = (multiUpMode != .single) ? "Unflagged [ \(activeHoverSlot) ]" : "Unflagged [U]"
+        if currentFilter != .all && !currentFilter.matches(meta: meta) {
+            applyCullingUpdate()
+        } else {
+            updateCullingDisplay()
+            if autoAdvance && multiUpMode == .single {
+                slideViewRequestNext()
+            }
         }
-        slideView.hudView.showMessage(msg)
-
-        if currentFilter == .hideRejects && newPick == .reject {
-            rebuildFilter(targetIndex: currentRawIndex)
-        }
-        Task { await loadAndDisplayCurrent() }
         saveMetadataAsync(meta: meta, for: item)
     }
 
@@ -884,11 +950,13 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
         cullingUndoManager.record(.color(itemID: item.id, rawIndex: targetRawIndex, previous: previous, new: newColor))
 
-        if multiUpMode != .single {
-            slideView.hudView.showMessage("Slot [ \(activeHoverSlot) ] Color: \(newColor.title)")
-            Task { await loadAndDisplayCurrent() }
-        } else {
+        if currentFilter != .all && !currentFilter.matches(meta: meta) {
             applyCullingUpdate()
+        } else {
+            updateCullingDisplay()
+            if autoAdvance && multiUpMode == .single {
+                slideViewRequestNext()
+            }
         }
         saveMetadataAsync(meta: meta, for: item)
     }
@@ -1277,8 +1345,7 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
             cullingData[itemID] = meta
             saveMetadataAsync(meta: meta, for: item)
             jumpToRawIndex(idx)
-            let starText = previous > 0 ? "★ \(previous)" : "Cleared"
-            slideView.hudView.showMessage("↩ Undone Rating: \(starText) [⌘Z]")
+
 
         case .pick(let itemID, _, let previous, _):
             guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
@@ -1288,7 +1355,7 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
             cullingData[itemID] = meta
             saveMetadataAsync(meta: meta, for: item)
             jumpToRawIndex(idx)
-            slideView.hudView.showMessage("↩ Undone Flag: \(previous.title) [⌘Z]")
+
 
         case .color(let itemID, _, let previous, _):
             guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
@@ -1298,7 +1365,7 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
             cullingData[itemID] = meta
             saveMetadataAsync(meta: meta, for: item)
             jumpToRawIndex(idx)
-            slideView.hudView.showMessage("↩ Undone Color: \(previous.title) [⌘Z]")
+
 
         case .profile(let itemID, _, let previous, _):
             guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
@@ -1379,8 +1446,7 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
             cullingData[itemID] = meta
             saveMetadataAsync(meta: meta, for: item)
             jumpToRawIndex(idx)
-            let starText = new > 0 ? "★ \(new)" : "Cleared"
-            slideView.hudView.showMessage("↪ Redone Rating: \(starText) [⇧⌘Z]")
+
 
         case .pick(let itemID, _, _, let new):
             guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
@@ -1390,7 +1456,7 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
             cullingData[itemID] = meta
             saveMetadataAsync(meta: meta, for: item)
             jumpToRawIndex(idx)
-            slideView.hudView.showMessage("↪ Redone Flag: \(new.title) [⇧⌘Z]")
+
 
         case .color(let itemID, _, _, let new):
             guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
@@ -1400,7 +1466,7 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
             cullingData[itemID] = meta
             saveMetadataAsync(meta: meta, for: item)
             jumpToRawIndex(idx)
-            slideView.hudView.showMessage("↪ Redone Color: \(new.title) [⇧⌘Z]")
+
 
         case .profile(let itemID, _, _, let new):
             guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }

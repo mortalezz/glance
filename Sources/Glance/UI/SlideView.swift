@@ -103,6 +103,12 @@ public final class SlideView: NSView {
     public private(set) var multiUpMode: MultiUpMode = .single
     public var isSplitMode: Bool { multiUpMode != .single }
     public private(set) var hoveredSplitSlot: Int = 1
+
+    // Saved overlay states when QuickHelp cheatsheet is presented
+    private var savedHistogramAlpha: CGFloat = 0.0
+    private var savedExifAlpha: CGFloat = 0.0
+    private var savedSplitBadgesAlpha: [CGFloat] = [0.0, 0.0, 0.0, 0.0]
+    public private(set) var isHelpPresented: Bool = false
     public private(set) var isZoomed: Bool = false
     public private(set) var isClippingActive: Bool = false
     public private(set) var isPeakingActive: Bool = false
@@ -215,6 +221,12 @@ public final class SlideView: NSView {
 
         quickHelpView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(quickHelpView)
+        quickHelpView.onWillPresent = { [weak self] in
+            self?.hideOverlaysForHelp()
+        }
+        quickHelpView.onWillDismiss = { [weak self] in
+            self?.restoreOverlaysAfterHelp()
+        }
 
         // Split Badges: positioned manually via frames in updateLayerLayout
         for badge in splitBadges {
@@ -343,6 +355,10 @@ public final class SlideView: NSView {
             splitBadges[1].isHidden = (paneImageLayers[1].contents == nil)
             splitBadges[0].isActiveSlot = (hoveredSplitSlot == 1)
             splitBadges[1].isActiveSlot = (hoveredSplitSlot == 2)
+            if isHelpPresented {
+                splitBadges[0].alphaValue = 0.0
+                splitBadges[1].alphaValue = 0.0
+            }
             CATransaction.commit()
 
             for i in 0..<2 {
@@ -408,6 +424,9 @@ public final class SlideView: NSView {
             for i in 0..<4 {
                 splitBadges[i].isHidden = (paneImageLayers[i].contents == nil)
                 splitBadges[i].isActiveSlot = (hoveredSplitSlot == (i + 1))
+                if isHelpPresented {
+                    splitBadges[i].alphaValue = 0.0
+                }
             }
             CATransaction.commit()
 
@@ -487,6 +506,9 @@ public final class SlideView: NSView {
         for i in 0..<4 {
             let sInfo = (i < splitInfos.count) ? splitInfos[i] : nil
             splitBadges[i].update(with: sInfo)
+            if isHelpPresented {
+                splitBadges[i].alphaValue = 0.0
+            }
         }
     }
 
@@ -568,6 +590,49 @@ public final class SlideView: NSView {
         quickHelpView.toggle()
     }
 
+    private func hideOverlaysForHelp() {
+        guard !isHelpPresented else { return }
+        isHelpPresented = true
+        savedHistogramAlpha = histogramHud.alphaValue
+        savedExifAlpha = exifHud.alphaValue
+        for i in 0..<4 {
+            savedSplitBadgesAlpha[i] = splitBadges[i].alphaValue
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.16
+            self.histogramHud.animator().alphaValue = 0.0
+            self.exifHud.animator().alphaValue = 0.0
+            for badge in self.splitBadges {
+                badge.animator().alphaValue = 0.0
+            }
+        }
+    }
+
+    private func restoreOverlaysAfterHelp() {
+        guard isHelpPresented else { return }
+        isHelpPresented = false
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.16
+            self.histogramHud.animator().alphaValue = self.savedHistogramAlpha
+            self.exifHud.animator().alphaValue = self.savedExifAlpha
+            for i in 0..<4 {
+                if self.multiUpMode != .single && self.paneImageLayers[i].contents != nil {
+                    self.splitBadges[i].animator().alphaValue = (self.savedSplitBadgesAlpha[i] > 0) ? self.savedSplitBadgesAlpha[i] : 1.0
+                }
+            }
+        }
+    }
+
+    public func updateSplitPaneInfo(slot: Int, info: SplitPaneInfo) {
+        guard slot >= 1 && slot <= 4 else { return }
+        splitBadges[slot - 1].update(with: info)
+        if isHelpPresented {
+            splitBadges[slot - 1].alphaValue = 0.0
+        }
+    }
+
     // MARK: - Phase 3: Histogram & Clipping Warnings ("Blinkies")
 
     public func updateHistogram(_ data: HistogramData, slot: Int? = nil) {
@@ -580,11 +645,21 @@ public final class SlideView: NSView {
     }
 
     public func setHistogramVisible(_ visible: Bool) {
-        histogramHud.setVisible(visible)
+        if isHelpPresented {
+            savedHistogramAlpha = visible ? 1.0 : 0.0
+            histogramHud.setVisible(false, animated: false)
+        } else {
+            histogramHud.setVisible(visible)
+        }
     }
 
     public func setExifVisible(_ visible: Bool) {
-        exifHud.setVisible(visible)
+        if isHelpPresented {
+            savedExifAlpha = visible ? 1.0 : 0.0
+            exifHud.setVisible(false, animated: false)
+        } else {
+            exifHud.setVisible(visible)
+        }
     }
 
     public func setClippingActive(_ active: Bool) {

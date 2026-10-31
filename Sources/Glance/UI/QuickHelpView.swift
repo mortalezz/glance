@@ -7,6 +7,8 @@ import AppKit
 @MainActor
 public final class QuickHelpView: NSView {
     public private(set) var isExpanded: Bool = false
+    public var onWillPresent: (() -> Void)?
+    public var onWillDismiss: (() -> Void)?
 
     private let visualEffectView = NSVisualEffectView()
     private let scrimView = NSView()
@@ -540,6 +542,7 @@ public final class QuickHelpView: NSView {
     }
 
     public func present() {
+        onWillPresent?()
         dismissTimer?.invalidate()
         if isExpanded {
             isExpanded = false
@@ -558,6 +561,7 @@ public final class QuickHelpView: NSView {
     }
 
     public func dismiss() {
+        onWillDismiss?()
         dismissTimer?.invalidate()
         dismissTimer = nil
         NSAnimationContext.runAnimationGroup { context in
