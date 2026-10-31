@@ -18,18 +18,12 @@ mkdir -p "${MACOS_DIR}" "${RESOURCES_DIR}"
 cp ".build/release/${APP_NAME}" "${MACOS_DIR}/${APP_NAME}"
 chmod +x "${MACOS_DIR}/${APP_NAME}"
 
-# Copy AppIcons (Light, Dark Liquid Glass, Tinted)
-for icon in AppIcon.icns AppIcon-Dark.icns AppIcon-Tinted.icns; do
+# Copy AppIcons (Light and Dark Liquid Glass)
+for icon in AppIcon.icns AppIcon-Dark.icns; do
     if [ -f "$icon" ]; then
         cp "$icon" "${RESOURCES_DIR}/$icon"
     fi
 done
-
-# Copy icon PNG assets
-if [ -d "assets" ]; then
-    mkdir -p "${RESOURCES_DIR}/assets"
-    cp assets/icon*.png "${RESOURCES_DIR}/assets/" 2>/dev/null || true
-fi
 
 # Create Info.plist with modern macOS privacy descriptions and file/folder associations
 cat <<EOF > "${CONTENTS_DIR}/Info.plist"
