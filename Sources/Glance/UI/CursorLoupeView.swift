@@ -12,7 +12,8 @@ public final class CursorLoupeView: NSView {
     private let diameter: CGFloat = 210.0
     private let clipContainer = NSView()
     private let magnifiedLayer = CALayer()
-    private let rimLayer = CALayer()
+    private let outerRimLayer = CALayer()
+    private let innerRimLayer = CALayer()
     private let crosshairLayer = CALayer()
 
     private let badgeView = NSVisualEffectView()
@@ -29,8 +30,29 @@ public final class CursorLoupeView: NSView {
     }
 
     public override func hitTest(_ point: NSPoint) -> NSView? {
-        // Completely transparent to mouse clicks & gestures
+        // Clicks inside circular aperture interact with loupe; outside passes through to photo pane
+        let center = CGPoint(x: diameter / 2.0, y: diameter / 2.0)
+        let dist = hypot(point.x - center.x, point.y - center.y)
+        if dist <= diameter / 2.0 {
+            return self
+        }
         return nil
+    }
+
+    public override func mouseDown(with event: NSEvent) {
+        cycleMagnification()
+        if let slideView = superview as? SlideView {
+            let mousePt = slideView.convert(event.locationInWindow, from: nil)
+            updatePosition(mousePt: mousePt, in: slideView)
+            slideView.showToast("Loupe \(Int(magnification))×", icon: "🔍", shortcut: "Click / M")
+        }
+    }
+
+    public override func mouseDragged(with event: NSEvent) {
+        if let slideView = superview as? SlideView {
+            let mousePt = slideView.convert(event.locationInWindow, from: nil)
+            updatePosition(mousePt: mousePt, in: slideView)
+        }
     }
 
     private func setupUI() {
@@ -38,11 +60,11 @@ public final class CursorLoupeView: NSView {
         isHidden = true
         alphaValue = 0.0
 
-        // Outer soft shadow on self for physical 3D elevation
+        // Subtle, physical floating shadow without muddy over-the-top spread
         let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.65)
-        shadow.shadowBlurRadius = 18
-        shadow.shadowOffset = NSSize(width: 0, height: -6)
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.45)
+        shadow.shadowBlurRadius = 14
+        shadow.shadowOffset = NSSize(width: 0, height: -4)
         self.shadow = shadow
 
         // 1. Circular clipping container
@@ -69,7 +91,7 @@ public final class CursorLoupeView: NSView {
         ]
         clipContainer.layer?.addSublayer(magnifiedLayer)
 
-        // 3. Precision Crosshair Reticle (with 8pt center clear zone)
+        // 3. Precision Etched Reticle (Hairline with clear 12pt center)
         crosshairLayer.frame = CGRect(x: 0, y: 0, width: diameter, height: diameter)
         crosshairLayer.actions = [
             "contents": NSNull(),
@@ -78,29 +100,47 @@ public final class CursorLoupeView: NSView {
         drawCrosshair()
         clipContainer.layer?.addSublayer(crosshairLayer)
 
-        // 4. Optical Frosted Rim Bezel
-        rimLayer.frame = CGRect(x: 0, y: 0, width: diameter, height: diameter)
-        rimLayer.cornerRadius = diameter / 2.0
-        rimLayer.cornerCurve = .circular
-        rimLayer.borderWidth = 2.0
-        rimLayer.actions = [
+        // 4. Optical Chamfered Dual-Rim Bezel
+        // Outer rim
+        outerRimLayer.frame = CGRect(x: 0, y: 0, width: diameter, height: diameter)
+        outerRimLayer.cornerRadius = diameter / 2.0
+        outerRimLayer.cornerCurve = .circular
+        outerRimLayer.borderWidth = 1.5
+        outerRimLayer.actions = [
             "borderColor": NSNull(),
             "borderWidth": NSNull()
         ]
-        layer?.addSublayer(rimLayer)
+        layer?.addSublayer(outerRimLayer)
+
+        // Inner subtle specular accent ring
+        let innerInset: CGFloat = 1.5
+        innerRimLayer.frame = CGRect(
+            x: innerInset,
+            y: innerInset,
+            width: diameter - 2 * innerInset,
+            height: diameter - 2 * innerInset
+        )
+        innerRimLayer.cornerRadius = (diameter - 2 * innerInset) / 2.0
+        innerRimLayer.cornerCurve = .circular
+        innerRimLayer.borderWidth = 0.75
+        innerRimLayer.actions = [
+            "borderColor": NSNull(),
+            "borderWidth": NSNull()
+        ]
+        layer?.addSublayer(innerRimLayer)
 
         // 5. Floating Magnification Badge Pill [ 2× / 4× ]
         badgeView.material = .hudWindow
         badgeView.blendingMode = .withinWindow
         badgeView.state = .active
         badgeView.wantsLayer = true
-        badgeView.layer?.cornerRadius = 9.0
+        badgeView.layer?.cornerRadius = 8.5
         badgeView.layer?.cornerCurve = .continuous
         badgeView.layer?.borderWidth = 0.5
         badgeView.layer?.masksToBounds = true
         badgeView.translatesAutoresizingMaskIntoConstraints = false
 
-        badgeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .heavy)
+        badgeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .bold)
         badgeLabel.alignment = .center
         badgeLabel.textColor = .white
         badgeLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -109,15 +149,15 @@ public final class CursorLoupeView: NSView {
         NSLayoutConstraint.activate([
             badgeLabel.topAnchor.constraint(equalTo: badgeView.topAnchor, constant: 2),
             badgeLabel.bottomAnchor.constraint(equalTo: badgeView.bottomAnchor, constant: -2),
-            badgeLabel.leadingAnchor.constraint(equalTo: badgeView.leadingAnchor, constant: 7),
-            badgeLabel.trailingAnchor.constraint(equalTo: badgeView.trailingAnchor, constant: -7)
+            badgeLabel.leadingAnchor.constraint(equalTo: badgeView.leadingAnchor, constant: 8),
+            badgeLabel.trailingAnchor.constraint(equalTo: badgeView.trailingAnchor, constant: -8)
         ])
 
         addSubview(badgeView)
         NSLayoutConstraint.activate([
             badgeView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            badgeView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
-            badgeView.heightAnchor.constraint(equalToConstant: 18)
+            badgeView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -11),
+            badgeView.heightAnchor.constraint(equalToConstant: 19)
         ])
 
         updateTheme()
@@ -126,8 +166,8 @@ public final class CursorLoupeView: NSView {
     private func drawCrosshair() {
         let midX = diameter / 2.0
         let midY = diameter / 2.0
-        let innerGap: CGFloat = 4.0
-        let outerLen: CGFloat = 13.0
+        let innerGap: CGFloat = 6.0
+        let outerLen: CGFloat = 11.0
 
         let path = CGMutablePath()
         // North
@@ -143,17 +183,23 @@ public final class CursorLoupeView: NSView {
         path.move(to: CGPoint(x: midX + innerGap, y: midY))
         path.addLine(to: CGPoint(x: midX + innerGap + outerLen, y: midY))
 
-        let shape = CAShapeLayer()
-        shape.path = path
-        shape.strokeColor = NSColor.white.withAlphaComponent(0.85).cgColor
-        shape.lineWidth = 1.0
-        shape.shadowColor = NSColor.black.cgColor
-        shape.shadowRadius = 1.5
-        shape.shadowOffset = .zero
-        shape.shadowOpacity = 0.9
+        // Subtle dark outline for razor contrast over specular highlights
+        let darkOutline = CAShapeLayer()
+        darkOutline.path = path
+        darkOutline.strokeColor = NSColor.black.withAlphaComponent(0.40).cgColor
+        darkOutline.lineWidth = 2.0
+        darkOutline.lineCap = .round
+
+        // Precision optical hairline
+        let hairline = CAShapeLayer()
+        hairline.path = path
+        hairline.strokeColor = NSColor.white.withAlphaComponent(0.85).cgColor
+        hairline.lineWidth = 1.0
+        hairline.lineCap = .round
 
         crosshairLayer.sublayers?.forEach { $0.removeFromSuperlayer() }
-        crosshairLayer.addSublayer(shape)
+        crosshairLayer.addSublayer(darkOutline)
+        crosshairLayer.addSublayer(hairline)
     }
 
     private func setupThemeObserver() {
@@ -171,14 +217,16 @@ public final class CursorLoupeView: NSView {
     public func updateTheme() {
         let isDark = ThemeManager.shared.isDark
         if isDark {
-            rimLayer.borderColor = NSColor(white: 1.0, alpha: 0.40).cgColor
-            badgeView.layer?.borderColor = NSColor(white: 1.0, alpha: 0.30).cgColor
-            badgeView.layer?.backgroundColor = NSColor(white: 0.12, alpha: 0.50).cgColor
+            outerRimLayer.borderColor = NSColor(white: 1.0, alpha: 0.35).cgColor
+            innerRimLayer.borderColor = NSColor(white: 1.0, alpha: 0.12).cgColor
+            badgeView.layer?.borderColor = NSColor(white: 1.0, alpha: 0.28).cgColor
+            badgeView.layer?.backgroundColor = NSColor(white: 0.10, alpha: 0.55).cgColor
             badgeLabel.textColor = NSColor(white: 0.95, alpha: 1.0)
         } else {
-            rimLayer.borderColor = NSColor(white: 0.15, alpha: 0.35).cgColor
-            badgeView.layer?.borderColor = NSColor(white: 0.10, alpha: 0.25).cgColor
-            badgeView.layer?.backgroundColor = NSColor(white: 0.95, alpha: 0.65).cgColor
+            outerRimLayer.borderColor = NSColor(white: 0.15, alpha: 0.30).cgColor
+            innerRimLayer.borderColor = NSColor(white: 1.0, alpha: 0.45).cgColor
+            badgeView.layer?.borderColor = NSColor(white: 0.10, alpha: 0.22).cgColor
+            badgeView.layer?.backgroundColor = NSColor(white: 0.95, alpha: 0.70).cgColor
             badgeLabel.textColor = NSColor(white: 0.10, alpha: 1.0)
         }
     }
@@ -190,7 +238,7 @@ public final class CursorLoupeView: NSView {
         isTemporaryGlide = temporary
         isHidden = false
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.14
+            context.duration = 0.12
             self.animator().alphaValue = 1.0
         }
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
@@ -201,7 +249,7 @@ public final class CursorLoupeView: NSView {
         isPresented = false
         isTemporaryGlide = false
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.14
+            context.duration = 0.12
             self.animator().alphaValue = 0.0
         } completionHandler: { [weak self] in
             MainActor.assumeIsolated {

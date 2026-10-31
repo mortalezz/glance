@@ -164,6 +164,7 @@ public final class SlideView: NSView {
     }
 
     private var cursorTimer: Timer?
+    private var flagsMonitor: Any?
     private var trackingArea: NSTrackingArea?
     private var lastZPressTime: TimeInterval = 0
 
@@ -790,12 +791,22 @@ public final class SlideView: NSView {
     // MARK: - Magnifier Loupe Navigation & Interaction
 
     public func toggleCursorLoupe() {
-        cursorLoupeView.toggle()
-        if cursorLoupeView.isPresented {
+        if !cursorLoupeView.isPresented {
+            cursorLoupeView.setMagnification(2.0)
+            cursorLoupeView.present(temporary: false)
             let mouseInWindow = window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: bounds.midX, y: bounds.midY)
             let localPt = convert(mouseInWindow, from: nil)
             cursorLoupeView.updatePosition(mousePt: localPt, in: self)
-            showToast("Magnifier Loupe \(Int(cursorLoupeView.magnification))×", icon: "🔍", shortcut: "M")
+            showToast("Loupe 2×", icon: "🔍", shortcut: "M to 4×")
+        } else if cursorLoupeView.magnification == 2.0 {
+            cursorLoupeView.setMagnification(4.0)
+            let mouseInWindow = window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: bounds.midX, y: bounds.midY)
+            let localPt = convert(mouseInWindow, from: nil)
+            cursorLoupeView.updatePosition(mousePt: localPt, in: self)
+            showToast("Loupe 4×", icon: "🔍", shortcut: "M to dismiss")
+        } else {
+            cursorLoupeView.dismiss()
+            showToast("Loupe Off", icon: "🔍", shortcut: "M")
         }
     }
 
@@ -1302,14 +1313,16 @@ public final class SlideView: NSView {
 
     public override func scrollWheel(with event: NSEvent) {
         if cursorLoupeView.isPresented {
-            if abs(event.scrollingDeltaY) > 2.0 {
-                if event.scrollingDeltaY > 0 {
+            let delta = event.isDirectionInvertedFromDevice ? -event.scrollingDeltaY : event.scrollingDeltaY
+            if abs(delta) > 1.2 {
+                if delta > 0 {
                     cursorLoupeView.setMagnification(4.0)
                 } else {
                     cursorLoupeView.setMagnification(2.0)
                 }
                 let mousePt = convert(event.locationInWindow, from: nil)
                 cursorLoupeView.updatePosition(mousePt: mousePt, in: self)
+                showToast("Loupe \(Int(cursorLoupeView.magnification))×", icon: "🔍", shortcut: "Scroll")
                 return
             }
         }
@@ -1383,9 +1396,25 @@ public final class SlideView: NSView {
             return
         }
 
-        // Magnifier Loupe Magnification Stepping: + / - or [ / ]
+        // Magnifier Loupe Magnification Stepping: 2 / 4, + / -, [ / ]
         if cursorLoupeView.isPresented {
-            if chars == "+" || chars == "=" || chars == "]" || event.keyCode == 24 || event.keyCode == 30 {
+            if chars == "4" {
+                cursorLoupeView.setMagnification(4.0)
+                let mouseInWindow = window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: bounds.midX, y: bounds.midY)
+                let localPt = convert(mouseInWindow, from: nil)
+                cursorLoupeView.updatePosition(mousePt: localPt, in: self)
+                showToast("Loupe 4×", icon: "🔍", shortcut: "4")
+                return
+            }
+            if chars == "2" {
+                cursorLoupeView.setMagnification(2.0)
+                let mouseInWindow = window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: bounds.midX, y: bounds.midY)
+                let localPt = convert(mouseInWindow, from: nil)
+                cursorLoupeView.updatePosition(mousePt: localPt, in: self)
+                showToast("Loupe 2×", icon: "🔍", shortcut: "2")
+                return
+            }
+            if chars == "+" || chars == "=" || chars == "]" || event.keyCode == 24 || event.keyCode == 30 || event.keyCode == 69 {
                 cursorLoupeView.setMagnification(4.0)
                 let mouseInWindow = window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: bounds.midX, y: bounds.midY)
                 let localPt = convert(mouseInWindow, from: nil)
@@ -1393,7 +1422,7 @@ public final class SlideView: NSView {
                 showToast("Loupe 4×", icon: "🔍", shortcut: "+ / ]")
                 return
             }
-            if chars == "-" || chars == "_" || chars == "[" || event.keyCode == 27 || event.keyCode == 33 {
+            if chars == "-" || chars == "_" || chars == "[" || event.keyCode == 27 || event.keyCode == 33 || event.keyCode == 78 {
                 cursorLoupeView.setMagnification(2.0)
                 let mouseInWindow = window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: bounds.midX, y: bounds.midY)
                 let localPt = convert(mouseInWindow, from: nil)
@@ -1744,9 +1773,34 @@ public final class SlideView: NSView {
         super.keyUp(with: event)
     }
 
-    public override func flagsChanged(with event: NSEvent) {
-        super.flagsChanged(with: event)
-        let isOption = event.modifierFlags.contains(.option)
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            window?.makeFirstResponder(self)
+            setupFlagsMonitor()
+        } else {
+            removeFlagsMonitor()
+        }
+    }
+
+    private func setupFlagsMonitor() {
+        if flagsMonitor != nil { return }
+        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            guard let self = self, self.window != nil else { return event }
+            self.handleModifierFlags(event.modifierFlags)
+            return event
+        }
+    }
+
+    private func removeFlagsMonitor() {
+        if let monitor = flagsMonitor {
+            NSEvent.removeMonitor(monitor)
+            flagsMonitor = nil
+        }
+    }
+
+    public func handleModifierFlags(_ flags: NSEvent.ModifierFlags) {
+        let isOption = flags.contains(.option)
         if isOption {
             if !cursorLoupeView.isPresented {
                 cursorLoupeView.present(temporary: true)
@@ -1759,6 +1813,11 @@ public final class SlideView: NSView {
                 cursorLoupeView.dismiss()
             }
         }
+    }
+
+    public override func flagsChanged(with event: NSEvent) {
+        super.flagsChanged(with: event)
+        handleModifierFlags(event.modifierFlags)
     }
 
     public override func mouseMoved(with event: NSEvent) {
@@ -1843,5 +1902,8 @@ public final class SlideView: NSView {
 
     deinit {
         cursorTimer?.invalidate()
+        if let monitor = flagsMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
     }
 }

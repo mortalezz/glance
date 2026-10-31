@@ -1528,7 +1528,8 @@ struct TestRunner {
                 assertEqual(loupe.isPresented, false, "Loupe starts unpresented")
                 assertEqual(loupe.isTemporaryGlide, false, "isTemporaryGlide starts false")
                 assertEqual(loupe.magnification, 2.0, "Default magnification is 2.0x")
-                assertEqual(loupe.hitTest(NSPoint(x: 50, y: 50)), nil, "Loupe is completely transparent to mouse clicks")
+                assertEqual(loupe.hitTest(NSPoint(x: 105, y: 105)) != nil, true, "Center point is inside circular loupe and clickable")
+                assertEqual(loupe.hitTest(NSPoint(x: 220, y: 220)), nil, "Point outside circular loupe is transparent")
 
                 // 2. Lifecycle Transitions: Temporary Glide vs Persistent
                 loupe.present(temporary: true)
@@ -1590,16 +1591,21 @@ struct TestRunner {
                     assertEqual(sampledImgPixelsX == sampledImgPixelsY, true, "Loupe samples 1:1 square aspect ratio without distortion")
                 }
 
-                // Toggle loupe via SlideView API
+                // Toggle loupe via SlideView API (Off -> 2x -> 4x -> Off)
                 slideView.toggleCursorLoupe()
                 assertEqual(slideView.cursorLoupeView.isPresented, true, "SlideView loupe active after toggle")
+                assertEqual(slideView.cursorLoupeView.magnification, 2.0, "1st M press sets 2x")
 
                 slideView.cursorLoupeView.updatePosition(mousePt: CGPoint(x: 500, y: 500), in: slideView)
                 assertEqual(slideView.cursorLoupeView.frame.origin.x, 500 - 105, "Loupe centered horizontally on cursor")
                 assertEqual(slideView.cursorLoupeView.frame.origin.y, 500 - 105, "Loupe centered vertically on cursor")
 
-                slideView.cursorLoupeView.dismiss()
-                assertEqual(slideView.cursorLoupeView.isPresented, false, "SlideView loupe dismissed")
+                slideView.toggleCursorLoupe()
+                assertEqual(slideView.cursorLoupeView.isPresented, true, "SlideView loupe remains active on 2nd press")
+                assertEqual(slideView.cursorLoupeView.magnification, 4.0, "2nd M press cycles to 4x")
+
+                slideView.toggleCursorLoupe()
+                assertEqual(slideView.cursorLoupeView.isPresented, false, "3rd M press dismisses loupe")
             }
 
             print("  ✅ Passed")

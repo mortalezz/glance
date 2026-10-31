@@ -98,6 +98,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         guard let window = self.window else { return }
 
         window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(slideView)
         if startFullScreen && !window.styleMask.contains(.fullScreen) {
             window.toggleFullScreen(nil)
         }
