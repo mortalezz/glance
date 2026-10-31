@@ -23,8 +23,6 @@ public struct SlideItem: Identifiable, Hashable, Sendable {
     public let totalStackSize: Int64
     /// True if this slide represents a paired RAW + JPEG stack.
     public let isStacked: Bool
-    /// Capture or modification date for instantaneous 0ms burst clustering and sorting.
-    public let date: Date?
 
     public init(
         url: URL,
@@ -32,8 +30,7 @@ public struct SlideItem: Identifiable, Hashable, Sendable {
         companionURL: URL? = nil,
         allURLs: [URL]? = nil,
         fileSize: Int64 = 0,
-        totalStackSize: Int64? = nil,
-        date: Date? = nil
+        totalStackSize: Int64? = nil
     ) {
         self.url = url
         self.rawURL = rawURL
@@ -66,7 +63,6 @@ public struct SlideItem: Identifiable, Hashable, Sendable {
 
         self.fileSize = fileSize
         self.totalStackSize = totalStackSize ?? fileSize
-        self.date = date
     }
 
     public func hash(into hasher: inout Hasher) {

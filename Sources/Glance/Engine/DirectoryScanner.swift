@@ -45,9 +45,7 @@ public actor DirectoryScanner {
             let resourceKeys: [URLResourceKey] = [
                 .fileSizeKey,
                 .isRegularFileKey,
-                .nameKey,
-                .contentModificationDateKey,
-                .creationDateKey
+                .nameKey
             ]
 
             let contents = try fileManager.contentsOfDirectory(
@@ -61,7 +59,6 @@ public actor DirectoryScanner {
                 let url: URL
                 let size: Int64
                 let isRaw: Bool
-                let date: Date?
             }
 
             var groups: [String: [FileEntry]] = [:]
@@ -74,17 +71,15 @@ public actor DirectoryScanner {
                 _ = removexattr(fileURL.path, "com.apple.LaunchServices.OpenWith", 0)
 
                 var fileSize: Int64 = 0
-                var fileDate: Date? = nil
-                if let resourceValues = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .contentModificationDateKey, .creationDateKey]),
+                if let resourceValues = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
                    resourceValues.isRegularFile == true {
                     fileSize = Int64(resourceValues.fileSize ?? 0)
-                    fileDate = resourceValues.contentModificationDate ?? resourceValues.creationDate
                 }
 
                 let isRaw = SupportedFormats.isRaw(url: fileURL)
                 let stem = fileURL.deletingPathExtension().lastPathComponent.lowercased()
 
-                let entry = FileEntry(url: fileURL, size: fileSize, isRaw: isRaw, date: fileDate)
+                let entry = FileEntry(url: fileURL, size: fileSize, isRaw: isRaw)
                 if groups[stem] == nil {
                     groups[stem] = [entry]
                 } else {
@@ -100,7 +95,6 @@ public actor DirectoryScanner {
                 let standardEntries = entries.filter { !$0.isRaw }
                 let allURLs = entries.map { $0.url }
                 let totalSize = entries.reduce(Int64(0)) { $0 + $1.size }
-                let itemDate = rawEntries.first?.date ?? standardEntries.first?.date
 
                 if let raw = rawEntries.first, let companion = standardEntries.first {
                     // Stacking: Use fast companion JPEG for screen-bounded preview, link master RAW
@@ -110,8 +104,7 @@ public actor DirectoryScanner {
                         companionURL: companion.url,
                         allURLs: allURLs,
                         fileSize: companion.size,
-                        totalStackSize: totalSize,
-                        date: itemDate
+                        totalStackSize: totalSize
                     ))
                 } else if let raw = rawEntries.first {
                     // RAW only
@@ -121,8 +114,7 @@ public actor DirectoryScanner {
                         companionURL: nil,
                         allURLs: allURLs,
                         fileSize: raw.size,
-                        totalStackSize: totalSize,
-                        date: itemDate
+                        totalStackSize: totalSize
                     ))
                 } else if let standard = standardEntries.first {
                     // Standard image only (JPEG / PNG / HEIC)
@@ -132,8 +124,7 @@ public actor DirectoryScanner {
                         companionURL: nil,
                         allURLs: allURLs,
                         fileSize: standard.size,
-                        totalStackSize: totalSize,
-                        date: itemDate
+                        totalStackSize: totalSize
                     ))
                 }
             }
