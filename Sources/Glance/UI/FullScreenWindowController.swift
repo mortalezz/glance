@@ -473,6 +473,27 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 }
             }
         }
+
+        // Background pre-warming of aesthetic scores and burst clusters ahead of the playhead
+        let curPos = currentFilteredPos
+        Task.detached(priority: .utility) { [weak self] in
+            guard let self = self else { return }
+            let ahead = [curPos + 1, curPos + 2, curPos - 1]
+            for pos in ahead {
+                let pair: (Int, String)? = await MainActor.run {
+                    guard pos >= 0, pos < self.filteredIndices.count else { return nil }
+                    let r = self.filteredIndices[pos]
+                    return (r, self.allItems[r].url.path)
+                }
+                guard let (raw, path) = pair else { continue }
+                _ = await self.computeBurstCluster(for: pos)
+                if AestheticsEngine.shared.cachedScore(for: path) == nil {
+                    if let dec = try? await self.pipeline.getImage(at: raw) {
+                        _ = await AestheticsEngine.shared.computeScore(for: dec.image, cacheKey: path)
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - SlideViewDelegate Navigation

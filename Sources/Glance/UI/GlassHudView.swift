@@ -413,6 +413,7 @@ public final class GlassHudView: NSView {
         pickBadge.layer?.cornerRadius = 6
         pickBadge.layer?.cornerCurve = .continuous
         pickBadge.translatesAutoresizingMaskIntoConstraints = false
+        pickBadge.isHidden = true
 
         pickLabel.font = NSFont.systemFont(ofSize: 10, weight: .bold)
         pickLabel.alignment = .center
@@ -432,6 +433,7 @@ public final class GlassHudView: NSView {
         colorBadge.layer?.cornerRadius = 6
         colorBadge.layer?.cornerCurve = .continuous
         colorBadge.translatesAutoresizingMaskIntoConstraints = false
+        colorBadge.isHidden = true
 
         colorLabel.font = NSFont.systemFont(ofSize: 10, weight: .bold)
         colorLabel.alignment = .center
@@ -449,6 +451,7 @@ public final class GlassHudView: NSView {
         // 3. Star Rating (★ ★ ★ ☆ ☆)
         ratingLabel.font = NSFont.systemFont(ofSize: 12, weight: .bold)
         ratingLabel.textColor = NSColor.systemYellow
+        ratingLabel.isHidden = true
         stackView.addArrangedSubview(ratingLabel)
 
         // 4. Filename
@@ -492,6 +495,7 @@ public final class GlassHudView: NSView {
         rawBadge.layer?.cornerRadius = 5
         rawBadge.layer?.cornerCurve = .continuous
         rawBadge.translatesAutoresizingMaskIntoConstraints = false
+        rawBadge.isHidden = true
 
         rawLabel.font = NSFont.systemFont(ofSize: 9, weight: .heavy)
         rawLabel.textColor = NSColor.systemOrange
@@ -515,6 +519,7 @@ public final class GlassHudView: NSView {
         autoPill.layer?.cornerRadius = 5
         autoPill.layer?.cornerCurve = .continuous
         autoPill.translatesAutoresizingMaskIntoConstraints = false
+        autoPill.isHidden = true
 
         autoLabel.font = NSFont.systemFont(ofSize: 9, weight: .bold)
         autoLabel.textColor = NSColor.systemCyan
@@ -538,6 +543,7 @@ public final class GlassHudView: NSView {
         filterPill.layer?.cornerRadius = 5
         filterPill.layer?.cornerCurve = .continuous
         filterPill.translatesAutoresizingMaskIntoConstraints = false
+        filterPill.isHidden = true
 
         filterLabel.font = NSFont.systemFont(ofSize: 9, weight: .bold)
         filterLabel.textColor = NSColor.systemPurple
@@ -585,6 +591,7 @@ public final class GlassHudView: NSView {
         zoomPill.layer?.cornerRadius = 5
         zoomPill.layer?.cornerCurve = .continuous
         zoomPill.translatesAutoresizingMaskIntoConstraints = false
+        zoomPill.isHidden = true
 
         zoomLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .bold)
         zoomLabel.textColor = NSColor(white: 0.95, alpha: 1.0)
@@ -806,7 +813,11 @@ public final class GlassHudView: NSView {
     /// Updates the HUD contents with culling indicators.
     public func update(with info: HudInfo) {
         var mergedInfo = info
-        if info.aestheticScore == nil, lastInfo?.filename == info.filename, let existingScore = lastInfo?.aestheticScore {
+        let isSameFile = (lastInfo?.filename == info.filename)
+        let resolvedScore = (info.aestheticScore == nil && isSameFile) ? lastInfo?.aestheticScore : info.aestheticScore
+        let resolvedBurst = (info.burstInfo == nil && isSameFile) ? lastInfo?.burstInfo : info.burstInfo
+
+        if resolvedScore != info.aestheticScore || resolvedBurst != info.burstInfo {
             mergedInfo = HudInfo(
                 currentIndex: info.currentIndex,
                 totalCount: info.totalCount,
@@ -825,8 +836,8 @@ public final class GlassHudView: NSView {
                 isSlideshow: info.isSlideshow,
                 slideshowInterval: info.slideshowInterval,
                 exportProgressText: info.exportProgressText,
-                aestheticScore: existingScore,
-                burstInfo: info.burstInfo
+                aestheticScore: resolvedScore,
+                burstInfo: resolvedBurst
             )
         }
         self.lastInfo = mergedInfo
@@ -865,17 +876,9 @@ public final class GlassHudView: NSView {
         if let burst = burst, burst.totalInBurst > 1 {
             burstLabel.stringValue = burst.displayText
             applyBurstTheme(isHero: burst.isHero)
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.12
-                context.allowsImplicitAnimation = true
-                burstPill.isHidden = false
-            }
+            burstPill.isHidden = false
         } else {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.12
-                context.allowsImplicitAnimation = true
-                burstPill.isHidden = true
-            }
+            burstPill.isHidden = true
         }
     }
 
@@ -903,11 +906,7 @@ public final class GlassHudView: NSView {
             burstPill.isHidden = true
         }
 
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.12
-            context.allowsImplicitAnimation = true
-
-            // Culling: Pick / Reject
+        // Culling: Pick / Reject (Instant zero-jerk update)
             switch info.culling.pick {
             case .pick:
                 pickLabel.stringValue = "PICK"
@@ -961,7 +960,7 @@ public final class GlassHudView: NSView {
                 colorBadge.isHidden = true
             }
 
-            // Culling: Star Rating
+            // Culling: Star Rating (Instant zero-jerk update)
             if info.culling.rating > 0 {
                 let stars = String(repeating: "★", count: info.culling.rating) + String(repeating: "☆", count: 5 - info.culling.rating)
                 ratingLabel.stringValue = stars
@@ -969,7 +968,6 @@ public final class GlassHudView: NSView {
             } else {
                 ratingLabel.isHidden = true
             }
-        }
 
         filenameLabel.stringValue = info.filename
         filenameLabel.textColor = ThemeManager.shared.primaryTextColor
@@ -1198,10 +1196,6 @@ public final class GlassHudView: NSView {
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.4
                     self.animator().alphaValue = 0.0
-                } completionHandler: {
-                    Task { @MainActor [weak self] in
-                        self?.restoreLastInfo()
-                    }
                 }
             }
         }

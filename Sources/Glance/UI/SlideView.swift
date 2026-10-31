@@ -731,7 +731,8 @@ public final class SlideView: NSView {
         }
         CATransaction.commit()
 
-        hudView.showMessage(message)
+        let info = HudInfo(currentIndex: 0, totalCount: 0, filename: message)
+        hudView.update(with: info)
     }
 
     public func toggleHud() {
