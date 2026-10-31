@@ -122,7 +122,7 @@ public final class QuickHelpView: NSView {
         let compactPairs: [(col1: (key: String, desc: String), col2: (key: String, desc: String))] = [
             (("P / ⇧P", "Pick / Knockout"), ("Z / ⇧Z", "100% / Eye Jump")),
             (("X", "Reject"), ("A / S", "Faces / Multi-Up")),
-            (("U", "Unflag"), ("M / ⌥", "Magnifier Loupe")),
+            (("U", "Unflag"), ("M", "Magnifier Loupe")),
             (("1 – 5", "Rating"), ("H / O", "Histogram / Blinkies")),
             (("0", "Clear rating"), ("I", "EXIF Info")),
             (("6 – 9", "Color label"), ("V / T", "Profile / Theme")),
@@ -249,7 +249,7 @@ public final class QuickHelpView: NSView {
             ),
             (
                 ("⌘Z / ⌘↵", "Undo / Open Editor", "⌘Z reverts edits. ⌘↵ / ⌘O opens active photo in default editor (Lightroom, Photoshop)."),
-                ("M / ⌥", "Magnifier Loupe", "2× / 4× circular cursor loupe without displacing overall framing. Hold Option to glide."),
+                ("M", "Magnifier Loupe", "2× / 4× circular optical reticle loupe. Press M or click to cycle 2× ➔ 4× ➔ Off."),
                 ("Esc / Q", "Quit to Finder", "Unequivocally quits Glance to reveal Finder immediately.")
             )
         ]

@@ -1517,32 +1517,28 @@ struct TestRunner {
         }
 
         // ==========================================
-        // TEST 30: Interactive Floating Magnifier Loupe (M / Option Glide)
+        // TEST 30: Interactive Floating Optical Reticle Loupe (M / Click 4x)
         // ==========================================
         do {
-            print("🧪 TEST 30: Interactive Floating Magnifier Loupe (M / Option Glide)...")
+            print("🧪 TEST 30: Interactive Floating Optical Reticle Loupe (M / Click 4x)...")
 
             await MainActor.run {
                 // 1. Component State & Transparency Invariants
                 let loupe = CursorLoupeView()
                 assertEqual(loupe.isPresented, false, "Loupe starts unpresented")
-                assertEqual(loupe.isTemporaryGlide, false, "isTemporaryGlide starts false")
                 assertEqual(loupe.magnification, 2.0, "Default magnification is 2.0x")
                 assertEqual(loupe.hitTest(NSPoint(x: 105, y: 105)) != nil, true, "Center point is inside circular loupe and clickable")
                 assertEqual(loupe.hitTest(NSPoint(x: 220, y: 220)), nil, "Point outside circular loupe is transparent")
 
-                // 2. Lifecycle Transitions: Temporary Glide vs Persistent
-                loupe.present(temporary: true)
+                // 2. Lifecycle Transitions: Present, Dismiss, Toggle
+                loupe.present()
                 assertEqual(loupe.isPresented, true, "Loupe presented")
-                assertEqual(loupe.isTemporaryGlide, true, "Temporary glide flag set")
 
                 loupe.dismiss()
                 assertEqual(loupe.isPresented, false, "Loupe dismissed")
-                assertEqual(loupe.isTemporaryGlide, false, "Temporary glide flag cleared")
 
                 loupe.toggle()
                 assertEqual(loupe.isPresented, true, "Loupe toggled on")
-                assertEqual(loupe.isTemporaryGlide, false, "Persistent toggle is not temporary glide")
 
                 // 3. Magnification Invariants: 2x / 4x Stepping
                 loupe.cycleMagnification()

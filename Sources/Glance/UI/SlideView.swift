@@ -164,7 +164,6 @@ public final class SlideView: NSView {
     }
 
     private var cursorTimer: Timer?
-    private var flagsMonitor: Any?
     private var trackingArea: NSTrackingArea?
     private var lastZPressTime: TimeInterval = 0
 
@@ -793,7 +792,7 @@ public final class SlideView: NSView {
     public func toggleCursorLoupe() {
         if !cursorLoupeView.isPresented {
             cursorLoupeView.setMagnification(2.0)
-            cursorLoupeView.present(temporary: false)
+            cursorLoupeView.present()
             let mouseInWindow = window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: bounds.midX, y: bounds.midY)
             let localPt = convert(mouseInWindow, from: nil)
             cursorLoupeView.updatePosition(mousePt: localPt, in: self)
@@ -1777,47 +1776,7 @@ public final class SlideView: NSView {
         super.viewDidMoveToWindow()
         if window != nil {
             window?.makeFirstResponder(self)
-            setupFlagsMonitor()
-        } else {
-            removeFlagsMonitor()
         }
-    }
-
-    private func setupFlagsMonitor() {
-        if flagsMonitor != nil { return }
-        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            guard let self = self, self.window != nil else { return event }
-            self.handleModifierFlags(event.modifierFlags)
-            return event
-        }
-    }
-
-    private func removeFlagsMonitor() {
-        if let monitor = flagsMonitor {
-            NSEvent.removeMonitor(monitor)
-            flagsMonitor = nil
-        }
-    }
-
-    public func handleModifierFlags(_ flags: NSEvent.ModifierFlags) {
-        let isOption = flags.contains(.option)
-        if isOption {
-            if !cursorLoupeView.isPresented {
-                cursorLoupeView.present(temporary: true)
-                let mouseInWindow = window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: bounds.midX, y: bounds.midY)
-                let localPt = convert(mouseInWindow, from: nil)
-                cursorLoupeView.updatePosition(mousePt: localPt, in: self)
-            }
-        } else {
-            if cursorLoupeView.isPresented && cursorLoupeView.isTemporaryGlide {
-                cursorLoupeView.dismiss()
-            }
-        }
-    }
-
-    public override func flagsChanged(with event: NSEvent) {
-        super.flagsChanged(with: event)
-        handleModifierFlags(event.modifierFlags)
     }
 
     public override func mouseMoved(with event: NSEvent) {
@@ -1827,6 +1786,7 @@ public final class SlideView: NSView {
         let mousePt = convert(event.locationInWindow, from: nil)
 
         if cursorLoupeView.isPresented {
+            CursorLoupeView.transparentCursor.set()
             cursorLoupeView.updatePosition(mousePt: mousePt, in: self)
         }
 
@@ -1889,6 +1849,9 @@ public final class SlideView: NSView {
 
     public override func mouseExited(with event: NSEvent) {
         cursorTimer?.invalidate()
+        if cursorLoupeView.isPresented {
+            NSCursor.arrow.set()
+        }
     }
 
     private func resetCursorTimer() {
@@ -1902,8 +1865,5 @@ public final class SlideView: NSView {
 
     deinit {
         cursorTimer?.invalidate()
-        if let monitor = flagsMonitor {
-            NSEvent.removeMonitor(monitor)
-        }
     }
 }
