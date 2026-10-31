@@ -31,7 +31,9 @@ public final class FaceTileView: NSView {
     public let faceIndex: Int
     public var onClick: (() -> Void)?
 
+    private let data: FaceTileData
     private let imageLayer = CALayer()
+    private let indexBadge = NSView()
     private let badgeLabel = NSTextField(labelWithString: "")
     private let statusLabel = NSTextField(labelWithString: "")
     private let statusPill = NSView()
@@ -39,15 +41,17 @@ public final class FaceTileView: NSView {
 
     public init(data: FaceTileData) {
         self.faceIndex = data.index
+        self.data = data
         super.init(frame: .zero)
-        setupUI(data: data)
+        setupUI()
+        applyTheme()
     }
 
     public required init?(coder: NSCoder) {
         nil
     }
 
-    private func setupUI(data: FaceTileData) {
+    private func setupUI() {
         wantsLayer = true
         translatesAutoresizingMaskIntoConstraints = false
 
@@ -61,7 +65,6 @@ public final class FaceTileView: NSView {
         layer.cornerCurve = .continuous
         layer.masksToBounds = true
         layer.borderWidth = 1.0
-        layer.borderColor = NSColor.white.withAlphaComponent(0.18).cgColor
 
         // Face crop image layer
         imageLayer.frame = CGRect(x: 0, y: 18, width: 84, height: 74)
@@ -71,9 +74,7 @@ public final class FaceTileView: NSView {
         layer.addSublayer(imageLayer)
 
         // Top-left index badge
-        let indexBadge = NSView()
         indexBadge.wantsLayer = true
-        indexBadge.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.65).cgColor
         indexBadge.layer?.cornerRadius = 5
         indexBadge.layer?.cornerCurve = .continuous
         indexBadge.translatesAutoresizingMaskIntoConstraints = false
@@ -81,7 +82,6 @@ public final class FaceTileView: NSView {
 
         badgeLabel.stringValue = "\(data.index)"
         badgeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold)
-        badgeLabel.textColor = .white
         badgeLabel.translatesAutoresizingMaskIntoConstraints = false
         indexBadge.addSubview(badgeLabel)
 
@@ -100,23 +100,6 @@ public final class FaceTileView: NSView {
         statusPill.layer?.cornerCurve = .continuous
         statusPill.translatesAutoresizingMaskIntoConstraints = false
         addSubview(statusPill)
-
-        let isSharp = data.isEyeSharp
-        let hasEyes = data.hasOpenEyes
-
-        if isSharp && hasEyes {
-            statusPill.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.35).cgColor
-            statusLabel.stringValue = "👁️ Crisp"
-            statusLabel.textColor = NSColor(srgbRed: 0.4, green: 1.0, blue: 0.5, alpha: 1.0)
-        } else if !hasEyes {
-            statusPill.layer?.backgroundColor = NSColor.systemOrange.withAlphaComponent(0.40).cgColor
-            statusLabel.stringValue = "⚠️ Squint"
-            statusLabel.textColor = NSColor(srgbRed: 1.0, green: 0.8, blue: 0.3, alpha: 1.0)
-        } else {
-            statusPill.layer?.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.35).cgColor
-            statusLabel.stringValue = "👁️ Open"
-            statusLabel.textColor = NSColor(srgbRed: 0.5, green: 0.8, blue: 1.0, alpha: 1.0)
-        }
 
         statusLabel.font = NSFont.systemFont(ofSize: 9, weight: .semibold)
         statusLabel.alignment = .center
@@ -140,6 +123,47 @@ public final class FaceTileView: NSView {
         ))
     }
 
+    public func applyTheme() {
+        let theme = ThemeManager.shared
+        let isDark = theme.isDark
+
+        layer?.borderColor = isHovered ? NSColor.systemCyan.cgColor : theme.pillBorderColor
+
+        indexBadge.layer?.backgroundColor = isDark
+            ? NSColor.black.withAlphaComponent(0.70).cgColor
+            : NSColor.white.withAlphaComponent(0.85).cgColor
+        badgeLabel.textColor = isDark ? .white : NSColor(white: 0.15, alpha: 1.0)
+
+        let isSharp = data.isEyeSharp
+        let hasEyes = data.hasOpenEyes
+
+        if isSharp && hasEyes {
+            statusPill.layer?.backgroundColor = isDark
+                ? NSColor.systemGreen.withAlphaComponent(0.35).cgColor
+                : NSColor.systemGreen.withAlphaComponent(0.20).cgColor
+            statusLabel.stringValue = "👁️ Crisp"
+            statusLabel.textColor = isDark
+                ? NSColor(srgbRed: 0.4, green: 1.0, blue: 0.5, alpha: 1.0)
+                : NSColor.systemGreen
+        } else if !hasEyes {
+            statusPill.layer?.backgroundColor = isDark
+                ? NSColor.systemOrange.withAlphaComponent(0.40).cgColor
+                : NSColor.systemOrange.withAlphaComponent(0.25).cgColor
+            statusLabel.stringValue = "⚠️ Squint"
+            statusLabel.textColor = isDark
+                ? NSColor(srgbRed: 1.0, green: 0.8, blue: 0.3, alpha: 1.0)
+                : NSColor.systemOrange
+        } else {
+            statusPill.layer?.backgroundColor = isDark
+                ? NSColor.systemBlue.withAlphaComponent(0.35).cgColor
+                : NSColor.systemBlue.withAlphaComponent(0.20).cgColor
+            statusLabel.stringValue = "👁️ Open"
+            statusLabel.textColor = isDark
+                ? NSColor(srgbRed: 0.5, green: 0.8, blue: 1.0, alpha: 1.0)
+                : NSColor.systemBlue
+        }
+    }
+
     public override func mouseEntered(with event: NSEvent) {
         isHovered = true
         layer?.borderWidth = 2.0
@@ -150,7 +174,7 @@ public final class FaceTileView: NSView {
     public override func mouseExited(with event: NSEvent) {
         isHovered = false
         layer?.borderWidth = 1.0
-        layer?.borderColor = NSColor.white.withAlphaComponent(0.18).cgColor
+        layer?.borderColor = ThemeManager.shared.pillBorderColor
         NSCursor.pop()
     }
 
@@ -167,6 +191,7 @@ public final class FaceLoupeOverlayView: NSView {
     public var onClose: (() -> Void)?
 
     private let visualEffectView = NSVisualEffectView()
+    private let scrimView = NSView()
     private let titleLabel = NSTextField(labelWithString: "👥 FACES")
     private let hintLabel = NSTextField(labelWithString: "Click to jump 100%")
     private let closeButton = NSButton()
@@ -179,6 +204,8 @@ public final class FaceLoupeOverlayView: NSView {
         super.init(frame: frameRect)
         setupGlass()
         setupLayout()
+        setupThemeObserver()
+        applyTheme()
     }
 
     public required init?(coder: NSCoder) {
@@ -201,7 +228,6 @@ public final class FaceLoupeOverlayView: NSView {
             layer.cornerCurve = .continuous
             layer.masksToBounds = true
             layer.borderWidth = 0.5
-            layer.borderColor = NSColor.white.withAlphaComponent(0.20).cgColor
         }
 
         addSubview(visualEffectView)
@@ -210,6 +236,16 @@ public final class FaceLoupeOverlayView: NSView {
             visualEffectView.bottomAnchor.constraint(equalTo: bottomAnchor),
             visualEffectView.leadingAnchor.constraint(equalTo: leadingAnchor),
             visualEffectView.trailingAnchor.constraint(equalTo: trailingAnchor)
+        ])
+
+        scrimView.wantsLayer = true
+        scrimView.translatesAutoresizingMaskIntoConstraints = false
+        visualEffectView.addSubview(scrimView)
+        NSLayoutConstraint.activate([
+            scrimView.topAnchor.constraint(equalTo: visualEffectView.topAnchor),
+            scrimView.bottomAnchor.constraint(equalTo: visualEffectView.bottomAnchor),
+            scrimView.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor),
+            scrimView.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor)
         ])
     }
 
@@ -236,11 +272,9 @@ public final class FaceLoupeOverlayView: NSView {
         headerRow.translatesAutoresizingMaskIntoConstraints = false
 
         titleLabel.font = NSFont.systemFont(ofSize: 11, weight: .bold)
-        titleLabel.textColor = .white
         headerRow.addArrangedSubview(titleLabel)
 
         hintLabel.font = NSFont.systemFont(ofSize: 10, weight: .regular)
-        hintLabel.textColor = NSColor(white: 0.70, alpha: 1.0)
         headerRow.addArrangedSubview(hintLabel)
 
         let spacer = NSView()
@@ -251,7 +285,6 @@ public final class FaceLoupeOverlayView: NSView {
         closeButton.isBordered = false
         closeButton.bezelStyle = .inline
         closeButton.font = NSFont.systemFont(ofSize: 11, weight: .bold)
-        closeButton.contentTintColor = NSColor(white: 0.70, alpha: 1.0)
         closeButton.target = self
         closeButton.action = #selector(handleClose)
         headerRow.addArrangedSubview(closeButton)
@@ -268,9 +301,44 @@ public final class FaceLoupeOverlayView: NSView {
 
         // Empty label
         emptyLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
-        emptyLabel.textColor = NSColor(white: 0.65, alpha: 1.0)
         emptyLabel.isHidden = true
         contentStack.addArrangedSubview(emptyLabel)
+    }
+
+    private func setupThemeObserver() {
+        NotificationCenter.default.addObserver(
+            forName: ThemeManager.themeDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.applyTheme()
+            }
+        }
+    }
+
+    public func applyTheme() {
+        let theme = ThemeManager.shared
+        visualEffectView.appearance = theme.glassAppearance
+        scrimView.layer?.backgroundColor = theme.scrimColor.cgColor
+        visualEffectView.layer?.borderColor = theme.glassBorderColor
+
+        let shadow = NSShadow()
+        shadow.shadowColor = theme.shadowColor
+        shadow.shadowOffset = NSSize(width: 0, height: -6)
+        shadow.shadowBlurRadius = 18
+        self.shadow = shadow
+
+        titleLabel.textColor = theme.primaryTextColor
+        hintLabel.textColor = theme.secondaryTextColor
+        closeButton.contentTintColor = theme.secondaryTextColor
+        emptyLabel.textColor = theme.secondaryTextColor
+
+        for subview in tilesStack.arrangedSubviews {
+            if let tile = subview as? FaceTileView {
+                tile.applyTheme()
+            }
+        }
     }
 
     @objc private func handleClose() {
@@ -300,6 +368,7 @@ public final class FaceLoupeOverlayView: NSView {
                 tileView.onClick = { [weak self] in
                     self?.onFaceSelected?(tile.index)
                 }
+                tileView.applyTheme()
                 tilesStack.addArrangedSubview(tileView)
             }
         }
@@ -318,6 +387,7 @@ public final class FaceLoupeOverlayView: NSView {
         guard !isPresented else { return }
         isPresented = true
         isHidden = false
+        applyTheme()
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.22
