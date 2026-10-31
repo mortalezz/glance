@@ -150,6 +150,13 @@ public struct ExifMetadata: Sendable {
         return String(format: "%+.1f EV", b)
     }
 
+    public var date: Date? {
+        guard let raw = dateTimeOriginal else { return nil }
+        let parser = DateFormatter()
+        parser.dateFormat = "yyyy:MM:dd HH:mm:ss"
+        return parser.date(from: raw)
+    }
+
     public var formattedDate: String? {
         guard let raw = dateTimeOriginal else { return nil }
         let parser = DateFormatter()

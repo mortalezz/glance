@@ -8,7 +8,10 @@ public struct SplitPaneInfo: Sendable {
     public let rating: Int
     public let color: ColorLabel
     public let isChampion: Bool
+    public let isChallenger: Bool
+    public let isPairScouting: Bool
     public let aestheticScore: AestheticScoreResult?
+    public let burstDescription: String?
 
     public init(
         slot: Int,
@@ -17,7 +20,10 @@ public struct SplitPaneInfo: Sendable {
         rating: Int = 0,
         color: ColorLabel = .none,
         isChampion: Bool = false,
-        aestheticScore: AestheticScoreResult? = nil
+        isChallenger: Bool = false,
+        isPairScouting: Bool = false,
+        aestheticScore: AestheticScoreResult? = nil,
+        burstDescription: String? = nil
     ) {
         self.slot = slot
         self.filename = filename
@@ -25,11 +31,14 @@ public struct SplitPaneInfo: Sendable {
         self.rating = rating
         self.color = color
         self.isChampion = isChampion
+        self.isChallenger = isChallenger
+        self.isPairScouting = isPairScouting
         self.aestheticScore = aestheticScore
+        self.burstDescription = burstDescription
     }
 }
 
-/// Frosted glass floating pill badge labeling panes in 2-UP Split Compare mode (e.g. "[ 1 ] DSC_3088.NEF  ✨ 8.9 BEST  ✓ PICK").
+/// Frosted glass floating pill badge labeling panes in 2-UP Split Compare mode (e.g. "[ 1 ] DSC_3088.NEF  ✨ 8.9 BEST  👑 CHAMPION").
 @MainActor
 public final class SplitPaneBadgeView: NSView {
     private let visualEffectView = NSVisualEffectView()
@@ -47,7 +56,11 @@ public final class SplitPaneBadgeView: NSView {
     private let aestheticPill = NSView()
     private let aestheticLabel = NSTextField(labelWithString: "")
 
-    // 4. Status Pill: ✓ PICK / ✕ REJECT / PRESS 1
+    // 3b. Apple Neural Engine Scene / Burst Pill: BURST (Δ 0.3s)
+    private let burstPill = NSView()
+    private let burstLabel = NSTextField(labelWithString: "")
+
+    // 4. Status Pill: 👑 CHAMPION / CHALLENGER / ✓ PICK / ✕ REJECT / PRESS 1
     private let statusPill = NSView()
     private let statusLabel = NSTextField(labelWithString: "")
 
@@ -166,6 +179,30 @@ public final class SplitPaneBadgeView: NSView {
         ])
         stackView.addArrangedSubview(aestheticPill)
 
+        // 3b. ANE Scene / Burst Pill setup
+        burstPill.wantsLayer = true
+        burstPill.layer?.cornerRadius = 6
+        burstPill.layer?.cornerCurve = .continuous
+        burstPill.layer?.borderWidth = 0.5
+        burstPill.layer?.backgroundColor = NSColor.systemTeal.withAlphaComponent(0.25).cgColor
+        burstPill.layer?.borderColor = NSColor.systemTeal.withAlphaComponent(0.55).cgColor
+        burstPill.translatesAutoresizingMaskIntoConstraints = false
+        burstPill.isHidden = true
+
+        burstLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .bold)
+        burstLabel.textColor = NSColor.systemTeal
+        burstLabel.alignment = .center
+        burstLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        burstPill.addSubview(burstLabel)
+        NSLayoutConstraint.activate([
+            burstLabel.topAnchor.constraint(equalTo: burstPill.topAnchor, constant: 2),
+            burstLabel.bottomAnchor.constraint(equalTo: burstPill.bottomAnchor, constant: -2),
+            burstLabel.leadingAnchor.constraint(equalTo: burstPill.leadingAnchor, constant: 5),
+            burstLabel.trailingAnchor.constraint(equalTo: burstPill.trailingAnchor, constant: -5)
+        ])
+        stackView.addArrangedSubview(burstPill)
+
         // 4. Status Pill setup
         statusPill.wantsLayer = true
         statusPill.layer?.cornerRadius = 6
@@ -203,33 +240,55 @@ public final class SplitPaneBadgeView: NSView {
         let isDark = ThemeManager.shared.isDark
         let starSuffix = info.rating > 0 ? " ★\(info.rating)" : ""
 
-        // Status badge
-        switch info.pick {
-        case .pick:
-            statusLabel.stringValue = (info.isChampion ? "👑 CHAMPION" : "✓ PICK") + starSuffix
+        // Status badge: Handle King-of-the-Hill (Champion vs Challenger) vs Pair Scouting
+        if info.isChampion {
+            statusLabel.stringValue = "👑 CHAMPION" + starSuffix
             statusLabel.textColor = .white
             statusPill.layer?.backgroundColor = NSColor(srgbRed: 0.12, green: 0.65, blue: 0.35, alpha: 0.90).cgColor
             statusPill.layer?.borderColor = NSColor(srgbRed: 0.20, green: 0.85, blue: 0.45, alpha: 0.60).cgColor
             statusPill.isHidden = false
-
-        case .reject:
-            statusLabel.stringValue = "✕ REJECT" + starSuffix
+        } else if info.isChallenger {
+            statusLabel.stringValue = "CHALLENGER" + starSuffix
             statusLabel.textColor = .white
-            statusPill.layer?.backgroundColor = NSColor(srgbRed: 0.82, green: 0.22, blue: 0.22, alpha: 0.85).cgColor
-            statusPill.layer?.borderColor = NSColor(srgbRed: 0.95, green: 0.35, blue: 0.35, alpha: 0.50).cgColor
+            statusPill.layer?.backgroundColor = NSColor(srgbRed: 0.20, green: 0.45, blue: 0.85, alpha: 0.85).cgColor
+            statusPill.layer?.borderColor = NSColor(srgbRed: 0.40, green: 0.70, blue: 1.0, alpha: 0.50).cgColor
             statusPill.isHidden = false
+        } else {
+            switch info.pick {
+            case .pick:
+                statusLabel.stringValue = "✓ PICK" + starSuffix
+                statusLabel.textColor = .white
+                statusPill.layer?.backgroundColor = NSColor(srgbRed: 0.12, green: 0.65, blue: 0.35, alpha: 0.90).cgColor
+                statusPill.layer?.borderColor = NSColor(srgbRed: 0.20, green: 0.85, blue: 0.45, alpha: 0.60).cgColor
+                statusPill.isHidden = false
 
-        case .unflagged:
-            let starPrefix = info.rating > 0 ? "★\(info.rating) • " : ""
-            statusLabel.stringValue = starPrefix + "PRESS \(info.slot)"
-            statusLabel.textColor = isDark ? NSColor.secondaryLabelColor : NSColor.tertiaryLabelColor
-            statusPill.layer?.backgroundColor = isDark
-                ? NSColor(white: 0.20, alpha: 0.40).cgColor
-                : NSColor(white: 0.85, alpha: 0.50).cgColor
-            statusPill.layer?.borderColor = isDark
-                ? NSColor(white: 1.0, alpha: 0.10).cgColor
-                : NSColor(white: 0.0, alpha: 0.10).cgColor
-            statusPill.isHidden = false
+            case .reject:
+                statusLabel.stringValue = "✕ REJECT" + starSuffix
+                statusLabel.textColor = .white
+                statusPill.layer?.backgroundColor = NSColor(srgbRed: 0.82, green: 0.22, blue: 0.22, alpha: 0.85).cgColor
+                statusPill.layer?.borderColor = NSColor(srgbRed: 0.95, green: 0.35, blue: 0.35, alpha: 0.50).cgColor
+                statusPill.isHidden = false
+
+            case .unflagged:
+                let starPrefix = info.rating > 0 ? "★\(info.rating) • " : ""
+                statusLabel.stringValue = starPrefix + "PRESS \(info.slot)"
+                statusLabel.textColor = isDark ? NSColor.secondaryLabelColor : NSColor.tertiaryLabelColor
+                statusPill.layer?.backgroundColor = isDark
+                    ? NSColor(white: 0.20, alpha: 0.40).cgColor
+                    : NSColor(white: 0.85, alpha: 0.50).cgColor
+                statusPill.layer?.borderColor = isDark
+                    ? NSColor(white: 1.0, alpha: 0.10).cgColor
+                    : NSColor(white: 0.0, alpha: 0.10).cgColor
+                statusPill.isHidden = false
+            }
+        }
+
+        // Burst / Scene Pill
+        if let burst = info.burstDescription {
+            burstLabel.stringValue = burst
+            burstPill.isHidden = false
+        } else {
+            burstPill.isHidden = true
         }
 
         // Aesthetic Score Pill presentation
@@ -266,6 +325,19 @@ public final class SplitPaneBadgeView: NSView {
         }
 
         updateTheme()
+    }
+
+    /// Dynamically updates the burst / scene pill description
+    public func updateBurstDescription(_ desc: String?) {
+        if let desc = desc {
+            burstLabel.stringValue = desc
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.15
+                burstPill.animator().isHidden = false
+            }
+        } else {
+            burstPill.isHidden = true
+        }
     }
 
     /// Dynamically updates the aesthetic score independently as soon as background Vision computation finishes

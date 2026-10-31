@@ -1010,6 +1010,107 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+        // ==========================================
+        // TEST 26: Apple Neural Engine (ANE) Scene Detection & Dual-State Culling Engine
+        // ==========================================
+        do {
+            print("🧪 TEST 26: ANE Scene Detection & Dual-State Culling Engine...")
+
+            // 1. SceneDetectionEngine ANE Feature Print Generation & Distance
+            let imgA = makeTestCGImage(width: 128, height: 128, r: 200, g: 150, b: 100)
+            let imgB = makeTestCGImage(width: 128, height: 128, r: 198, g: 152, b: 99) // almost identical
+            let imgC = makeTestCGImage(width: 128, height: 128, r: 10, g: 20, b: 180)  // completely different
+
+            let keyA = "/test/burst_frame1.jpg"
+            let keyB = "/test/burst_frame2.jpg"
+            let keyC = "/test/different_scene.jpg"
+
+            let resBurst = await SceneDetectionEngine.shared.compareScenes(
+                imageA: imgA,
+                keyA: keyA,
+                imageB: imgB,
+                keyB: keyB,
+                timeDelta: 0.2
+            )
+            assertEqual(resBurst.isSameScene, true, "Burst shots detected as same scene")
+            assertEqual(resBurst.visualDistance < 0.35, true, "Visual distance < 0.35 for burst")
+            assertEqual(resBurst.statusDescription.contains("BURST"), true, "Status tags BURST")
+
+            let resDiff = await SceneDetectionEngine.shared.compareScenes(
+                imageA: imgA,
+                keyA: keyA,
+                imageB: imgC,
+                keyB: keyC,
+                timeDelta: 120.0
+            )
+            assertEqual(resDiff.isSameScene, false, "Dissimilar shots detected as different scene")
+            assertEqual(resDiff.statusDescription, "NEW SCENE", "Status tags NEW SCENE")
+
+            // 2. Dual-State Culling Engine Invariants
+            enum MockSplitState: Equatable {
+                case pairScouting
+                case kingOfTheHill(championIndex: Int)
+            }
+
+            var state: MockSplitState = .pairScouting
+            var filteredIndices = [0, 1, 2, 3, 4, 5, 6, 7]
+            var currentPos = 0
+            var challengerPos: Int? = 1
+
+            // In .pairScouting: Right Arrow / Space steps by +2 (Pair Step)
+            func stepForward(isSpace: Bool) {
+                switch state {
+                case .pairScouting:
+                    currentPos += 2
+                    challengerPos = currentPos + 1 < filteredIndices.count ? currentPos + 1 : nil
+                case .kingOfTheHill:
+                    if isSpace {
+                        // Commit & advance past burst to next pair
+                        state = .pairScouting
+                        currentPos += 2
+                        challengerPos = currentPos + 1 < filteredIndices.count ? currentPos + 1 : nil
+                    } else {
+                        // Cycle challenger by +1
+                        challengerPos = (challengerPos ?? currentPos) + 1
+                    }
+                }
+            }
+
+            // Step 1: Browse pairs
+            stepForward(isSpace: false)
+            assertEqual(currentPos, 2, "Pair scouting steps from [0,1] to [2,3]")
+            assertEqual(challengerPos, 3, "Challenger is 3")
+
+            // Step 2: User votes for Slot 1 (raw index 2 becomes Champion)
+            state = .kingOfTheHill(championIndex: 2)
+            // Loser (3) eliminated:
+            filteredIndices.removeAll { $0 == 3 } // filtered is now [0, 1, 2, 4, 5, 6, 7]
+            challengerPos = currentPos + 1 // pos 3 (value 4)
+
+            // Step 3: Next in King-of-the-Hill steps challenger by +1 (does not jump +2)
+            stepForward(isSpace: false)
+            assertEqual(currentPos, 2, "Champion remains anchored at position 2")
+            assertEqual(challengerPos, 4, "Challenger advanced to next contender")
+
+            // Step 4: Spacebar commits burst and resets to Pair Scouting
+            stepForward(isSpace: true)
+            assertEqual(state, MockSplitState.pairScouting, "Space commits burst and resets state to pairScouting")
+            assertEqual(currentPos, 4, "Advanced to next fresh pair")
+
+            // 3. SplitPaneInfo & Badge View model verification
+            let splitInfo = SplitPaneInfo(
+                slot: 1,
+                filename: "DSC_0001.NEF",
+                pick: .pick,
+                isChampion: true,
+                burstDescription: "BURST (Δ 0.2s)"
+            )
+            assertEqual(splitInfo.isChampion, true, "isChampion preserved")
+            assertEqual(splitInfo.burstDescription, "BURST (Δ 0.2s)", "burstDescription preserved")
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

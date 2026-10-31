@@ -44,7 +44,14 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     private var directoryWatcher: DirectoryWatcher? = nil
     private var pipelineMaxPixelSize: Int = 4096
 
-    // Split Compare King-of-the-Hill State
+    /// Culling state in 2-UP split comparison: uncommitted pair scouting vs. active king-of-the-hill elimination.
+    public enum SplitCompareState: Equatable, Sendable {
+        case pairScouting
+        case kingOfTheHill(championRawIndex: Int)
+    }
+
+    // Split Compare State
+    private var splitCompareState: SplitCompareState = .pairScouting
     private var splitChallengerPos: Int? = nil
     private var filterBeforeMultiUp: CullingFilter? = nil
 
@@ -196,6 +203,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             let resText = "\(decoded.originalWidth) × \(decoded.originalHeight)"
 
             var splitCgImage: CGImage? = nil
+            var splitChallengerExif: ExifMetadata? = nil
             var rightNativeSize: CGSize? = nil
             var leftSplitInfo: SplitPaneInfo? = nil
             var rightSplitInfo: SplitPaneInfo? = nil
@@ -208,13 +216,30 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                     splitChallengerPos = (currentFilteredPos + 1 < filteredIndices.count) ? (currentFilteredPos + 1) : nil
                 }
 
+                let isScouting: Bool
+                let isLeftChamp: Bool
+                let isRightChamp: Bool
+
+                switch splitCompareState {
+                case .pairScouting:
+                    isScouting = true
+                    isLeftChamp = false
+                    isRightChamp = false
+                case .kingOfTheHill(let champRaw):
+                    isScouting = false
+                    isLeftChamp = (currentRawIndex == champRaw)
+                    isRightChamp = !isLeftChamp
+                }
+
                 leftSplitInfo = SplitPaneInfo(
                     slot: 1,
                     filename: item.displayName,
                     pick: meta.pick,
                     rating: meta.rating,
                     color: meta.color,
-                    isChampion: true
+                    isChampion: isLeftChamp,
+                    isChallenger: !isLeftChamp && !isScouting,
+                    isPairScouting: isScouting
                 )
 
                 if let cPos = splitChallengerPos, cPos < filteredIndices.count {
@@ -224,6 +249,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
                     if let nextDecoded = try? await pipeline.getImage(at: nextRaw) {
                         splitCgImage = nextDecoded.image
+                        splitChallengerExif = nextDecoded.exif
                         rightNativeSize = CGSize(width: nextDecoded.originalWidth, height: nextDecoded.originalHeight)
                     }
 
@@ -233,7 +259,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                         pick: challengerMeta.pick,
                         rating: challengerMeta.rating,
                         color: challengerMeta.color,
-                        isChampion: false
+                        isChampion: isRightChamp,
+                        isChallenger: !isRightChamp && !isScouting,
+                        isPairScouting: isScouting
                     )
                 }
             }
@@ -347,6 +375,29 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 }
             }
 
+            // Evaluate Apple Neural Engine (ANE) scene & burst similarity
+            if isSplit, let rImg = rightCg {
+                let leftExif = decoded.exif
+                let rExif = splitChallengerExif
+                Task.detached(priority: .utility) { [weak self] in
+                    var dt: TimeInterval? = nil
+                    if let d1 = leftExif?.date, let d2 = rExif?.date {
+                        dt = abs(d2.timeIntervalSince(d1))
+                    }
+                    let sceneResult = await SceneDetectionEngine.shared.compareScenes(
+                        imageA: decoded.image,
+                        keyA: currentPath,
+                        imageB: rImg,
+                        keyB: challengerPath,
+                        timeDelta: dt
+                    )
+                    await MainActor.run { [weak self] in
+                        guard let self = self, self.currentRawIndex == rawIndex else { return }
+                        self.slideView.updateSplitScene(description: sceneResult.statusDescription)
+                    }
+                }
+            }
+
             // Evaluate Apple Vision aesthetic & integral quality scores
             if isSplit, let rImg = rightCg, let rPath = challengerPath {
                 Task.detached(priority: .utility) { [weak self] in
@@ -394,15 +445,33 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         stopSlideshowIfRunning()
         guard !filteredIndices.isEmpty else { return }
 
-        // In 2-UP split compare mode: Space or Right Arrow advances challenger without marking champion
+        // In 2-UP split compare mode:
         if slideView.isSplitMode {
-            let cPos = splitChallengerPos ?? (currentFilteredPos + 1)
-            if cPos + 1 < filteredIndices.count {
-                splitChallengerPos = cPos + 1
-                slideView.hudView.showMessage("Next Challenger [→]")
-                Task { await loadAndDisplayCurrent() }
-            } else {
-                slideView.hudView.showMessage("No more challengers in set")
+            switch splitCompareState {
+            case .pairScouting:
+                // Unpicked Pair Scouting: Advance by +2 (Next Pair)
+                if currentFilteredPos + 2 < filteredIndices.count {
+                    let nextPos = currentFilteredPos + 2
+                    splitChallengerPos = (nextPos + 1 < filteredIndices.count) ? (nextPos + 1) : nil
+                    navigate(toFilteredPos: nextPos, direction: .forward)
+                    slideView.hudView.showMessage("Next Pair [→]")
+                } else if currentFilteredPos + 1 < filteredIndices.count {
+                    navigate(toFilteredPos: currentFilteredPos + 1, direction: .forward)
+                    splitChallengerPos = nil
+                    slideView.hudView.showMessage("Last Photo in Set")
+                } else {
+                    slideView.hudView.showMessage("End of Set")
+                }
+            case .kingOfTheHill:
+                // Elimination mode: Step challenger by +1 without marking champion
+                let cPos = splitChallengerPos ?? (currentFilteredPos + 1)
+                if cPos + 1 < filteredIndices.count {
+                    splitChallengerPos = cPos + 1
+                    slideView.hudView.showMessage("Next Challenger [→]")
+                    Task { await loadAndDisplayCurrent() }
+                } else {
+                    slideView.hudView.showMessage("No more challengers in scene")
+                }
             }
             return
         }
@@ -418,19 +487,76 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         stopSlideshowIfRunning()
         guard !filteredIndices.isEmpty else { return }
 
-        // In 2-UP split compare mode: Left Arrow steps back challenger or pair
+        // In 2-UP split compare mode:
         if slideView.isSplitMode {
-            let cPos = splitChallengerPos ?? (currentFilteredPos + 1)
-            if cPos > currentFilteredPos + 1 {
-                splitChallengerPos = cPos - 1
-                slideView.hudView.showMessage("Previous Challenger [←]")
-                Task { await loadAndDisplayCurrent() }
-            } else if currentFilteredPos - 1 >= 0 {
-                navigate(toFilteredPos: currentFilteredPos - 1, direction: .backward)
-            } else {
-                slideView.hudView.showMessage("First pair in set")
+            switch splitCompareState {
+            case .pairScouting:
+                // Step back by -2 (Previous Pair)
+                if currentFilteredPos - 2 >= 0 {
+                    let prevPos = currentFilteredPos - 2
+                    splitChallengerPos = prevPos + 1
+                    navigate(toFilteredPos: prevPos, direction: .backward)
+                    slideView.hudView.showMessage("Previous Pair [←]")
+                } else if currentFilteredPos - 1 >= 0 {
+                    let prevPos = currentFilteredPos - 1
+                    splitChallengerPos = currentFilteredPos
+                    navigate(toFilteredPos: prevPos, direction: .backward)
+                } else {
+                    slideView.hudView.showMessage("First pair in set")
+                }
+            case .kingOfTheHill:
+                let cPos = splitChallengerPos ?? (currentFilteredPos + 1)
+                if cPos > currentFilteredPos + 1 {
+                    splitChallengerPos = cPos - 1
+                    slideView.hudView.showMessage("Previous Challenger [←]")
+                    Task { await loadAndDisplayCurrent() }
+                } else {
+                    slideView.hudView.showMessage("First challenger against Champion")
+                }
             }
             return
+        }
+
+    }
+
+    /// Finalizes current King-of-the-Hill champion or advances unpicked scouting pair (Spacebar)
+    public func slideViewCommitSplitMatchup() {
+        guard slideView.isSplitMode else {
+            slideViewRequestNext()
+            return
+        }
+
+        switch splitCompareState {
+        case .kingOfTheHill:
+            // Finalize burst/scene: advance past current burst to next unculled pair
+            splitCompareState = .pairScouting
+            if currentFilteredPos + 2 < filteredIndices.count {
+                let nextPos = currentFilteredPos + 2
+                splitChallengerPos = (nextPos + 1 < filteredIndices.count) ? (nextPos + 1) : nil
+                navigate(toFilteredPos: nextPos, direction: .forward)
+                slideView.hudView.showMessage("🏆 Burst Finalized! Next Pair [Space]")
+            } else if currentFilteredPos + 1 < filteredIndices.count {
+                navigate(toFilteredPos: currentFilteredPos + 1, direction: .forward)
+                splitChallengerPos = nil
+                slideView.hudView.showMessage("🏆 Final Burst Complete")
+            } else {
+                slideView.hudView.showMessage("End of Set")
+            }
+
+        case .pairScouting:
+            // Unpicked Pair Scouting: Advance by +2 (Next Pair)
+            if currentFilteredPos + 2 < filteredIndices.count {
+                let nextPos = currentFilteredPos + 2
+                splitChallengerPos = (nextPos + 1 < filteredIndices.count) ? (nextPos + 1) : nil
+                navigate(toFilteredPos: nextPos, direction: .forward)
+                slideView.hudView.showMessage("Next Pair [Space]")
+            } else if currentFilteredPos + 1 < filteredIndices.count {
+                navigate(toFilteredPos: currentFilteredPos + 1, direction: .forward)
+                splitChallengerPos = nil
+                slideView.hudView.showMessage("Last Photo in Set")
+            } else {
+                slideView.hudView.showMessage("End of Set")
+            }
         }
 
         if currentFilteredPos - 1 >= 0 {
@@ -898,7 +1024,8 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             let msg = (pick == .pick) ? "✓ Both Picked [P]" : (pick == .reject ? "✕ Both Rejected [X]" : "Both Unflagged [U]")
             slideView.hudView.showMessage(msg)
 
-            if pick == .reject {
+            if pick == .reject || pick == .unflagged {
+                splitCompareState = .pairScouting
                 rebuildFilter(targetIndex: nil)
                 splitChallengerPos = (currentFilteredPos + 1 < filteredIndices.count) ? (currentFilteredPos + 1) : nil
             }
@@ -975,6 +1102,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
         // King of the Hill progression:
         let championRaw = (slot == 1) ? leftRaw : rightRaw
+        splitCompareState = .kingOfTheHill(championRawIndex: championRaw)
         rebuildFilter(targetIndex: championRaw)
 
         // Advance challenger to next unrejected photo in filteredIndices
@@ -1083,8 +1211,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 currentFilter = .hideRejects
                 rebuildFilter(targetIndex: currentRawIndex)
             }
+            splitCompareState = .pairScouting
             splitChallengerPos = (currentFilteredPos + 1 < filteredIndices.count) ? (currentFilteredPos + 1) : nil
-            slideView.hudView.showMessage("2-UP Compare: Press [ 1 ] or [ 2 ] to Pick Winner [S]")
+            slideView.hudView.showMessage("2-UP Compare: Next Pair [→/Space] • Pick Winner [ 1 / 2 ]")
         } else {
             // Restore previous filter when exiting multi-up compare if user did not manually change it
             if let prev = filterBeforeMultiUp {
@@ -1092,6 +1221,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 filterBeforeMultiUp = nil
                 rebuildFilter(targetIndex: currentRawIndex)
             }
+            splitCompareState = .pairScouting
             splitChallengerPos = nil
             slideView.hudView.showMessage("Single Fullscreen [S]")
         }

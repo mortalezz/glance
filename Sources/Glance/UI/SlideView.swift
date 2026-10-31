@@ -22,6 +22,7 @@ public protocol SlideViewDelegate: AnyObject {
     func slideViewCycleFilter()
     func slideViewToggleSplitCompare()
     func slideViewPickWinner(slot: Int)
+    func slideViewCommitSplitMatchup()
 
     // 100% Zoom Action
     func slideViewRequestZoomToggle(mouseLocation: CGPoint)
@@ -430,6 +431,11 @@ public final class SlideView: NSView {
 
     public func updateAestheticScore(_ score: AestheticScoreResult?) {
         hudView.updateAestheticScore(score)
+    }
+
+    public func updateSplitScene(description: String?) {
+        leftSplitBadge.updateBurstDescription(description)
+        rightSplitBadge.updateBurstDescription(description)
     }
 
     public func setSplitMode(_ enabled: Bool) {
@@ -1031,8 +1037,17 @@ public final class SlideView: NSView {
         }
 
         switch event.keyCode {
-        // Space, Right Arrow, Down Arrow, Page Down, 'N'
-        case 49, 124, 125, 121, 45:
+        // Space (KeyCode 49)
+        case 49:
+            if isZoomed { setZoom(false) }
+            if isSplitMode {
+                delegate?.slideViewCommitSplitMatchup()
+            } else {
+                delegate?.slideViewRequestNext()
+            }
+
+        // Right Arrow, Down Arrow, Page Down, 'N'
+        case 124, 125, 121, 45:
             if isZoomed { setZoom(false) }
             delegate?.slideViewRequestNext()
 
