@@ -187,8 +187,10 @@ public final class GlassHudView: NSView {
     private let filenameLabel = NSTextField(labelWithString: "")
     private let metaLabel = NSTextField(labelWithString: "")
 
-    // Aesthetic Appeal Score Pill (✨ 8.9 / ⚠️ 3.2)
+    // Aesthetic Appeal Score Pill
     private let aestheticPill = NSView()
+    private let aestheticStack = NSStackView()
+    private let aestheticIcon = NSImageView()
     private let aestheticLabel = NSTextField(labelWithString: "")
 
     private let rawBadge = NSView()
@@ -383,7 +385,7 @@ public final class GlassHudView: NSView {
         metaLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         stackView.addArrangedSubview(metaLabel)
 
-        // 5b. Aesthetic Appeal Score Pill (✨ 8.9 / ⚠️ 3.2)
+        // 5b. Aesthetic Appeal Score Pill
         aestheticPill.wantsLayer = true
         aestheticPill.layer?.cornerRadius = 5
         aestheticPill.layer?.cornerCurve = .continuous
@@ -391,17 +393,33 @@ public final class GlassHudView: NSView {
         aestheticPill.translatesAutoresizingMaskIntoConstraints = false
         aestheticPill.isHidden = true
 
+        aestheticStack.orientation = .horizontal
+        aestheticStack.alignment = .centerY
+        aestheticStack.spacing = 3
+        aestheticStack.translatesAutoresizingMaskIntoConstraints = false
+        aestheticStack.edgeInsets = NSEdgeInsets(top: 2, left: 6, bottom: 2, right: 6)
+        aestheticPill.addSubview(aestheticStack)
+
+        NSLayoutConstraint.activate([
+            aestheticStack.topAnchor.constraint(equalTo: aestheticPill.topAnchor),
+            aestheticStack.bottomAnchor.constraint(equalTo: aestheticPill.bottomAnchor),
+            aestheticStack.leadingAnchor.constraint(equalTo: aestheticPill.leadingAnchor),
+            aestheticStack.trailingAnchor.constraint(equalTo: aestheticPill.trailingAnchor)
+        ])
+
+        aestheticIcon.translatesAutoresizingMaskIntoConstraints = false
+        aestheticIcon.imageScaling = .scaleProportionallyDown
+        NSLayoutConstraint.activate([
+            aestheticIcon.widthAnchor.constraint(equalToConstant: 11),
+            aestheticIcon.heightAnchor.constraint(equalToConstant: 11)
+        ])
+        aestheticStack.addArrangedSubview(aestheticIcon)
+
         aestheticLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold)
         aestheticLabel.alignment = .center
         aestheticLabel.translatesAutoresizingMaskIntoConstraints = false
+        aestheticStack.addArrangedSubview(aestheticLabel)
 
-        aestheticPill.addSubview(aestheticLabel)
-        NSLayoutConstraint.activate([
-            aestheticLabel.topAnchor.constraint(equalTo: aestheticPill.topAnchor, constant: 2),
-            aestheticLabel.bottomAnchor.constraint(equalTo: aestheticPill.bottomAnchor, constant: -2),
-            aestheticLabel.leadingAnchor.constraint(equalTo: aestheticPill.leadingAnchor, constant: 6),
-            aestheticLabel.trailingAnchor.constraint(equalTo: aestheticPill.trailingAnchor, constant: -6)
-        ])
         stackView.addArrangedSubview(aestheticPill)
 
         // 6. RAW / Stack Badge
@@ -642,10 +660,16 @@ public final class GlassHudView: NSView {
     }
 
     private func applyAestheticScore(_ score: AestheticScoreResult) {
-        let isDark = ThemeManager.shared.isDark
+        let theme = ThemeManager.shared
+        let isDark = theme.isDark
+        let symbolConfig = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
+
         if score.isUtility || score.score < 4.0 {
-            aestheticLabel.stringValue = "⚠️ \(score.formattedScore)"
-            aestheticLabel.textColor = isDark ? NSColor.systemYellow : NSColor.systemOrange
+            aestheticIcon.image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "Warning")?.withSymbolConfiguration(symbolConfig)
+            let warnColor = isDark ? NSColor.systemYellow : NSColor.systemOrange
+            aestheticIcon.contentTintColor = warnColor
+            aestheticLabel.stringValue = score.formattedScore
+            aestheticLabel.textColor = warnColor
             aestheticPill.layer?.backgroundColor = isDark
                 ? NSColor(white: 0.20, alpha: 0.40).cgColor
                 : NSColor(white: 0.85, alpha: 0.50).cgColor
@@ -654,22 +678,25 @@ public final class GlassHudView: NSView {
                 : NSColor.systemOrange.withAlphaComponent(0.5).cgColor
             aestheticPill.toolTip = "Appeal: \(score.formattedScore)/10 (Utility / Flawed Capture)"
         } else if score.score >= 8.5 {
-            aestheticLabel.stringValue = "✨ \(score.formattedScore)"
-            aestheticLabel.textColor = isDark ? NSColor.white : NSColor(srgbRed: 0.82, green: 0.58, blue: 0.10, alpha: 1.0)
+            aestheticIcon.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Aesthetic Score")?.withSymbolConfiguration(symbolConfig)
+            let goldColor = isDark ? NSColor.systemYellow : NSColor(srgbRed: 0.82, green: 0.58, blue: 0.10, alpha: 1.0)
+            aestheticIcon.contentTintColor = goldColor
+            aestheticLabel.stringValue = "\(score.formattedScore) BEST"
+            aestheticLabel.textColor = isDark ? NSColor.white : goldColor
             aestheticPill.layer?.backgroundColor = isDark
                 ? NSColor(srgbRed: 0.85, green: 0.65, blue: 0.12, alpha: 0.85).cgColor
-                : NSColor(srgbRed: 0.95, green: 0.82, blue: 0.35, alpha: 0.40).cgColor
-            aestheticPill.layer?.borderColor = NSColor(srgbRed: 1.0, green: 0.85, blue: 0.35, alpha: 0.65).cgColor
+                : NSColor(srgbRed: 0.95, green: 0.82, blue: 0.35, alpha: 0.30).cgColor
+            aestheticPill.layer?.borderColor = isDark
+                ? NSColor(srgbRed: 1.0, green: 0.85, blue: 0.35, alpha: 0.65).cgColor
+                : NSColor(srgbRed: 0.85, green: 0.65, blue: 0.12, alpha: 0.60).cgColor
             aestheticPill.toolTip = "Appeal: \(score.formattedScore)/10 (High Aesthetic Score)"
         } else {
-            aestheticLabel.stringValue = "✨ \(score.formattedScore)"
-            aestheticLabel.textColor = isDark ? NSColor(white: 0.92, alpha: 1.0) : NSColor(white: 0.20, alpha: 1.0)
-            aestheticPill.layer?.backgroundColor = isDark
-                ? NSColor(white: 0.25, alpha: 0.45).cgColor
-                : NSColor(white: 0.85, alpha: 0.55).cgColor
-            aestheticPill.layer?.borderColor = isDark
-                ? NSColor(white: 1.0, alpha: 0.15).cgColor
-                : NSColor(white: 0.0, alpha: 0.12).cgColor
+            aestheticIcon.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Aesthetic Score")?.withSymbolConfiguration(symbolConfig)
+            aestheticIcon.contentTintColor = theme.secondaryTextColor
+            aestheticLabel.stringValue = score.formattedScore
+            aestheticLabel.textColor = theme.secondaryTextColor
+            aestheticPill.layer?.backgroundColor = theme.pillBackgroundColor
+            aestheticPill.layer?.borderColor = theme.pillBorderColor
             aestheticPill.toolTip = "Appeal: \(score.formattedScore)/10"
         }
         aestheticPill.isHidden = false

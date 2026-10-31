@@ -297,15 +297,16 @@ public final class SlideView: NSView {
             rightContainerLayer.frame = rightFrame
             rightContainerLayer.isHidden = false
 
-            let badgeW: CGFloat = min(360, max(220, halfWidth - 48))
-            let leftBadgeX = max(16, (halfWidth - badgeW) / 2)
-            let rightBadgeX = max(halfWidth + 18, halfWidth + 2 + (halfWidth - badgeW) / 2)
+            let badgeW: CGFloat = floor(min(360, max(220, halfWidth - 48)))
+            let leftBadgeX = floor(max(16, (halfWidth - badgeW) / 2))
+            let rightBadgeX = floor(max(halfWidth + 18, halfWidth + 2 + (halfWidth - badgeW) / 2))
+            let badgeY = floor(bounds.height - 50)
             
             // Frame positioning for badges without CoreAnimation action interference
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            leftSplitBadge.frame = CGRect(x: leftBadgeX, y: bounds.height - 50, width: badgeW, height: 34)
-            rightSplitBadge.frame = CGRect(x: rightBadgeX, y: bounds.height - 50, width: badgeW, height: 34)
+            leftSplitBadge.frame = CGRect(x: leftBadgeX, y: badgeY, width: badgeW, height: 34)
+            rightSplitBadge.frame = CGRect(x: rightBadgeX, y: badgeY, width: badgeW, height: 34)
             leftSplitBadge.isHidden = false
             rightSplitBadge.isHidden = false
             CATransaction.commit()
