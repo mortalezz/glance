@@ -457,7 +457,6 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                     let nextPos = currentFilteredPos + 2
                     splitChallengerPos = (nextPos + 1 < filteredIndices.count) ? (nextPos + 1) : nil
                     navigate(toFilteredPos: nextPos, direction: .forward)
-                    slideView.hudView.showMessage("Next Pair [→]")
                 } else if currentFilteredPos + 1 < filteredIndices.count {
                     navigate(toFilteredPos: currentFilteredPos + 1, direction: .forward)
                     splitChallengerPos = nil
@@ -470,7 +469,6 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 let cPos = splitChallengerPos ?? (currentFilteredPos + 1)
                 if cPos + 1 < filteredIndices.count {
                     splitChallengerPos = cPos + 1
-                    slideView.hudView.showMessage("Next Challenger [→]")
                     Task { await loadAndDisplayCurrent() }
                 } else {
                     slideView.hudView.showMessage("No more challengers in scene")
@@ -499,7 +497,6 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                     let prevPos = currentFilteredPos - 2
                     splitChallengerPos = prevPos + 1
                     navigate(toFilteredPos: prevPos, direction: .backward)
-                    slideView.hudView.showMessage("Previous Pair [←]")
                 } else if currentFilteredPos - 1 >= 0 {
                     let prevPos = currentFilteredPos - 1
                     splitChallengerPos = currentFilteredPos
@@ -511,7 +508,6 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 let cPos = splitChallengerPos ?? (currentFilteredPos + 1)
                 if cPos > currentFilteredPos + 1 {
                     splitChallengerPos = cPos - 1
-                    slideView.hudView.showMessage("Previous Challenger [←]")
                     Task { await loadAndDisplayCurrent() }
                 } else {
                     slideView.hudView.showMessage("First challenger against Champion")
@@ -557,7 +553,6 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 let nextPos = currentFilteredPos + 2
                 splitChallengerPos = (nextPos + 1 < filteredIndices.count) ? (nextPos + 1) : nil
                 navigate(toFilteredPos: nextPos, direction: .forward)
-                slideView.hudView.showMessage("Next Pair [Space]")
             } else if currentFilteredPos + 1 < filteredIndices.count {
                 navigate(toFilteredPos: currentFilteredPos + 1, direction: .forward)
                 splitChallengerPos = nil

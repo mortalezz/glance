@@ -961,7 +961,14 @@ public final class GlassHudView: NSView {
         messageTimer?.invalidate()
         fadeTimer?.invalidate()
 
-        indexPill.isHidden = true
+        // Keep index pill visible to stabilize HUD layout anchor
+        if let info = lastInfo, info.totalCount > 0 {
+            indexLabel.stringValue = "\(info.currentIndex + 1) / \(info.totalCount)"
+            indexPill.isHidden = false
+        } else {
+            indexPill.isHidden = true
+        }
+
         pickBadge.isHidden = true
         colorBadge.isHidden = true
         ratingLabel.isHidden = true
