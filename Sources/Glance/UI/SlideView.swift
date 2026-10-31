@@ -26,6 +26,11 @@ public protocol SlideViewDelegate: AnyObject {
     func slideViewCommitSplitMatchup()
     func slideViewHoverPaneChanged(to slot: Int)
 
+    // Scene Leap Navigation (Same Scene & Burst Traversal)
+    func slideViewRequestNextScene()
+    func slideViewRequestPreviousScene()
+    func slideViewRequestJumpToHero()
+
     // 100% Zoom Action
     func slideViewRequestZoomToggle(mouseLocation: CGPoint)
     func slideViewJumpToFaceEye()
@@ -92,6 +97,7 @@ public final class SlideView: NSView {
     public let histogramHud = HistogramHudView()
     public let exifHud = ExifHudView()
     public let quickHelpView = QuickHelpView()
+    public let topToastView = TopToastView()
 
     public let splitBadges: [SplitPaneBadgeView] = (1...4).map { SplitPaneBadgeView(slot: $0) }
     public var leftSplitBadge: SplitPaneBadgeView { splitBadges[0] }
@@ -112,6 +118,14 @@ public final class SlideView: NSView {
     public private(set) var isZoomed: Bool = false
     public private(set) var isClippingActive: Bool = false
     public private(set) var isPeakingActive: Bool = false
+
+    // Zoom & Pan state across up to 4 panes
+    // Loupe Pop (Option B for 4-UP) & Spring-Loaded Z
+    public private(set) var activeLoupeSlot: Int = 0
+    public private(set) var isZHeld: Bool = false
+    private var zKeyDownTimestamp: TimeInterval = 0
+    private var wasZoomedOnZKeyDown: Bool = false
+    private var lastZMouseLocation: CGPoint = .zero
 
     // Zoom & Pan state across up to 4 panes
     private var paneImageSizes: [CGSize] = Array(repeating: .zero, count: 4)
@@ -160,9 +174,20 @@ public final class SlideView: NSView {
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
 
+        NotificationCenter.default.addObserver(
+            forName: ThemeManager.themeDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.updatePaneBorders(animated: true)
+            }
+        }
+
         for i in 0..<4 {
             let container = paneContainerLayers[i]
             container.backgroundColor = NSColor.black.cgColor
+            container.cornerCurve = .continuous
             container.masksToBounds = true
             container.isHidden = (i > 0)
             layer?.addSublayer(container)
@@ -228,6 +253,9 @@ public final class SlideView: NSView {
             self?.restoreOverlaysAfterHelp()
         }
 
+        topToastView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(topToastView)
+
         // Split Badges: positioned manually via frames in updateLayerLayout
         for badge in splitBadges {
             badge.translatesAutoresizingMaskIntoConstraints = true
@@ -259,7 +287,11 @@ public final class SlideView: NSView {
             exifHud.widthAnchor.constraint(equalToConstant: 284),
 
             quickHelpView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            quickHelpView.centerYAnchor.constraint(equalTo: centerYAnchor)
+            quickHelpView.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            topToastView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            topToastView.topAnchor.constraint(equalTo: topAnchor, constant: 24),
+            topToastView.heightAnchor.constraint(greaterThanOrEqualToConstant: 32)
         ])
     }
 
@@ -337,20 +369,25 @@ public final class SlideView: NSView {
                 splitBadges[i].isHidden = true
             }
 
-            let halfWidth = floor((totalW - 2) / 2)
+            let pad: CGFloat = 6
+            let gutter: CGFloat = 6
+            let paneW = floor((totalW - 2 * pad - gutter) / 2)
+            let paneH = totalH - 2 * pad
+
             let frames: [CGRect] = [
-                CGRect(x: 0, y: 0, width: halfWidth, height: totalH),
-                CGRect(x: totalW - halfWidth, y: 0, width: halfWidth, height: totalH)
+                CGRect(x: pad, y: pad, width: paneW, height: paneH),
+                CGRect(x: pad + paneW + gutter, y: pad, width: paneW, height: paneH)
             ]
 
-            let badgeW: CGFloat = min(360, max(220, halfWidth - 48))
-            let leftBadgeX = max(16, (halfWidth - badgeW) / 2)
-            let rightBadgeX = max(totalW - halfWidth + 16, (totalW - halfWidth) + (halfWidth - badgeW) / 2)
+            let badgeW: CGFloat = min(360, max(220, paneW - 48))
+            let leftBadgeX = pad + (paneW - badgeW) / 2
+            let rightBadgeX = pad + paneW + gutter + (paneW - badgeW) / 2
+            let badgeY = pad + paneH - 44
 
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            splitBadges[0].frame = CGRect(x: leftBadgeX, y: totalH - 50, width: badgeW, height: 34)
-            splitBadges[1].frame = CGRect(x: rightBadgeX, y: totalH - 50, width: badgeW, height: 34)
+            splitBadges[0].frame = CGRect(x: leftBadgeX, y: badgeY, width: badgeW, height: 34)
+            splitBadges[1].frame = CGRect(x: rightBadgeX, y: badgeY, width: badgeW, height: 34)
             splitBadges[0].isHidden = (paneImageLayers[0].contents == nil)
             splitBadges[1].isHidden = (paneImageLayers[1].contents == nil)
             splitBadges[0].isActiveSlot = (hoveredSplitSlot == 1)
@@ -368,21 +405,21 @@ public final class SlideView: NSView {
 
                 if isZoomed {
                     let imgSize = paneImageSizes[i].width > 0 ? paneImageSizes[i] : paneImageSizes[0]
-                    let nativeW = (imgSize.width > 0 ? imgSize.width : halfWidth * scale) / scale
-                    let nativeH = (imgSize.height > 0 ? imgSize.height : totalH * scale) / scale
+                    let nativeW = (imgSize.width > 0 ? imgSize.width : paneW * scale) / scale
+                    let nativeH = (imgSize.height > 0 ? imgSize.height : paneH * scale) / scale
 
                     paneImageLayers[i].contentsGravity = .resize
                     paneImageLayers[i].bounds = CGRect(x: 0, y: 0, width: nativeW, height: nativeH)
 
-                    let maxPanX = max(0, (nativeW - halfWidth) / 2)
-                    let maxPanY = max(0, (nativeH - totalH) / 2)
+                    let maxPanX = max(0, (nativeW - paneW) / 2)
+                    let maxPanY = max(0, (nativeH - paneH) / 2)
 
                     zoomPanOffsets[i].x = min(maxPanX, max(-maxPanX, zoomPanOffsets[i].x))
                     zoomPanOffsets[i].y = min(maxPanY, max(-maxPanY, zoomPanOffsets[i].y))
 
                     paneImageLayers[i].position = CGPoint(
-                        x: (halfWidth / 2) + zoomPanOffsets[i].x,
-                        y: (totalH / 2) + zoomPanOffsets[i].y
+                        x: (paneW / 2) + zoomPanOffsets[i].x,
+                        y: (paneH / 2) + zoomPanOffsets[i].y
                     )
                 } else {
                     paneImageLayers[i].contentsGravity = .resizeAspect
@@ -393,67 +430,97 @@ public final class SlideView: NSView {
             }
 
         case .fourUp:
-            let halfWidth = floor((totalW - 2) / 2)
-            let halfHeight = floor((totalH - 2) / 2)
+            let pad: CGFloat = 6
+            let gutter: CGFloat = 6
+            let paneW = floor((totalW - 2 * pad - gutter) / 2)
+            let paneH = floor((totalH - 2 * pad - gutter) / 2)
 
-            // Slot 1: TL (x: 0, y: totalH - halfHeight)
-            // Slot 2: TR (x: totalW - halfWidth, y: totalH - halfHeight)
-            // Slot 3: BL (x: 0, y: 0)
-            // Slot 4: BR (x: totalW - halfWidth, y: 0)
+            // Slot 1: TL (x: pad, y: pad + paneH + gutter)
+            // Slot 2: TR (x: pad + paneW + gutter, y: pad + paneH + gutter)
+            // Slot 3: BL (x: pad, y: pad)
+            // Slot 4: BR (x: pad + paneW + gutter, y: pad)
             let frames: [CGRect] = [
-                CGRect(x: 0, y: totalH - halfHeight, width: halfWidth, height: halfHeight),
-                CGRect(x: totalW - halfWidth, y: totalH - halfHeight, width: halfWidth, height: halfHeight),
-                CGRect(x: 0, y: 0, width: halfWidth, height: halfHeight),
-                CGRect(x: totalW - halfWidth, y: 0, width: halfWidth, height: halfHeight)
+                CGRect(x: pad, y: pad + paneH + gutter, width: paneW, height: paneH),
+                CGRect(x: pad + paneW + gutter, y: pad + paneH + gutter, width: paneW, height: paneH),
+                CGRect(x: pad, y: pad, width: paneW, height: paneH),
+                CGRect(x: pad + paneW + gutter, y: pad, width: paneW, height: paneH)
             ]
 
-            let badgeW: CGFloat = min(340, max(180, halfWidth - 36))
-            let leftBadgeX = max(12, (halfWidth - badgeW) / 2)
-            let rightBadgeX = max(totalW - halfWidth + 12, (totalW - halfWidth) + (halfWidth - badgeW) / 2)
+            let badgeW: CGFloat = min(340, max(180, paneW - 36))
+            let leftBadgeX = pad + (paneW - badgeW) / 2
+            let rightBadgeX = pad + paneW + gutter + (paneW - badgeW) / 2
+            let topBadgeY = pad + paneH + gutter + paneH - 42
+            let bottomBadgeY = pad + paneH - 42
 
-            let topBadgeY = totalH - 46
-            let bottomBadgeY = halfHeight - 46
+            if isZoomed {
+                // Option B: Hovered quadrant pops to full-screen 100% Loupe!
+                let s = activeLoupeSlot
 
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            splitBadges[0].frame = CGRect(x: leftBadgeX, y: topBadgeY, width: badgeW, height: 32)
-            splitBadges[1].frame = CGRect(x: rightBadgeX, y: topBadgeY, width: badgeW, height: 32)
-            splitBadges[2].frame = CGRect(x: leftBadgeX, y: bottomBadgeY, width: badgeW, height: 32)
-            splitBadges[3].frame = CGRect(x: rightBadgeX, y: bottomBadgeY, width: badgeW, height: 32)
+                for i in 0..<4 {
+                    if i == s {
+                        paneContainerLayers[i].frame = bounds
+                        paneContainerLayers[i].isHidden = (paneImageLayers[i].contents == nil)
 
-            for i in 0..<4 {
-                splitBadges[i].isHidden = (paneImageLayers[i].contents == nil)
-                splitBadges[i].isActiveSlot = (hoveredSplitSlot == (i + 1))
-                if isHelpPresented {
-                    splitBadges[i].alphaValue = 0.0
+                        let imgSize = paneImageSizes[i].width > 0 ? paneImageSizes[i] : paneImageSizes[0]
+                        let nativeW = (imgSize.width > 0 ? imgSize.width : totalW * scale) / scale
+                        let nativeH = (imgSize.height > 0 ? imgSize.height : totalH * scale) / scale
+
+                        paneImageLayers[i].contentsGravity = .resize
+                        paneImageLayers[i].bounds = CGRect(x: 0, y: 0, width: nativeW, height: nativeH)
+
+                        let maxPanX = max(0, (nativeW - totalW) / 2)
+                        let maxPanY = max(0, (nativeH - totalH) / 2)
+                        zoomPanOffsets[i].x = min(maxPanX, max(-maxPanX, zoomPanOffsets[i].x))
+                        zoomPanOffsets[i].y = min(maxPanY, max(-maxPanY, zoomPanOffsets[i].y))
+
+                        paneImageLayers[i].position = CGPoint(
+                            x: (totalW / 2) + zoomPanOffsets[i].x,
+                            y: (totalH / 2) + zoomPanOffsets[i].y
+                        )
+                    } else {
+                        paneContainerLayers[i].frame = .zero
+                        paneContainerLayers[i].isHidden = true
+                    }
                 }
-            }
-            CATransaction.commit()
 
-            for i in 0..<4 {
-                let pFrame = frames[i]
-                paneContainerLayers[i].frame = pFrame
-                paneContainerLayers[i].isHidden = (paneImageLayers[i].contents == nil)
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                for i in 0..<4 {
+                    if i == s {
+                        splitBadges[i].frame = CGRect(x: (totalW - badgeW) / 2, y: totalH - 50, width: badgeW, height: 34)
+                        splitBadges[i].isHidden = (paneImageLayers[i].contents == nil)
+                        splitBadges[i].isActiveSlot = true
+                    } else {
+                        splitBadges[i].isHidden = true
+                    }
+                    if isHelpPresented {
+                        splitBadges[i].alphaValue = 0.0
+                    }
+                }
+                CATransaction.commit()
+            } else {
+                // Normal 4-UP Floating Studio Tiles Grid
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                splitBadges[0].frame = CGRect(x: leftBadgeX, y: topBadgeY, width: badgeW, height: 32)
+                splitBadges[1].frame = CGRect(x: rightBadgeX, y: topBadgeY, width: badgeW, height: 32)
+                splitBadges[2].frame = CGRect(x: leftBadgeX, y: bottomBadgeY, width: badgeW, height: 32)
+                splitBadges[3].frame = CGRect(x: rightBadgeX, y: bottomBadgeY, width: badgeW, height: 32)
 
-                if isZoomed {
-                    let imgSize = paneImageSizes[i].width > 0 ? paneImageSizes[i] : paneImageSizes[0]
-                    let nativeW = (imgSize.width > 0 ? imgSize.width : halfWidth * scale) / scale
-                    let nativeH = (imgSize.height > 0 ? imgSize.height : halfHeight * scale) / scale
+                for i in 0..<4 {
+                    splitBadges[i].isHidden = (paneImageLayers[i].contents == nil)
+                    splitBadges[i].isActiveSlot = (hoveredSplitSlot == (i + 1))
+                    if isHelpPresented {
+                        splitBadges[i].alphaValue = 0.0
+                    }
+                }
+                CATransaction.commit()
 
-                    paneImageLayers[i].contentsGravity = .resize
-                    paneImageLayers[i].bounds = CGRect(x: 0, y: 0, width: nativeW, height: nativeH)
+                for i in 0..<4 {
+                    let pFrame = frames[i]
+                    paneContainerLayers[i].frame = pFrame
+                    paneContainerLayers[i].isHidden = (paneImageLayers[i].contents == nil)
 
-                    let maxPanX = max(0, (nativeW - halfWidth) / 2)
-                    let maxPanY = max(0, (nativeH - halfHeight) / 2)
-
-                    zoomPanOffsets[i].x = min(maxPanX, max(-maxPanX, zoomPanOffsets[i].x))
-                    zoomPanOffsets[i].y = min(maxPanY, max(-maxPanY, zoomPanOffsets[i].y))
-
-                    paneImageLayers[i].position = CGPoint(
-                        x: (halfWidth / 2) + zoomPanOffsets[i].x,
-                        y: (halfHeight / 2) + zoomPanOffsets[i].y
-                    )
-                } else {
                     paneImageLayers[i].contentsGravity = .resizeAspect
                     paneImageLayers[i].bounds = CGRect(origin: .zero, size: pFrame.size)
                     paneImageLayers[i].position = CGPoint(x: pFrame.width / 2, y: pFrame.height / 2)
@@ -470,6 +537,8 @@ public final class SlideView: NSView {
         }
 
         CATransaction.commit()
+
+        updatePaneBorders(animated: animated)
     }
 
     public func displayMultiUp(
@@ -543,25 +612,77 @@ public final class SlideView: NSView {
         hudView.updateAestheticScore(score)
     }
 
+    public func updateBurstBreadcrumb(_ burst: BurstBreadcrumbInfo?) {
+        hudView.updateBurstBreadcrumb(burst)
+    }
+
     public func updateSplitScene(description: String?) {
         splitBadges[0].updateBurstDescription(description)
         splitBadges[1].updateBurstDescription(description)
     }
 
-    public func updateSlotScene(slot: Int, description: String?) {
+    public func updateSlotScene(slot: Int, description: String?, isHero: Bool = false) {
         guard slot >= 1 && slot <= 4 else { return }
-        splitBadges[slot - 1].updateBurstDescription(description)
+        splitBadges[slot - 1].updateBurstDescription(description, isHero: isHero)
+    }
+
+    // MARK: - Metal Vibrancy Studio Framing & Active Rims
+
+    public func updatePaneBorders(animated: Bool = true) {
+        let theme = ThemeManager.shared
+        let isMulti = (multiUpMode != .single) && !isZoomed
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(!animated)
+        if animated {
+            CATransaction.setAnimationDuration(0.14)
+            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        }
+
+        layer?.backgroundColor = isMulti ? theme.studioCanvasColor : NSColor.black.cgColor
+
+        for i in 0..<4 {
+            let container = paneContainerLayers[i]
+            if isMulti && (i < multiUpMode.rawValue) && (paneImageLayers[i].contents != nil) {
+                let slotNum = i + 1
+                let isActive = (hoveredSplitSlot == slotNum)
+                let colors = theme.slotSemanticColor(for: slotNum)
+
+                container.cornerRadius = 10.0
+                container.cornerCurve = .continuous
+                container.masksToBounds = true
+
+                if isActive {
+                    container.borderWidth = 1.5
+                    container.borderColor = colors.glowBorder
+                    container.opacity = 1.0
+                } else {
+                    container.borderWidth = 0.5
+                    container.borderColor = colors.restingBorder
+                    container.opacity = 0.94
+                }
+            } else {
+                container.cornerRadius = 0.0
+                container.borderWidth = 0.0
+                container.borderColor = nil
+                container.opacity = 1.0
+            }
+        }
+
+        CATransaction.commit()
     }
 
     public func setMultiUpMode(_ mode: MultiUpMode) {
         multiUpMode = mode
         hoveredSplitSlot = 1
+        activeLoupeSlot = 0
         for i in 0..<4 {
             splitBadges[i].isActiveSlot = (i == 0)
         }
         histogramTopConstraint?.constant = (mode != .single) ? 62 : 28
         exifTopConstraint?.constant = (mode != .single) ? 62 : 28
         needsLayout = true
+        updatePaneBorders(animated: false)
     }
 
     public func setSplitMode(_ enabled: Bool) {
@@ -590,9 +711,28 @@ public final class SlideView: NSView {
         quickHelpView.toggle()
     }
 
+    public func showToast(
+        _ message: String,
+        icon: String? = nil,
+        shortcut: String? = nil,
+        tint: NSColor? = nil,
+        duration: TimeInterval = 1.6
+    ) {
+        topToastView.present(
+            TopToastView.ToastPayload(
+                message: message,
+                icon: icon,
+                shortcutHint: shortcut,
+                tintColor: tint,
+                duration: duration
+            )
+        )
+    }
+
     private func hideOverlaysForHelp() {
         guard !isHelpPresented else { return }
         isHelpPresented = true
+        topToastView.dismiss(animated: false)
         savedHistogramAlpha = histogramHud.alphaValue
         savedExifAlpha = exifHud.alphaValue
         for i in 0..<4 {
@@ -754,6 +894,7 @@ public final class SlideView: NSView {
     public func setZoom(
         _ zoomed: Bool,
         anchorPointInView: CGPoint? = nil,
+        targetPaneIndex: Int? = nil,
         fullResImage: CGImage? = nil,
         originalDimensions: CGSize? = nil,
         rightFullResImage: CGImage? = nil,
@@ -761,6 +902,12 @@ public final class SlideView: NSView {
         multiFullResImages: [CGImage?] = [],
         multiOriginalDimensions: [CGSize] = []
     ) {
+        if let target = targetPaneIndex {
+            activeLoupeSlot = max(0, min(3, target))
+        } else if multiUpMode == .fourUp {
+            activeLoupeSlot = max(0, min(3, hoveredSplitSlot - 1))
+        }
+
         if let dims = originalDimensions {
             paneImageSizes[0] = dims
         }
@@ -796,54 +943,62 @@ public final class SlideView: NSView {
             let totalW = bounds.width
             let totalH = bounds.height
 
-            let clickedPaneIndex: Int
-            let clickedPaneFrame: CGRect
-            let paneW: CGFloat
-            let paneH: CGFloat
-
             switch multiUpMode {
             case .single:
-                clickedPaneIndex = 0
-                clickedPaneFrame = bounds
-                paneW = bounds.width
-                paneH = bounds.height
+                let nativeW = (paneImageSizes[0].width > 0 ? paneImageSizes[0].width : totalW * scale) / scale
+                let nativeH = (paneImageSizes[0].height > 0 ? paneImageSizes[0].height : totalH * scale) / scale
+                let normPt = imageNormalizedPoint(fromPaneLocalPoint: mousePt, paneSize: bounds.size, imageSize: paneImageSizes[0])
+                zoomPanOffsets[0] = CGPoint(
+                    x: (0.5 - normPt.x) * nativeW,
+                    y: (0.5 - normPt.y) * nativeH
+                )
+
             case .twoUp:
-                let halfWidth = floor((totalW - 2) / 2)
-                clickedPaneIndex = (mousePt.x > halfWidth) ? 1 : 0
-                clickedPaneFrame = (clickedPaneIndex == 1)
-                    ? CGRect(x: totalW - halfWidth, y: 0, width: halfWidth, height: totalH)
-                    : CGRect(x: 0, y: 0, width: halfWidth, height: totalH)
-                paneW = halfWidth
-                paneH = totalH
-            case .fourUp:
-                let halfWidth = floor((totalW - 2) / 2)
-                let halfHeight = floor((totalH - 2) / 2)
-                let isTop = mousePt.y >= (totalH / 2)
-                let isRight = mousePt.x >= (totalW / 2)
-                if isTop && !isRight { clickedPaneIndex = 0 }
-                else if isTop && isRight { clickedPaneIndex = 1 }
-                else if !isTop && !isRight { clickedPaneIndex = 2 }
-                else { clickedPaneIndex = 3 }
+                let pad: CGFloat = 6
+                let gutter: CGFloat = 6
+                let paneW = floor((totalW - 2 * pad - gutter) / 2)
+                let paneH = totalH - 2 * pad
+                let clickedPaneIndex = (mousePt.x > (totalW / 2)) ? 1 : 0
+                let clickedPaneFrame = (clickedPaneIndex == 1)
+                    ? CGRect(x: pad + paneW + gutter, y: pad, width: paneW, height: paneH)
+                    : CGRect(x: pad, y: pad, width: paneW, height: paneH)
 
-                switch clickedPaneIndex {
-                case 0: clickedPaneFrame = CGRect(x: 0, y: totalH - halfHeight, width: halfWidth, height: halfHeight)
-                case 1: clickedPaneFrame = CGRect(x: totalW - halfWidth, y: totalH - halfHeight, width: halfWidth, height: halfHeight)
-                case 2: clickedPaneFrame = CGRect(x: 0, y: 0, width: halfWidth, height: halfHeight)
-                default: clickedPaneFrame = CGRect(x: totalW - halfWidth, y: 0, width: halfWidth, height: halfHeight)
+                let paneLocalPt = CGPoint(x: mousePt.x - clickedPaneFrame.minX, y: mousePt.y - clickedPaneFrame.minY)
+                let clickedImgSize = paneImageSizes[clickedPaneIndex].width > 0 ? paneImageSizes[clickedPaneIndex] : paneImageSizes[0]
+                let normPt = imageNormalizedPoint(fromPaneLocalPoint: paneLocalPt, paneSize: clickedPaneFrame.size, imageSize: clickedImgSize)
+
+                for i in 0..<2 {
+                    let imgSize = paneImageSizes[i].width > 0 ? paneImageSizes[i] : clickedImgSize
+                    let nativeW = (imgSize.width > 0 ? imgSize.width : paneW * scale) / scale
+                    let nativeH = (imgSize.height > 0 ? imgSize.height : paneH * scale) / scale
+                    zoomPanOffsets[i] = CGPoint(
+                        x: (0.5 - normPt.x) * nativeW,
+                        y: (0.5 - normPt.y) * nativeH
+                    )
                 }
-                paneW = halfWidth
-                paneH = halfHeight
-            }
 
-            let paneLocalPt = CGPoint(x: mousePt.x - clickedPaneFrame.minX, y: mousePt.y - clickedPaneFrame.minY)
-            let clickedImgSize = paneImageSizes[clickedPaneIndex].width > 0 ? paneImageSizes[clickedPaneIndex] : paneImageSizes[0]
-            let normPt = imageNormalizedPoint(fromPaneLocalPoint: paneLocalPt, paneSize: clickedPaneFrame.size, imageSize: clickedImgSize)
+            case .fourUp:
+                // Option B: Hovered quadrant pops to 100% full screen
+                let pad: CGFloat = 6
+                let gutter: CGFloat = 6
+                let paneW = floor((totalW - 2 * pad - gutter) / 2)
+                let paneH = floor((totalH - 2 * pad - gutter) / 2)
+                let quadFrames: [CGRect] = [
+                    CGRect(x: pad, y: pad + paneH + gutter, width: paneW, height: paneH),
+                    CGRect(x: pad + paneW + gutter, y: pad + paneH + gutter, width: paneW, height: paneH),
+                    CGRect(x: pad, y: pad, width: paneW, height: paneH),
+                    CGRect(x: pad + paneW + gutter, y: pad, width: paneW, height: paneH)
+                ]
+                let s = activeLoupeSlot
+                let qFrame = quadFrames[s]
+                let paneLocalPt = CGPoint(x: mousePt.x - qFrame.minX, y: mousePt.y - qFrame.minY)
+                let imgSize = paneImageSizes[s].width > 0 ? paneImageSizes[s] : paneImageSizes[0]
+                let normPt = imageNormalizedPoint(fromPaneLocalPoint: paneLocalPt, paneSize: qFrame.size, imageSize: imgSize)
 
-            for i in 0..<4 {
-                let imgSize = paneImageSizes[i].width > 0 ? paneImageSizes[i] : clickedImgSize
-                let nativeW = (imgSize.width > 0 ? imgSize.width : paneW * scale) / scale
-                let nativeH = (imgSize.height > 0 ? imgSize.height : paneH * scale) / scale
-                zoomPanOffsets[i] = CGPoint(
+                let nativeW = (imgSize.width > 0 ? imgSize.width : totalW * scale) / scale
+                let nativeH = (imgSize.height > 0 ? imgSize.height : totalH * scale) / scale
+
+                zoomPanOffsets[s] = CGPoint(
                     x: (0.5 - normPt.x) * nativeW,
                     y: (0.5 - normPt.y) * nativeH
                 )
@@ -860,6 +1015,7 @@ public final class SlideView: NSView {
     /// Zooms into 100% 1:1 pixel peeping centered precisely on a normalized image coordinate (e.g. detected subject eye)
     public func zoomToNormalizedPoint(
         _ normPoint: CGPoint,
+        targetPaneIndex: Int? = nil,
         rightNormPoint: CGPoint? = nil,
         fullResImage: CGImage? = nil,
         originalDimensions: CGSize? = nil,
@@ -867,11 +1023,14 @@ public final class SlideView: NSView {
         rightOriginalDimensions: CGSize? = nil,
         label: String? = nil
     ) {
+        let targetSlot = targetPaneIndex ?? (multiUpMode == .fourUp ? max(0, min(3, hoveredSplitSlot - 1)) : 0)
+        activeLoupeSlot = targetSlot
+
         if let dims = originalDimensions {
-            paneImageSizes[0] = dims
+            paneImageSizes[targetSlot] = dims
         }
         if let fullImg = fullResImage {
-            paneImageLayers[0].contents = fullImg
+            paneImageLayers[targetSlot].contents = fullImg
         }
         if let rDims = rightOriginalDimensions {
             paneImageSizes[1] = rDims
@@ -894,26 +1053,34 @@ public final class SlideView: NSView {
                 x: (0.5 - normPoint.x) * nativeW,
                 y: (0.5 - normPoint.y) * nativeH
             )
-        } else {
+        } else if multiUpMode == .twoUp {
             let halfWidth = floor((totalW - 2) / 2)
-            let halfHeight = (multiUpMode == .fourUp) ? floor((totalH - 2) / 2) : totalH
-
-            for i in 0..<4 {
+            for i in 0..<2 {
                 let pt = (i == 1 && rightNormPoint != nil) ? rightNormPoint! : normPoint
                 let imgSize = paneImageSizes[i].width > 0 ? paneImageSizes[i] : paneImageSizes[0]
                 let nativeW = imgSize.width > 0 ? (imgSize.width / scale) : halfWidth
-                let nativeH = imgSize.height > 0 ? (imgSize.height / scale) : halfHeight
+                let nativeH = imgSize.height > 0 ? (imgSize.height / scale) : totalH
                 zoomPanOffsets[i] = CGPoint(
                     x: (0.5 - pt.x) * nativeW,
                     y: (0.5 - pt.y) * nativeH
                 )
             }
+        } else {
+            // fourUp Option B: Solo full-screen loupe for targetSlot
+            let s = activeLoupeSlot
+            let imgSize = paneImageSizes[s].width > 0 ? paneImageSizes[s] : paneImageSizes[0]
+            let nativeW = imgSize.width > 0 ? (imgSize.width / scale) : totalW
+            let nativeH = imgSize.height > 0 ? (imgSize.height / scale) : totalH
+            zoomPanOffsets[s] = CGPoint(
+                x: (0.5 - normPoint.x) * nativeW,
+                y: (0.5 - normPoint.y) * nativeH
+            )
         }
 
         updateLayerLayout(animated: true)
 
         if let msg = label {
-            hudView.showMessage(msg)
+            showToast(msg, icon: "👁️", shortcut: "⇧Z")
         }
     }
 
@@ -939,33 +1106,36 @@ public final class SlideView: NSView {
 
         let mousePt = convert(event.locationInWindow, from: nil)
 
-        // Focus slot under cursor
-        let clickedSlot: Int
-        switch multiUpMode {
-        case .single:
-            clickedSlot = 1
-        case .twoUp:
-            let halfWidth = bounds.width / 2
-            clickedSlot = (mousePt.x > halfWidth) ? 2 : 1
-        case .fourUp:
-            let isTop = mousePt.y >= (bounds.height / 2)
-            let isRight = mousePt.x >= (bounds.width / 2)
-            if isTop && !isRight { clickedSlot = 1 }
-            else if isTop && isRight { clickedSlot = 2 }
-            else if !isTop && !isRight { clickedSlot = 3 }
-            else { clickedSlot = 4 }
-        }
-
-        if clickedSlot != hoveredSplitSlot {
-            hoveredSplitSlot = clickedSlot
-            for i in 0..<4 {
-                splitBadges[i].isActiveSlot = (clickedSlot == i + 1)
-            }
-            delegate?.slideViewHoverPaneChanged(to: clickedSlot)
-        }
-
+        // Focus slot under cursor if not already zoomed
         if !isZoomed {
-            // Click to zoom in
+            let clickedSlot: Int
+            switch multiUpMode {
+            case .single:
+                clickedSlot = 1
+            case .twoUp:
+                let halfWidth = bounds.width / 2
+                clickedSlot = (mousePt.x > halfWidth) ? 2 : 1
+            case .fourUp:
+                let isTop = mousePt.y >= (bounds.height / 2)
+                let isRight = mousePt.x >= (bounds.width / 2)
+                if isTop && !isRight { clickedSlot = 1 }
+                else if isTop && isRight { clickedSlot = 2 }
+                else if !isTop && !isRight { clickedSlot = 3 }
+                else { clickedSlot = 4 }
+            }
+
+            if clickedSlot != hoveredSplitSlot {
+                hoveredSplitSlot = clickedSlot
+                for i in 0..<4 {
+                    splitBadges[i].isActiveSlot = (clickedSlot == i + 1)
+                }
+                if multiUpMode != .single {
+                    NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+                }
+                updatePaneBorders(animated: true)
+                delegate?.slideViewHoverPaneChanged(to: clickedSlot)
+            }
+            activeLoupeSlot = clickedSlot - 1
             delegate?.slideViewRequestZoomToggle(mouseLocation: mousePt)
         } else {
             // Start panning
@@ -983,11 +1153,19 @@ public final class SlideView: NSView {
         let deltaX = currentMouse.x - dragStartMouse.x
         let deltaY = currentMouse.y - dragStartMouse.y
 
-        for i in 0..<4 {
-            zoomPanOffsets[i] = CGPoint(
-                x: dragStartOffsets[i].x + deltaX,
-                y: dragStartOffsets[i].y + deltaY
+        if multiUpMode == .fourUp {
+            let s = activeLoupeSlot
+            zoomPanOffsets[s] = CGPoint(
+                x: dragStartOffsets[s].x + deltaX,
+                y: dragStartOffsets[s].y + deltaY
             )
+        } else {
+            for i in 0..<4 {
+                zoomPanOffsets[i] = CGPoint(
+                    x: dragStartOffsets[i].x + deltaX,
+                    y: dragStartOffsets[i].y + deltaY
+                )
+            }
         }
 
         updateLayerLayout(animated: false)
@@ -996,6 +1174,12 @@ public final class SlideView: NSView {
     public override func mouseUp(with event: NSEvent) {
         if isDragging {
             isDragging = false
+            let currentMouse = convert(event.locationInWindow, from: nil)
+            let dist = hypot(currentMouse.x - dragStartMouse.x, currentMouse.y - dragStartMouse.y)
+            if dist < 4.0 {
+                // Click while zoomed without drag toggles zoom back off!
+                delegate?.slideViewRequestZoomToggle(mouseLocation: currentMouse)
+            }
         }
     }
 
@@ -1006,9 +1190,15 @@ public final class SlideView: NSView {
         }
 
         // Two-finger trackpad panning when zoomed in
-        for i in 0..<4 {
-            zoomPanOffsets[i].x += event.scrollingDeltaX
-            zoomPanOffsets[i].y -= event.scrollingDeltaY
+        if multiUpMode == .fourUp {
+            let s = activeLoupeSlot
+            zoomPanOffsets[s].x += event.scrollingDeltaX
+            zoomPanOffsets[s].y -= event.scrollingDeltaY
+        } else {
+            for i in 0..<4 {
+                zoomPanOffsets[i].x += event.scrollingDeltaX
+                zoomPanOffsets[i].y -= event.scrollingDeltaY
+            }
         }
         updateLayerLayout(animated: false)
     }
@@ -1027,8 +1217,18 @@ public final class SlideView: NSView {
         let isShift = event.modifierFlags.contains(.shift)
         let isCmd = event.modifierFlags.contains(.command)
 
-        // Esc (KeyCode 53) or 'Q' (KeyCode 12): Unequivocally quit Glance to reveal Finder
-        if event.keyCode == 53 || lower == "q" || event.keyCode == 12 {
+        // Esc (KeyCode 53): If zoomed, exit zoom to grid/fit; otherwise quit Glance
+        if event.keyCode == 53 {
+            if isZoomed {
+                delegate?.slideViewRequestZoomToggle(mouseLocation: .zero)
+                return
+            }
+            delegate?.slideViewClose()
+            return
+        }
+
+        // 'Q' (KeyCode 12): Unequivocally quit Glance to reveal Finder
+        if lower == "q" || event.keyCode == 12 {
             delegate?.slideViewClose()
             return
         }
@@ -1066,16 +1266,32 @@ public final class SlideView: NSView {
             quickHelpView.dismiss()
         }
 
+        // Scene Leap Navigation: ']' or Cmd+Right/Down or Opt+Right/Down
+        if chars == "]" || event.keyCode == 30 || (isCmd && (event.keyCode == 124 || event.keyCode == 125)) || (event.modifierFlags.contains(.option) && (event.keyCode == 124 || event.keyCode == 125)) {
+            if isZoomed { setZoom(false) }
+            delegate?.slideViewStopSlideshow()
+            delegate?.slideViewRequestNextScene()
+            return
+        }
+
+        // Scene Leap Navigation: '[' or Cmd+Left/Up or Opt+Left/Up
+        if chars == "[" || event.keyCode == 33 || (isCmd && (event.keyCode == 123 || event.keyCode == 126)) || (event.modifierFlags.contains(.option) && (event.keyCode == 123 || event.keyCode == 126)) {
+            if isZoomed { setZoom(false) }
+            delegate?.slideViewStopSlideshow()
+            delegate?.slideViewRequestPreviousScene()
+            return
+        }
+
         // --- Layout-Independent Primary Hotkeys ---
-        // Rotate Right 90°: 'R' or ']'
-        if lower == "r" || chars == "]" || event.keyCode == 30 || event.keyCode == 15 {
+        // Rotate Right 90°: 'R' (KeyCode 15)
+        if lower == "r" || event.keyCode == 15 {
             delegate?.slideViewStopSlideshow()
             delegate?.slideViewRotate(direction: .clockwise)
             return
         }
 
-        // Rotate Left 90°: 'L' or '['
-        if lower == "l" || chars == "[" || event.keyCode == 33 || event.keyCode == 37 {
+        // Rotate Left 90°: 'L' (KeyCode 37)
+        if lower == "l" || event.keyCode == 37 {
             delegate?.slideViewStopSlideshow()
             delegate?.slideViewRotate(direction: .counterClockwise)
             return
@@ -1117,15 +1333,23 @@ public final class SlideView: NSView {
         // 100% Zoom & Auto Face/Eye Jump: 'Z' (KeyCode 6)
         if lower == "z" || event.keyCode == 6 {
             delegate?.slideViewStopSlideshow()
+            if event.isARepeat { return }
+
+            zKeyDownTimestamp = ProcessInfo.processInfo.systemUptime
+            wasZoomedOnZKeyDown = isZoomed
+            isZHeld = true
+
+            let mouseInWindow = window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: bounds.midX, y: bounds.midY)
+            let localPt = convert(mouseInWindow, from: nil)
+            lastZMouseLocation = localPt
+
             if isShift {
                 delegate?.slideViewJumpToFaceEye()
             } else {
-                let now = ProcessInfo.processInfo.systemUptime
+                let now = zKeyDownTimestamp
                 if now - lastZPressTime < 0.35 {
                     delegate?.slideViewJumpToFaceEye()
-                } else {
-                    let mouseInWindow = window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: bounds.midX, y: bounds.midY)
-                    let localPt = convert(mouseInWindow, from: nil)
+                } else if !isZoomed {
                     delegate?.slideViewRequestZoomToggle(mouseLocation: localPt)
                 }
                 lastZPressTime = now
@@ -1209,6 +1433,13 @@ public final class SlideView: NSView {
                 delegate?.slideViewSetPick(.unflagged)
                 return
             }
+        }
+
+        // Burst Hero Leap: 'B' (KeyCode 11)
+        if !isCmd && (lower == "b" || event.keyCode == 11) {
+            delegate?.slideViewStopSlideshow()
+            delegate?.slideViewRequestJumpToHero()
+            return
         }
 
         // Auto-advance toggle: 'C'
@@ -1295,11 +1526,58 @@ public final class SlideView: NSView {
 
     // MARK: - Non-Blocking Cursor Auto-Hide & Hover Tracking
 
+    public override func keyUp(with event: NSEvent) {
+        let chars = event.charactersIgnoringModifiers ?? ""
+        let lower = chars.lowercased()
+
+        if lower == "z" || event.keyCode == 6 {
+            let holdDuration = ProcessInfo.processInfo.systemUptime - zKeyDownTimestamp
+            isZHeld = false
+
+            if wasZoomedOnZKeyDown {
+                if isZoomed {
+                    delegate?.slideViewRequestZoomToggle(mouseLocation: lastZMouseLocation)
+                }
+            } else if holdDuration > 0.25 {
+                if isZoomed {
+                    delegate?.slideViewRequestZoomToggle(mouseLocation: lastZMouseLocation)
+                }
+            }
+            return
+        }
+
+        super.keyUp(with: event)
+    }
+
     public override func mouseMoved(with event: NSEvent) {
         hudView.pulse()
         resetCursorTimer()
 
         let mousePt = convert(event.locationInWindow, from: nil)
+
+        // Hold-Z real-time mouse panning: if user holds Z and glides mouse without clicking
+        if isZHeld && isZoomed {
+            let deltaX = mousePt.x - lastZMouseLocation.x
+            let deltaY = mousePt.y - lastZMouseLocation.y
+            lastZMouseLocation = mousePt
+
+            if multiUpMode == .fourUp {
+                let s = activeLoupeSlot
+                zoomPanOffsets[s].x += deltaX
+                zoomPanOffsets[s].y += deltaY
+            } else {
+                for i in 0..<4 {
+                    zoomPanOffsets[i].x += deltaX
+                    zoomPanOffsets[i].y += deltaY
+                }
+            }
+            updateLayerLayout(animated: false)
+            return
+        }
+        lastZMouseLocation = mousePt
+
+        guard !isZoomed else { return }
+
         let slot: Int
         switch multiUpMode {
         case .single:
@@ -1321,6 +1599,10 @@ public final class SlideView: NSView {
             for i in 0..<4 {
                 splitBadges[i].isActiveSlot = (slot == i + 1)
             }
+            if multiUpMode != .single {
+                NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+            }
+            updatePaneBorders(animated: true)
             delegate?.slideViewHoverPaneChanged(to: slot)
         }
     }

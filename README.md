@@ -47,12 +47,15 @@
 | Feature | Highlight |
 | :--- | :--- |
 | 🚀 **Zero-Latency Keyboard Navigation** | Speculative triple-buffering and asynchronous background lookahead decode make folder traversal instantaneous on 45MP+ RAW and high-resolution JPEG files. |
-| 🔍 **100% 1:1 Pixel Peep (`Z` / Click)** | Instant zoom to actual device sensor pixels centered right under your mouse cursor, with silky-smooth trackpad and mouse panning. |
-| 👁️ **Auto Face & Eye Jump (`Shift + Z` / `2×Z`)** | Offline Apple Vision & Neural Engine detects faces and eyes, automatically centering 1:1 zoom directly on the subject's eye without manual panning across 60MP sensors. |
-| 🎛️ **Tactile Trackpad Haptics** | Subtle physical clicks via `NSHapticFeedbackManager` whenever ratings (`1`–`5`), picks (`P`), rejects (`X`), or auto-advance are triggered. |
+| 🔍 **Spring-Loaded 100% Loupe (`Hold Z` / Click)** | Hold `Z` to instantly pop into 1:1 sensor loupe and glide mouse/trackpad to pan without clicking; release `Z` to snap back to grid. Tap `Z` toggles. In 4-UP, hovered frame expands to solo edge-to-edge 100% loupe. |
+| 👁️ **Auto Face & Eye Jump (`Shift + Z` / `2×Z`)** | Offline Apple Vision & Neural Engine detects faces and pupils, centering 1:1 zoom directly on the subject's eye strictly for the active hovered frame without manual panning across 60MP sensors. |
+| ⚡ **Scene Leap Navigation (`]` / `[` or `⌘➔` / `⌘⬅`)** | Skip across bursts directly to scene boundaries using local Apple Neural Engine visual embeddings and timestamp deltas. |
+| 👑 **Hero of the Burst (`B` Key & 👑 Badges)** | Local Vision AI quality scoring automatically crowns the best shot in every burst cluster. Press `B` to leap directly to the 👑 Hero frame. |
+| ⊞ **Modal Multi-Up Matrix (`S` / `Tab`)** | Cycle 1-UP ➔ 2-UP ➔ 4-UP Floating Studio Tiles with continuous 10px squircles, 6px gutters, deep charcoal canvas, semantic glowing rims (Teal, Amber, Purple, Emerald), and quadrant haptics. |
+| 🫧 **Top-Down Dynamic Toast System** | Decouples transient event feedback (Leaps, Undos, Toggles) from the bottom HUD into an Apple-style floating top banner, keeping bottom telemetry rock-solid with zero jitter. |
+| 🎛️ **Tactile Trackpad Haptics** | Subtle physical clicks via `NSHapticFeedbackManager` whenever ratings (`1`–`5`), picks (`P`), rejects (`X`), quadrant hovers, or burst leaps occur. |
 | ↩️ **Multi-Level Undo & Redo (`Cmd + Z` / `Cmd + Shift + Z`)** | 100-step in-memory undo/redo stack for star ratings, color tags, picks, lossless rotations, and physical trash recovery. |
 | 🎨 **External App Handoff (`Cmd + Enter` / `Cmd + O`)** | One-key handoff to immediately launch the active RAW/photo in your default editor (Lightroom, Photoshop, Capture One, Preview). |
-| 👥 **2-Up Burst Compare (`S` / `Tab`)** | Side-by-side split comparison to catch micro-blur, closed eyes, and critical focus differences between consecutive frames, complete with synchronous 1:1 panning. |
 | 🏷️ **Adobe XMP Sidecar Synchronization** | Real-time, non-destructive rating (`★`), color tagging, and flag management fully compatible with **Adobe Lightroom Classic, Capture One, Darktable, and Photo Mechanic**. |
 | 🗂️ **RAW + JPEG Sibling Stacking** | Automatically pairs camera RAWs (`.ARW`, `.CR2`, `.CR3`, `.NEF`, `.RAF`, `.DNG`, etc.) with companion JPEGs, browsing the fast preview and inspecting master RAW sensor data during zoom. |
 | ⚡ **Sub-5ms Embedded RAW Decoding** | Standalone RAW files extract the camera’s high-resolution embedded preview during folder scrubbing (`kCGImageSourceCreateThumbnailFromImageIfAbsent: false`), deferring full 60MP sensor demosaicing until 1:1 zoom. |
@@ -62,7 +65,7 @@
 | 🎯 **Real-Time Focus Peaking Overlay (`Shift + F`)** | Camera EVF-style neon green (#00FF50) edge highlight powered by Accelerate.vImage directional Sobel spatial gradient convolution to instantly verify critical plane of focus. |
 | 🎞️ **Camera Profiles & Film Simulations (`V`)** | Hardware-accelerated picture controls with brand intelligence: **Fujifilm Film Simulations** (Velvia, Provia, Astia, Classic Chrome, Acros, Classic Neg) on `.RAF` and **Nikon Picture Controls** (Standard, Vivid, Neutral, Landscape, Monochrome) on `.NEF` with Adobe XMP sync. |
 | 📷 **Dedicated Frosted EXIF HUD (`I`)** | Displays lens model, camera body, shutter speed, aperture, ISO, focal length, and capture date in a clean glass overlay. |
-| 🔄 **Lossless EXIF Rotation (`R` / `]` and `L` / `[` )** | Rotates JPEGs, HEICs, and RAW XMP sidecars in 90° increments without re-compressing pixels. |
+| 🔄 **Lossless EXIF Rotation (`R` / `L`)** | `R` rotates 90° CW, `L` rotates 90° CCW for JPEGs, HEICs, and RAW XMP sidecars without re-compressing pixels. |
 | 📦 **One-Key Quick Export (`E`)** | Copies all flagged Picks (or current photo) and companion sidecars to `./Picks` with sound confirmation and Finder reveal. |
 | 📽️ **Hands-Free Slideshow (`Return`)** | Full-screen automated slideshow with live `+` / `-` speed stepping (1s to 30s) and instant pause on any interaction. |
 | 🪶 **Zero Bloat, Zero Electron** | Pure native Swift & AppKit, compiling down to a lightweight standalone binary without web runtimes. |
@@ -88,10 +91,12 @@ Press **`?`** (`Shift + /`) at any time inside Glance to toggle the interactive 
 ### 🔍 Review, Focus & Comparison
 | Key | Action | Description |
 | :---: | :--- | :--- |
-| **`Z`** / **Click** | **100% Pixel Peep 🔍** | Zoom to 1:1 sensor pixels at cursor; drag to pan |
-| **`Shift + Z`** / **`2×Z`** | **Auto Face & Eye Jump 👁️** | Centers 1:1 zoom directly on subject's eye; press again to cycle faces |
+| **`Hold Z`** / **`Z`** | **Spring-Loaded 100% Loupe 🔍** | Hold `Z` to zoom & glide pan; release to snap back. Tap `Z` toggles. In 4-UP, hovered frame expands solo edge-to-edge |
+| **`Shift + Z`** / **`2×Z`** | **Auto Face & Eye Jump 👁️** | Centers 1:1 zoom directly on subject's eye for hovered frame; press again to cycle faces |
+| **`[` / `]`** / **`⌘Arrows`** | **Scene Leap Navigation ⚡** | Leap across burst sequences straight to scene boundaries |
+| **`B`** | **Burst Hero Leap 👑** | Leap directly to the 👑 Hero / Best-in-Burst keeper frame |
+| **`S`** / **`Tab`** | **Multi-Up Compare Matrix ⊞** | Cycles 1-UP ➔ 2-UP ➔ 4-UP Floating Studio Tiles with quadrant haptics & glowing rims |
 | **`Shift + F`** | **Focus Peaking Overlay 🎯** | Real-time camera EVF neon green highlight on in-focus contrast edges |
-| **`S`** / **`Tab`** | **2-Up Compare 👥** | Side-by-side comparison with synchronous 1:1 zoom & pan |
 | **`\`** | **Cycle Filters 🔀** | Cycles: `All` ➔ `Hide Rejects` ➔ `Picks Only` ➔ `Rejects Only` ➔ `Unrated` ➔ `3+ Stars` ➔ `5 Stars` |
 
 ### 📊 Exposure & Information Overlays
@@ -105,8 +110,8 @@ Press **`?`** (`Shift + /`) at any time inside Glance to toggle the interactive 
 ### 🛠️ Workflow & Output
 | Key | Action | Description |
 | :---: | :--- | :--- |
-| **`R`** or **`]`** | **Rotate CW ↷** | Lossless 90° clockwise rotation |
-| **`L`** or **`[`** | **Rotate CCW ↶** | Lossless 90° counter-clockwise rotation |
+| **`R`** | **Rotate CW ↷** | Lossless 90° clockwise rotation |
+| **`L`** | **Rotate CCW ↶** | Lossless 90° counter-clockwise rotation |
 | **`E`** | **Quick Export 📦** | Copies all Picks (or current photo) to `./Picks` folder |
 | **`Return`** | **Slideshow 📽️** | Start/stop automated hands-free slideshow |
 | **`+`** / **`-`** | **Slideshow Speed ⏱️** | Increase / decrease slideshow interval at set steps (1s – 30s) |
@@ -153,7 +158,7 @@ brew upgrade --cask glance
 
 ### Option 2: Direct Download 📦
 Download the latest pre-compiled application bundle from the [**Releases Page**](https://github.com/mortalezz/glance/releases/latest):
-1. Download **`Glance-v1.2.6-macOS.zip`**.
+1. Download **`Glance-v1.2.7-macOS.zip`**.
 2. Unzip and drag `Glance.app` into your `/Applications` folder.
 3. Right-click any image in Finder ➔ *Open With* ➔ *Glance* (or set Glance as your default image viewer for instant full-screen glory).
 

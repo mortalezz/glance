@@ -12,6 +12,7 @@ public struct SplitPaneInfo: Sendable {
     public let isPairScouting: Bool
     public let aestheticScore: AestheticScoreResult?
     public let burstDescription: String?
+    public let isHero: Bool
 
     public init(
         slot: Int,
@@ -23,7 +24,8 @@ public struct SplitPaneInfo: Sendable {
         isChallenger: Bool = false,
         isPairScouting: Bool = false,
         aestheticScore: AestheticScoreResult? = nil,
-        burstDescription: String? = nil
+        burstDescription: String? = nil,
+        isHero: Bool = false
     ) {
         self.slot = slot
         self.filename = filename
@@ -35,6 +37,7 @@ public struct SplitPaneInfo: Sendable {
         self.isPairScouting = isPairScouting
         self.aestheticScore = aestheticScore
         self.burstDescription = burstDescription
+        self.isHero = isHero
     }
 }
 
@@ -259,22 +262,30 @@ public final class SplitPaneBadgeView: NSView {
     }
 
     public func update(with info: SplitPaneInfo?) {
-        self.currentInfo = info
         guard let info = info else {
+            self.currentInfo = nil
+            self.currentAestheticScore = nil
             isHidden = true
             return
         }
 
+        let isSamePhoto = (self.currentInfo?.filename == info.filename)
+        if let newScore = info.aestheticScore {
+            self.currentAestheticScore = newScore
+        } else if !isSamePhoto {
+            self.currentAestheticScore = nil
+        }
+
+        self.currentInfo = info
         isHidden = false
         keycapLabel.stringValue = "\(info.slot)"
         filenameLabel.stringValue = info.filename
-        self.currentAestheticScore = info.aestheticScore
 
         updateTheme()
     }
 
     /// Dynamically updates the burst / scene pill description
-    public func updateBurstDescription(_ desc: String?) {
+    public func updateBurstDescription(_ desc: String?, isHero: Bool = false) {
         if let current = currentInfo {
             self.currentInfo = SplitPaneInfo(
                 slot: current.slot,
@@ -282,8 +293,12 @@ public final class SplitPaneBadgeView: NSView {
                 pick: current.pick,
                 rating: current.rating,
                 color: current.color,
+                isChampion: current.isChampion,
+                isChallenger: current.isChallenger,
+                isPairScouting: current.isPairScouting,
                 aestheticScore: current.aestheticScore,
-                burstDescription: desc
+                burstDescription: desc,
+                isHero: isHero
             )
         }
         updateTheme()
@@ -311,53 +326,26 @@ public final class SplitPaneBadgeView: NSView {
         let theme = ThemeManager.shared
         let isDark = theme.isDark
 
+        let slotColors = theme.slotSemanticColor(for: slot)
+        let highlightBorder = slotColors.accent
+        let baseColor = isDark
+            ? slotColors.accent.withAlphaComponent(0.85)
+            : slotColors.accent.withAlphaComponent(0.88)
+
         visualEffectView.material = .hudWindow
         visualEffectView.appearance = theme.glassAppearance
         visualEffectView.layer?.borderColor = isActiveSlot
-            ? NSColor.white.withAlphaComponent(isDark ? 0.45 : 0.65).cgColor
+            ? slotColors.glowBorder
             : theme.glassBorderColor
         scrimView.layer?.backgroundColor = theme.scrimColor.cgColor
 
         let shadow = NSShadow()
-        shadow.shadowColor = theme.shadowColor
+        shadow.shadowColor = isActiveSlot ? slotColors.accent.withAlphaComponent(0.35) : theme.shadowColor
         shadow.shadowOffset = NSSize(width: 0, height: -4)
-        shadow.shadowBlurRadius = isActiveSlot ? 18 : 14
+        shadow.shadowBlurRadius = isActiveSlot ? 20 : 14
         self.shadow = shadow
 
         filenameLabel.textColor = theme.primaryTextColor
-
-        // Semantic keycap colors across slots 1..4
-        let baseColor: NSColor
-        let highlightBorder: NSColor
-        switch slot {
-        case 1:
-            // Teal / Cyan
-            baseColor = isDark
-                ? NSColor(srgbRed: 0.15, green: 0.50, blue: 0.70, alpha: 0.85)
-                : NSColor(srgbRed: 0.10, green: 0.55, blue: 0.75, alpha: 0.88)
-            highlightBorder = NSColor(srgbRed: 0.30, green: 0.75, blue: 0.95, alpha: 0.80)
-        case 2:
-            // Amber / Orange
-            baseColor = isDark
-                ? NSColor(srgbRed: 0.85, green: 0.45, blue: 0.15, alpha: 0.85)
-                : NSColor(srgbRed: 0.90, green: 0.50, blue: 0.15, alpha: 0.88)
-            highlightBorder = NSColor(srgbRed: 1.0, green: 0.70, blue: 0.35, alpha: 0.80)
-        case 3:
-            // Purple / Violet
-            baseColor = isDark
-                ? NSColor(srgbRed: 0.55, green: 0.30, blue: 0.85, alpha: 0.85)
-                : NSColor(srgbRed: 0.50, green: 0.25, blue: 0.80, alpha: 0.88)
-            highlightBorder = NSColor(srgbRed: 0.75, green: 0.50, blue: 1.0, alpha: 0.80)
-        case 4:
-            // Emerald / Green
-            baseColor = isDark
-                ? NSColor(srgbRed: 0.18, green: 0.62, blue: 0.38, alpha: 0.85)
-                : NSColor(srgbRed: 0.15, green: 0.58, blue: 0.35, alpha: 0.88)
-            highlightBorder = NSColor(srgbRed: 0.35, green: 0.85, blue: 0.55, alpha: 0.80)
-        default:
-            baseColor = NSColor.systemGray
-            highlightBorder = NSColor.white
-        }
 
         keycapPill.layer?.backgroundColor = baseColor.cgColor
         if isActiveSlot {
@@ -422,13 +410,24 @@ public final class SplitPaneBadgeView: NSView {
         // Burst / Scene Pill
         if let burst = info.burstDescription {
             burstLabel.stringValue = burst
-            burstLabel.textColor = isDark ? NSColor.systemTeal : NSColor(srgbRed: 0.0, green: 0.52, blue: 0.58, alpha: 1.0)
-            burstPill.layer?.backgroundColor = isDark
-                ? NSColor.systemTeal.withAlphaComponent(0.22).cgColor
-                : NSColor.systemTeal.withAlphaComponent(0.12).cgColor
-            burstPill.layer?.borderColor = isDark
-                ? NSColor.systemTeal.withAlphaComponent(0.50).cgColor
-                : NSColor.systemTeal.withAlphaComponent(0.35).cgColor
+            let isHeroShot = info.isHero || burst.contains("👑")
+            if isHeroShot {
+                burstLabel.textColor = isDark ? NSColor(srgbRed: 1.0, green: 0.85, blue: 0.30, alpha: 1.0) : NSColor(srgbRed: 0.72, green: 0.48, blue: 0.05, alpha: 1.0)
+                burstPill.layer?.backgroundColor = isDark
+                    ? NSColor(srgbRed: 0.90, green: 0.68, blue: 0.15, alpha: 0.40).cgColor
+                    : NSColor(srgbRed: 1.0, green: 0.86, blue: 0.35, alpha: 0.50).cgColor
+                burstPill.layer?.borderColor = isDark
+                    ? NSColor(srgbRed: 1.0, green: 0.85, blue: 0.35, alpha: 0.75).cgColor
+                    : NSColor(srgbRed: 0.85, green: 0.62, blue: 0.12, alpha: 0.65).cgColor
+            } else {
+                burstLabel.textColor = isDark ? NSColor.systemTeal : NSColor(srgbRed: 0.0, green: 0.52, blue: 0.58, alpha: 1.0)
+                burstPill.layer?.backgroundColor = isDark
+                    ? NSColor.systemTeal.withAlphaComponent(0.22).cgColor
+                    : NSColor.systemTeal.withAlphaComponent(0.12).cgColor
+                burstPill.layer?.borderColor = isDark
+                    ? NSColor.systemTeal.withAlphaComponent(0.50).cgColor
+                    : NSColor.systemTeal.withAlphaComponent(0.35).cgColor
+            }
             burstPill.isHidden = false
         } else {
             burstPill.isHidden = true

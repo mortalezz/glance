@@ -141,4 +141,46 @@ public final class ThemeManager {
             ? NSColor.white.withAlphaComponent(0.08).cgColor
             : NSColor.black.withAlphaComponent(0.08).cgColor
     }
+
+    // Pro Studio Canvas & Metal Vibrancy Multi-Up
+    public var studioCanvasColor: CGColor {
+        return isDark
+            ? NSColor(deviceRed: 0.05, green: 0.052, blue: 0.06, alpha: 1.0).cgColor // Deep Studio Charcoal #0D0E10
+            : NSColor(deviceRed: 0.88, green: 0.90, blue: 0.92, alpha: 1.0).cgColor // Pro Platinum Slate #E1E6EB
+    }
+
+    public func slotSemanticColor(for slot: Int) -> (accent: NSColor, glowBorder: CGColor, restingBorder: CGColor) {
+        let accent: NSColor
+        switch slot {
+        case 1:
+            // Electric Teal / Cyan
+            accent = isDark
+                ? NSColor(srgbRed: 0.0, green: 0.82, blue: 1.0, alpha: 1.0)
+                : NSColor(srgbRed: 0.0, green: 0.65, blue: 0.88, alpha: 1.0)
+        case 2:
+            // Vivid Amber / Tangerine
+            accent = isDark
+                ? NSColor(srgbRed: 1.0, green: 0.62, blue: 0.04, alpha: 1.0)
+                : NSColor(srgbRed: 0.95, green: 0.50, blue: 0.0, alpha: 1.0)
+        case 3:
+            // Neon Violet / Purple
+            accent = isDark
+                ? NSColor(srgbRed: 0.75, green: 0.35, blue: 0.98, alpha: 1.0)
+                : NSColor(srgbRed: 0.65, green: 0.25, blue: 0.90, alpha: 1.0)
+        case 4:
+            // Emerald / Mint
+            accent = isDark
+                ? NSColor(srgbRed: 0.19, green: 0.82, blue: 0.35, alpha: 1.0)
+                : NSColor(srgbRed: 0.12, green: 0.70, blue: 0.28, alpha: 1.0)
+        default:
+            accent = NSColor.systemBlue
+        }
+
+        let glowBorder = accent.withAlphaComponent(isDark ? 0.85 : 0.90).cgColor
+        let restingBorder = isDark
+            ? NSColor.white.withAlphaComponent(0.14).cgColor
+            : NSColor.black.withAlphaComponent(0.12).cgColor
+
+        return (accent, glowBorder, restingBorder)
+    }
 }

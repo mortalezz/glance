@@ -1,6 +1,59 @@
 import AppKit
 
 /// Model representation of metadata and status displayed within the frosted glass HUD.
+/// Model representation of burst sequence context in HUD (e.g. 📸 Burst [ 3 / 8 ] (Δ 0.2s))
+public struct BurstBreadcrumbInfo: Sendable, Equatable {
+    public let indexInBurst: Int
+    public let totalInBurst: Int
+    public let timeDelta: TimeInterval?
+    public let isHero: Bool
+    public let heroIndex: Int?
+
+    public init(
+        indexInBurst: Int,
+        totalInBurst: Int,
+        timeDelta: TimeInterval? = nil,
+        isHero: Bool = false,
+        heroIndex: Int? = nil
+    ) {
+        self.indexInBurst = indexInBurst
+        self.totalInBurst = totalInBurst
+        self.timeDelta = timeDelta
+        self.isHero = isHero
+        self.heroIndex = heroIndex
+    }
+
+    public var displayText: String {
+        let deltaStr: String?
+        if let dt = timeDelta {
+            if dt < 0.1 {
+                deltaStr = String(format: "Δ %.2fs", dt)
+            } else if dt < 10.0 {
+                deltaStr = String(format: "Δ %.1fs", dt)
+            } else {
+                deltaStr = String(format: "Δ %.0fs", dt)
+            }
+        } else {
+            deltaStr = nil
+        }
+
+        let base: String
+        if let d = deltaStr {
+            base = "📸 Burst [ \(indexInBurst) / \(totalInBurst) ] (\(d))"
+        } else {
+            base = "📸 Burst [ \(indexInBurst) / \(totalInBurst) ]"
+        }
+
+        if isHero {
+            return "\(base) • 👑 HERO"
+        } else if let h = heroIndex, h > 0 {
+            return "\(base) • 👑 #\(h)"
+        } else {
+            return base
+        }
+    }
+}
+
 public struct HudInfo: Sendable {
     public let currentIndex: Int
     public let totalCount: Int
@@ -20,6 +73,7 @@ public struct HudInfo: Sendable {
     public let slideshowInterval: Double
     public let exportProgressText: String?
     public let aestheticScore: AestheticScoreResult?
+    public let burstInfo: BurstBreadcrumbInfo?
 
     public init(
         currentIndex: Int,
@@ -39,7 +93,8 @@ public struct HudInfo: Sendable {
         isSlideshow: Bool = false,
         slideshowInterval: Double = 3.0,
         exportProgressText: String? = nil,
-        aestheticScore: AestheticScoreResult? = nil
+        aestheticScore: AestheticScoreResult? = nil,
+        burstInfo: BurstBreadcrumbInfo? = nil
     ) {
         self.currentIndex = currentIndex
         self.totalCount = totalCount
@@ -59,6 +114,7 @@ public struct HudInfo: Sendable {
         self.slideshowInterval = slideshowInterval
         self.exportProgressText = exportProgressText
         self.aestheticScore = aestheticScore
+        self.burstInfo = burstInfo
     }
 }
 
@@ -175,6 +231,9 @@ public final class GlassHudView: NSView {
 
     private let indexPill = NSView()
     private let indexLabel = NSTextField(labelWithString: "")
+
+    private let burstPill = NSView()
+    private let burstLabel = NSTextField(labelWithString: "")
 
     private let pickBadge = NSView()
     private let pickLabel = NSTextField(labelWithString: "")
@@ -327,6 +386,27 @@ public final class GlassHudView: NSView {
             indexLabel.trailingAnchor.constraint(equalTo: indexPill.trailingAnchor, constant: -7)
         ])
         stackView.addArrangedSubview(indexPill)
+
+        // 1b. Burst Breadcrumb Pill [ 📸 Burst [ 3 / 8 ] (Δ 0.2s) ]
+        burstPill.wantsLayer = true
+        burstPill.layer?.cornerRadius = 6
+        burstPill.layer?.cornerCurve = .continuous
+        burstPill.layer?.borderWidth = 0.5
+        burstPill.translatesAutoresizingMaskIntoConstraints = false
+        burstPill.isHidden = true
+
+        burstLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold)
+        burstLabel.alignment = .center
+        burstLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        burstPill.addSubview(burstLabel)
+        NSLayoutConstraint.activate([
+            burstLabel.topAnchor.constraint(equalTo: burstPill.topAnchor, constant: 2),
+            burstLabel.bottomAnchor.constraint(equalTo: burstPill.bottomAnchor, constant: -2),
+            burstLabel.leadingAnchor.constraint(equalTo: burstPill.leadingAnchor, constant: 6),
+            burstLabel.trailingAnchor.constraint(equalTo: burstPill.trailingAnchor, constant: -6)
+        ])
+        stackView.addArrangedSubview(burstPill)
 
         // 2. Pick / Reject Badge
         pickBadge.wantsLayer = true
@@ -617,16 +697,21 @@ public final class GlassHudView: NSView {
             textShadow.shadowBlurRadius = 2
 
             indexLabel.shadow = textShadow
+            burstLabel.shadow = textShadow
             ratingLabel.shadow = textShadow
             filenameLabel.shadow = textShadow
             metaLabel.shadow = textShadow
+
         } else {
             // Clean crisp text without muddy drop shadows in Light glass
             indexLabel.shadow = nil
+            burstLabel.shadow = nil
             ratingLabel.shadow = nil
             filenameLabel.shadow = nil
             metaLabel.shadow = nil
         }
+
+        applyBurstTheme(isHero: lastInfo?.burstInfo?.isHero ?? false)
 
         filenameLabel.textColor = theme.primaryTextColor
         metaLabel.textColor = theme.secondaryTextColor
@@ -638,6 +723,31 @@ public final class GlassHudView: NSView {
 
         if let score = lastInfo?.aestheticScore {
             applyAestheticScore(score)
+        }
+    }
+
+    private func applyBurstTheme(isHero: Bool) {
+        let isDark = ThemeManager.shared.isDark
+        if isHero {
+            if isDark {
+                burstLabel.textColor = NSColor(srgbRed: 1.0, green: 0.84, blue: 0.25, alpha: 1.0)
+                burstPill.layer?.backgroundColor = NSColor(srgbRed: 0.85, green: 0.65, blue: 0.12, alpha: 0.35).cgColor
+                burstPill.layer?.borderColor = NSColor(srgbRed: 1.0, green: 0.84, blue: 0.30, alpha: 0.70).cgColor
+            } else {
+                burstLabel.textColor = NSColor(srgbRed: 0.75, green: 0.50, blue: 0.05, alpha: 1.0)
+                burstPill.layer?.backgroundColor = NSColor(srgbRed: 1.0, green: 0.88, blue: 0.40, alpha: 0.45).cgColor
+                burstPill.layer?.borderColor = NSColor(srgbRed: 0.85, green: 0.60, blue: 0.10, alpha: 0.60).cgColor
+            }
+        } else {
+            if isDark {
+                burstLabel.textColor = NSColor.systemCyan
+                burstPill.layer?.backgroundColor = NSColor.systemCyan.withAlphaComponent(0.20).cgColor
+                burstPill.layer?.borderColor = NSColor.systemCyan.withAlphaComponent(0.55).cgColor
+            } else {
+                burstLabel.textColor = NSColor(red: 0.0, green: 0.48, blue: 0.65, alpha: 1.0)
+                burstPill.layer?.backgroundColor = NSColor.systemCyan.withAlphaComponent(0.15).cgColor
+                burstPill.layer?.borderColor = NSColor.systemCyan.withAlphaComponent(0.40).cgColor
+            }
         }
     }
 
@@ -695,11 +805,78 @@ public final class GlassHudView: NSView {
 
     /// Updates the HUD contents with culling indicators.
     public func update(with info: HudInfo) {
-        self.lastInfo = info
+        var mergedInfo = info
+        if info.aestheticScore == nil, lastInfo?.filename == info.filename, let existingScore = lastInfo?.aestheticScore {
+            mergedInfo = HudInfo(
+                currentIndex: info.currentIndex,
+                totalCount: info.totalCount,
+                filename: info.filename,
+                dimensions: info.dimensions,
+                fileSize: info.fileSize,
+                isRaw: info.isRaw,
+                isStacked: info.isStacked,
+                isDownscaled: info.isDownscaled,
+                culling: info.culling,
+                autoAdvance: info.autoAdvance,
+                filterTitle: info.filterTitle,
+                isZoomed: info.isZoomed,
+                errorMessage: info.errorMessage,
+                exif: info.exif,
+                isSlideshow: info.isSlideshow,
+                slideshowInterval: info.slideshowInterval,
+                exportProgressText: info.exportProgressText,
+                aestheticScore: existingScore,
+                burstInfo: info.burstInfo
+            )
+        }
+        self.lastInfo = mergedInfo
         messageTimer?.invalidate()
         messageTimer = nil
-        renderInfo(info)
+        renderInfo(mergedInfo)
         pulse()
+    }
+
+    /// Updates only the burst breadcrumb indicator with a smooth 0.12s transition
+    public func updateBurstBreadcrumb(_ burst: BurstBreadcrumbInfo?) {
+        if let current = lastInfo {
+            let updated = HudInfo(
+                currentIndex: current.currentIndex,
+                totalCount: current.totalCount,
+                filename: current.filename,
+                dimensions: current.dimensions,
+                fileSize: current.fileSize,
+                isRaw: current.isRaw,
+                isStacked: current.isStacked,
+                isDownscaled: current.isDownscaled,
+                culling: current.culling,
+                autoAdvance: current.autoAdvance,
+                filterTitle: current.filterTitle,
+                isZoomed: current.isZoomed,
+                errorMessage: current.errorMessage,
+                exif: current.exif,
+                isSlideshow: current.isSlideshow,
+                slideshowInterval: current.slideshowInterval,
+                exportProgressText: current.exportProgressText,
+                aestheticScore: current.aestheticScore,
+                burstInfo: burst
+            )
+            self.lastInfo = updated
+        }
+        if let burst = burst, burst.totalInBurst > 1 {
+            burstLabel.stringValue = burst.displayText
+            applyBurstTheme(isHero: burst.isHero)
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.12
+                context.allowsImplicitAnimation = true
+                burstPill.isHidden = false
+            }
+        } else {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.12
+                context.allowsImplicitAnimation = true
+                burstPill.isHidden = true
+            }
+        }
     }
 
     /// Restores the last active photo metadata (clearing any transient status messages)
@@ -716,6 +893,14 @@ public final class GlassHudView: NSView {
             indexPill.isHidden = false
         } else {
             indexPill.isHidden = true
+        }
+
+        if let burst = info.burstInfo, burst.totalInBurst > 1 {
+            burstLabel.stringValue = burst.displayText
+            applyBurstTheme(isHero: burst.isHero)
+            burstPill.isHidden = false
+        } else {
+            burstPill.isHidden = true
         }
 
         NSAnimationContext.runAnimationGroup { context in
@@ -894,7 +1079,8 @@ public final class GlassHudView: NSView {
                 isSlideshow: current.isSlideshow,
                 slideshowInterval: current.slideshowInterval,
                 exportProgressText: current.exportProgressText,
-                aestheticScore: score
+                aestheticScore: score,
+                burstInfo: current.burstInfo
             )
             self.lastInfo = updated
         }
@@ -925,7 +1111,8 @@ public final class GlassHudView: NSView {
                 isSlideshow: isActive,
                 slideshowInterval: interval,
                 exportProgressText: current.exportProgressText,
-                aestheticScore: current.aestheticScore
+                aestheticScore: current.aestheticScore,
+                burstInfo: current.burstInfo
             )
             self.lastInfo = updated
         }
@@ -954,7 +1141,8 @@ public final class GlassHudView: NSView {
                 isSlideshow: current.isSlideshow,
                 slideshowInterval: current.slideshowInterval,
                 exportProgressText: current.exportProgressText,
-                aestheticScore: current.aestheticScore
+                aestheticScore: current.aestheticScore,
+                burstInfo: current.burstInfo
             )
             self.lastInfo = updated
         }
@@ -966,27 +1154,6 @@ public final class GlassHudView: NSView {
         messageTimer?.invalidate()
         fadeTimer?.invalidate()
 
-        // Keep index pill visible to stabilize HUD layout anchor
-        if let info = lastInfo, info.totalCount > 0 {
-            indexLabel.stringValue = "\(info.currentIndex + 1) / \(info.totalCount)"
-            indexPill.isHidden = false
-        } else {
-            indexPill.isHidden = true
-        }
-
-        pickBadge.isHidden = true
-        colorBadge.isHidden = true
-        ratingLabel.isHidden = true
-        rawBadge.isHidden = true
-        aestheticPill.isHidden = true
-        autoPill.isHidden = true
-        filterPill.isHidden = true
-        profilePill.isHidden = true
-        zoomPill.isHidden = true
-        slideshowPill.isHidden = true
-        exportPill.isHidden = true
-
-        metaLabel.stringValue = ""
         filenameLabel.stringValue = message
         filenameLabel.textColor = ThemeManager.shared.primaryTextColor
 

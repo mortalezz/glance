@@ -41,10 +41,16 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     // Auto Face & Eye Focus Jump
     private var detectedFacesForCurrentSlide: [DetectedFace] = []
     private var detectedFacesForChallengerSlide: [DetectedFace] = []
+    private var detectedFacesByRawIndex: [Int: [DetectedFace]] = [:]
+    private var faceIndicesByRawIndex: [Int: Int] = [:]
     private var currentFaceIndex: Int = 0
 
     // Multi-Level Undo & Redo
     private let cullingUndoManager = CullingUndoManager.shared
+
+    // Scene & Burst Tracking
+    private var burstClusterCache: [Int: BurstBreadcrumbInfo?] = [:]
+    private var burstClusterTask: Task<Void, Never>? = nil
 
     private var isExporting: Bool = false
     private var exportProgressText: String? = nil
@@ -103,6 +109,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
                 self.allItems = scanResult.items
                 self.cullingUndoManager.clear()
+                self.burstClusterTask?.cancel()
+                self.burstClusterTask = nil
+                self.burstClusterCache.removeAll()
 
                 // Concurrently load all existing Adobe XMP sidecar metadata in background
                 self.cullingData = await XmpSidecarManager.loadAllSidecars(for: self.allItems)
@@ -150,6 +159,10 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     // MARK: - Filter Management
 
     private func rebuildFilter(targetIndex: Int? = nil) {
+        burstClusterTask?.cancel()
+        burstClusterTask = nil
+        burstClusterCache.removeAll()
+
         let prevRawIndex = targetIndex ?? currentRawIndex
 
         filteredIndices = allItems.indices.filter { idx in
@@ -226,13 +239,28 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             }
 
             if multiUpMode != .single {
+                let burstInfo = burstClusterCache[pos] ?? nil
+                let isSlotHero = burstInfo?.isHero ?? false
+                let burstDesc: String?
+                if isSlotHero {
+                    burstDesc = "👑 BEST IN BURST"
+                } else if let b = burstInfo {
+                    burstDesc = "📸 BURST [\(b.indexInBurst)/\(b.totalInBurst)]"
+                } else {
+                    burstDesc = nil
+                }
+
+                let slotScore = AestheticsEngine.shared.cachedScore(for: itm.url.path)
                 slotInfos[s] = SplitPaneInfo(
                     slot: s + 1,
                     filename: itm.displayName,
                     pick: m.pick,
                     rating: m.rating,
                     color: m.color,
-                    isPairScouting: true
+                    isPairScouting: true,
+                    aestheticScore: slotScore,
+                    burstDescription: burstDesc,
+                    isHero: isSlotHero
                 )
             }
         }
@@ -265,7 +293,32 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             hudMeta.cameraProfile = .asShot
         }
 
-        let cachedAesthetic = (multiUpMode != .single) ? nil : AestheticsEngine.shared.cachedScore(for: item.url.path)
+        let cachedAesthetic = AestheticsEngine.shared.cachedScore(for: item.url.path)
+
+        let primaryPos = min(currentFilteredPos + primaryIdx, filteredIndices.count - 1)
+        var burstBreadcrumb: BurstBreadcrumbInfo? = nil
+        if let cached = burstClusterCache[primaryPos] {
+            burstBreadcrumb = cached
+        } else {
+            burstClusterTask?.cancel()
+            burstClusterTask = Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                let result = await self.computeBurstCluster(for: primaryPos)
+                let activePos = min(self.currentFilteredPos + min(self.activeHoverSlot - 1, self.multiUpMode.rawValue - 1), self.filteredIndices.count - 1)
+                if activePos == primaryPos {
+                    self.slideView.updateBurstBreadcrumb(result)
+                }
+                if self.multiUpMode != .single {
+                    for s in 0..<self.multiUpMode.rawValue {
+                        let p = self.currentFilteredPos + s
+                        if p < self.filteredIndices.count, let b = self.burstClusterCache[p] as? BurstBreadcrumbInfo {
+                            let desc = b.isHero ? "👑 BEST IN BURST" : "📸 BURST [\(b.indexInBurst)/\(b.totalInBurst)]"
+                            self.slideView.updateSlotScene(slot: s + 1, description: desc, isHero: b.isHero)
+                        }
+                    }
+                }
+            }
+        }
 
         let info = HudInfo(
             currentIndex: currentFilteredPos,
@@ -306,7 +359,8 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             isSlideshow: isSlideshowActive,
             slideshowInterval: slideshowInterval,
             exportProgressText: exportProgressText,
-            aestheticScore: cachedAesthetic
+            aestheticScore: cachedAesthetic,
+            burstInfo: burstBreadcrumb
         )
 
         self.cachedSlotItems = slotItems
@@ -330,16 +384,23 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             updatePeakingMaskAsync(for: slotImages)
         }
 
-        // Face detection asynchronously
+        // Face detection asynchronously across multi-up slots
         currentFaceIndex = 0
         detectedFacesForCurrentSlide = []
         detectedFacesForChallengerSlide = []
-        if let p = slotPaths[0], let img0 = slotImages[0] {
+        for s in 0..<slotCount {
+            guard let p = slotPaths[s], let img = slotImages[s] else { continue }
+            let pos = currentFilteredPos + s
+            guard pos < filteredIndices.count else { continue }
+            let rIdx = filteredIndices[pos]
             Task.detached(priority: .utility) { [weak self] in
-                let faces = await FaceDetectionEngine.shared.detectFaces(in: img0, cacheKey: p)
+                let faces = await FaceDetectionEngine.shared.detectFaces(in: img, cacheKey: p)
                 await MainActor.run { [weak self] in
                     guard let self = self, self.currentRawIndex == rawIndex else { return }
-                    self.detectedFacesForCurrentSlide = faces
+                    self.detectedFacesByRawIndex[rIdx] = faces
+                    if s == 0 {
+                        self.detectedFacesForCurrentSlide = faces
+                    }
                 }
             }
         }
@@ -403,12 +464,12 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         } else if currentFilteredPos + 1 < filteredIndices.count && multiUpMode != .single {
             // Remainder partial block at end of directory
             navigate(toFilteredPos: currentFilteredPos + 1, direction: .forward)
-            slideView.hudView.showMessage("Last Photo in Set")
+            slideView.showToast("Last Photo in Set", icon: "🛑")
         } else {
             if multiUpMode == .single {
                 navigate(toFilteredPos: 0, direction: .forward)
             } else {
-                slideView.hudView.showMessage("End of Set")
+                slideView.showToast("End of Set", icon: "🛑")
             }
         }
     }
@@ -428,7 +489,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             if multiUpMode == .single {
                 navigate(toFilteredPos: filteredIndices.count - 1, direction: .backward)
             } else {
-                slideView.hudView.showMessage("First photos in set")
+                slideView.showToast("First Photo in Set", icon: "🛑")
             }
         }
     }
@@ -446,6 +507,310 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         stopSlideshowIfRunning()
         guard !filteredIndices.isEmpty else { return }
         navigate(toFilteredPos: filteredIndices.count - 1, direction: .jump)
+    }
+
+    // MARK: - Scene Leap Navigation (Same Scene & Burst Traversal)
+
+    private var isSceneLeaping: Bool = false
+
+    /// Checks whether two photos at filtered positions posA and posB belong to the same scene or burst.
+    private func areItemsInSameScene(posA: Int, posB: Int) async -> Bool {
+        guard posA >= 0, posA < filteredIndices.count,
+              posB >= 0, posB < filteredIndices.count else { return false }
+
+        let rawA = filteredIndices[posA]
+        let rawB = filteredIndices[posB]
+        let itemA = allItems[rawA]
+        let itemB = allItems[rawB]
+
+        // 1. Fetch decoded previews if available or decode preview
+        let decA = try? await pipeline.getImage(at: rawA)
+        let decB = try? await pipeline.getImage(at: rawB)
+
+        // 2. Compute timestamp delta
+        var timeDelta: TimeInterval? = nil
+        if let d1 = decA?.exif?.date, let d2 = decB?.exif?.date {
+            timeDelta = abs(d2.timeIntervalSince(d1))
+        } else {
+            let dateA = (try? itemA.url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            let dateB = (try? itemB.url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            if let da = dateA, let db = dateB {
+                timeDelta = abs(db.timeIntervalSince(da))
+            }
+        }
+
+        // If photos were taken > 20s apart, they are unequivocally different setups/scenes
+        if let dt = timeDelta, dt > 20.0 {
+            return false
+        }
+
+        guard let imgA = decA?.image, let imgB = decB?.image else {
+            return (timeDelta ?? 999.0) <= 3.0
+        }
+
+        let result = await SceneDetectionEngine.shared.compareScenes(
+            imageA: imgA,
+            keyA: itemA.url.path,
+            imageB: imgB,
+            keyB: itemB.url.path,
+            timeDelta: timeDelta
+        )
+
+        return result.isSameScene
+    }
+
+    /// Finds the target position of the next (forward) or previous (backward) scene boundary.
+    private func findSceneBoundary(from startPos: Int, forward: Bool) async -> Int? {
+        let count = filteredIndices.count
+        guard count > 1 else { return nil }
+
+        if forward {
+            var p = startPos
+            while p + 1 < count {
+                let isSame = await areItemsInSameScene(posA: p, posB: p + 1)
+                if !isSame {
+                    // Next scene starts at p + 1
+                    return p + 1
+                }
+                p += 1
+                if p - startPos > 80 { break } // Safeguard for giant bursts
+            }
+            return (p > startPos) ? p : nil
+        } else {
+            // Backward: If we are in the middle of a burst, first leap to the start of current burst
+            var p = startPos
+            while p > 0 {
+                let isSame = await areItemsInSameScene(posA: p - 1, posB: p)
+                if isSame {
+                    p -= 1
+                } else {
+                    break
+                }
+            }
+
+            // If we were already at the start of current burst, leap to the start of the previous burst
+            if p == startPos && p > 0 {
+                p -= 1
+                while p > 0 {
+                    let isSame = await areItemsInSameScene(posA: p - 1, posB: p)
+                    if isSame {
+                        p -= 1
+                    } else {
+                        break
+                    }
+                }
+            }
+
+            return (p != startPos) ? p : nil
+        }
+    }
+
+    public func slideViewRequestNextScene() {
+        stopSlideshowIfRunning()
+        guard !filteredIndices.isEmpty else { return }
+        guard !isSceneLeaping else { return }
+        isSceneLeaping = true
+
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+
+        Task {
+            defer { self.isSceneLeaping = false }
+            let startPos = self.currentFilteredPos
+            guard startPos + 1 < self.filteredIndices.count else {
+                self.slideView.showToast("Last Scene in Set", icon: "🛑", shortcut: "]")
+                return
+            }
+
+            let nextScenePos = await self.findSceneBoundary(from: startPos, forward: true)
+            let targetPos = nextScenePos ?? (self.filteredIndices.count - 1)
+
+            await MainActor.run {
+                if targetPos != startPos {
+                    self.navigate(toFilteredPos: targetPos, direction: .forward)
+                    self.slideView.showToast("Next Scene", icon: "⚡", shortcut: "]", tint: .systemCyan)
+                } else {
+                    self.slideView.showToast("Last Scene in Set", icon: "🛑", shortcut: "]")
+                }
+            }
+        }
+    }
+
+    public func slideViewRequestPreviousScene() {
+        stopSlideshowIfRunning()
+        guard !filteredIndices.isEmpty else { return }
+        guard !isSceneLeaping else { return }
+        isSceneLeaping = true
+
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+
+        Task {
+            defer { self.isSceneLeaping = false }
+            let startPos = self.currentFilteredPos
+            guard startPos > 0 else {
+                self.slideView.showToast("First Scene in Set", icon: "🛑", shortcut: "[")
+                return
+            }
+
+            let prevScenePos = await self.findSceneBoundary(from: startPos, forward: false)
+            let targetPos = prevScenePos ?? 0
+
+            await MainActor.run {
+                if targetPos != startPos {
+                    self.navigate(toFilteredPos: targetPos, direction: .backward)
+                    self.slideView.showToast("Previous Scene", icon: "⚡", shortcut: "[", tint: .systemCyan)
+                } else {
+                    self.slideView.showToast("First Scene in Set", icon: "🛑", shortcut: "[")
+                }
+            }
+        }
+    }
+
+    private func getItemDate(filteredPos: Int) async -> Date? {
+        guard filteredPos >= 0, filteredPos < filteredIndices.count else { return nil }
+        let raw = filteredIndices[filteredPos]
+        let item = allItems[raw]
+        if let dec = try? await pipeline.getImage(at: raw), let d = dec.exif?.date {
+            return d
+        }
+        return (try? item.url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+    }
+
+    /// Scans backwards and forwards around pos to compute burst cluster indices and deltas.
+    private func computeBurstCluster(for targetPos: Int) async -> BurstBreadcrumbInfo? {
+        guard targetPos >= 0, targetPos < filteredIndices.count else { return nil }
+        if let cached = burstClusterCache[targetPos] {
+            return cached
+        }
+
+        let count = filteredIndices.count
+        guard count > 1 else {
+            burstClusterCache[targetPos] = nil
+            return nil
+        }
+
+        // 1. Scan backwards
+        var startPos = targetPos
+        while startPos > 0 {
+            let isSame = await areItemsInSameScene(posA: startPos - 1, posB: startPos)
+            if isSame {
+                startPos -= 1
+            } else {
+                break
+            }
+            if targetPos - startPos >= 60 { break } // Safeguard for extreme bursts
+        }
+
+        // 2. Scan forwards
+        var endPos = targetPos
+        while endPos + 1 < count {
+            let isSame = await areItemsInSameScene(posA: endPos, posB: endPos + 1)
+            if isSame {
+                endPos += 1
+            } else {
+                break
+            }
+            if endPos - targetPos >= 60 { break }
+        }
+
+        let totalInBurst = endPos - startPos + 1
+        guard totalInBurst > 1 else {
+            burstClusterCache[targetPos] = nil
+            return nil
+        }
+
+        // 3. Pre-fetch timestamps across the cluster for accurate Δ
+        var dates: [Int: Date] = [:]
+        for p in startPos...endPos {
+            if let d = await getItemDate(filteredPos: p) {
+                dates[p] = d
+            }
+        }
+
+        // 3b. Evaluate Vision AI aesthetic/quality scores for burst frames
+        var scores: [Int: AestheticScoreResult] = [:]
+        for p in startPos...endPos {
+            guard p < filteredIndices.count else { continue }
+            let raw = filteredIndices[p]
+            let itm = allItems[raw]
+            if let cached = AestheticsEngine.shared.cachedScore(for: itm.url.path) {
+                scores[p] = cached
+            } else if let dec = try? await pipeline.getImage(at: raw) {
+                let score = await AestheticsEngine.shared.computeScore(for: dec.image, cacheKey: itm.url.path)
+                scores[p] = score
+            }
+        }
+
+        // 3c. Crown the Burst Hero
+        var bestPos: Int? = nil
+        var bestScore: Float = -999.0
+        var bestSharpness: Float = -1.0
+
+        for p in startPos...endPos {
+            if let sc = scores[p] {
+                let effectiveScore = sc.isUtility ? (sc.score - 4.0) : sc.score
+                if effectiveScore > bestScore || (abs(effectiveScore - bestScore) < 0.15 && sc.sharpnessScore > bestSharpness) {
+                    bestScore = effectiveScore
+                    bestSharpness = sc.sharpnessScore
+                    bestPos = p
+                }
+            }
+        }
+
+        let heroPos = bestPos ?? startPos
+        let heroIndexInBurst = (heroPos - startPos) + 1
+
+        // 4. Populate cache for the entire cluster
+        for p in startPos...endPos {
+            let k = (p - startPos) + 1
+            let isHero = (p == heroPos)
+            var dt: TimeInterval? = nil
+            if p > startPos, let dCurr = dates[p], let dPrev = dates[p - 1] {
+                dt = abs(dCurr.timeIntervalSince(dPrev))
+            } else if p == startPos, let dCurr = dates[p], let dNext = dates[p + 1] {
+                dt = abs(dNext.timeIntervalSince(dCurr))
+            }
+            let info = BurstBreadcrumbInfo(
+                indexInBurst: k,
+                totalInBurst: totalInBurst,
+                timeDelta: dt,
+                isHero: isHero,
+                heroIndex: heroIndexInBurst
+            )
+            burstClusterCache[p] = info
+        }
+
+        return burstClusterCache[targetPos] ?? nil
+    }
+
+    public func slideViewRequestJumpToHero() {
+        stopSlideshowIfRunning()
+        guard !filteredIndices.isEmpty else { return }
+
+        let currentPos = currentFilteredPos
+        guard let burst = burstClusterCache[currentPos] as? BurstBreadcrumbInfo, burst.totalInBurst > 1 else {
+            slideView.showToast("No Burst Cluster", icon: "📸")
+            return
+        }
+
+        if burst.isHero {
+            NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+            slideView.showToast("Already on Burst Hero [ \(burst.indexInBurst) / \(burst.totalInBurst) ]", icon: "👑", shortcut: "B", tint: NSColor(srgbRed: 1.0, green: 0.84, blue: 0.25, alpha: 1.0))
+            return
+        }
+
+        guard let heroIdx = burst.heroIndex else {
+            slideView.showToast("Evaluating Burst Hero...", icon: "👑", tint: NSColor(srgbRed: 1.0, green: 0.84, blue: 0.25, alpha: 1.0))
+            return
+        }
+
+        let clusterStart = currentPos - (burst.indexInBurst - 1)
+        let heroTargetPos = clusterStart + (heroIdx - 1)
+
+        guard heroTargetPos >= 0, heroTargetPos < filteredIndices.count else { return }
+
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+        navigate(toFilteredPos: heroTargetPos, direction: (heroTargetPos > currentPos) ? .forward : .backward)
+        slideView.showToast("Jumped to Hero [ \(heroIdx) / \(burst.totalInBurst) ]", icon: "👑", shortcut: "B", tint: NSColor(srgbRed: 1.0, green: 0.84, blue: 0.25, alpha: 1.0))
     }
 
     public func slideViewRequestDelete() {
@@ -489,7 +854,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 } else {
                     await self.loadAndDisplayCurrent()
                 }
-                self.slideView.hudView.showMessage("Moved to Trash [⌘Z to Undo]")
+                self.slideView.showToast("Moved to Trash", icon: "🗑️", shortcut: "⌘Z to Undo", tint: .systemRed)
             } catch {
                 self.isDeleting = false
                 self.displayEmptyState("Failed to trash: \(error.localizedDescription)")
@@ -505,7 +870,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         }
 
         guard !rejectedItems.isEmpty else {
-            slideView.hudView.showMessage("No rejected photos to purge.")
+            slideView.showToast("No Rejected Photos to Purge", icon: "🧹")
             return
         }
 
@@ -535,7 +900,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 }
                 self.rebuildFilter()
                 await self.loadAndDisplayCurrent()
-                self.slideView.hudView.showMessage("Purged \(trashedCount) rejected photos to Trash.")
+                self.slideView.showToast("Purged \(trashedCount) Rejected Photos", icon: "🧹", tint: .systemRed)
             }
         }
     }
@@ -550,49 +915,85 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         } else {
             guard currentRawIndex != nil else { return }
 
-            // Instantly zoom the view using the screen-bounded layer (0ms latency!)
-            slideView.setZoom(true, anchorPointInView: mouseLocation)
-
-            let slotCount = multiUpMode.rawValue
-            var rawIndicesToFetch: [Int: Int] = [:] // [slot: rawIndex]
-            for s in 0..<slotCount {
-                let pos = currentFilteredPos + s
-                if pos < filteredIndices.count {
-                    rawIndicesToFetch[s] = filteredIndices[pos]
-                }
+            let targetSlot: Int
+            let slotOffset: Int
+            if multiUpMode == .single {
+                targetSlot = 1
+                slotOffset = 0
+            } else {
+                targetSlot = slideView.hoveredSplitSlot
+                slotOffset = max(0, min(multiUpMode.rawValue - 1, targetSlot - 1))
             }
 
-            Task {
-                var fullImages: [CGImage?] = Array(repeating: nil, count: 4)
-                var fullDims: [CGSize] = Array(repeating: .zero, count: 4)
+            let targetFilteredPos = currentFilteredPos + slotOffset
+            guard targetFilteredPos < filteredIndices.count else { return }
+            let targetRawIndex = filteredIndices[targetFilteredPos]
 
-                await withTaskGroup(of: (Int, DecodedImage?).self) { group in
-                    for (slot, rIdx) in rawIndicesToFetch {
-                        group.addTask {
-                            let dec = try? await self.pipeline.getFullResolutionImage(at: rIdx)
-                            return (slot, dec)
-                        }
+            // Instantly zoom the view using the screen-bounded layer (0ms latency!)
+            slideView.setZoom(true, anchorPointInView: mouseLocation, targetPaneIndex: slotOffset)
+
+            if multiUpMode == .fourUp {
+                // Option B: Solo full-screen 100% loupe for targetSlot only
+                Task {
+                    if let dec = try? await self.pipeline.getFullResolutionImage(at: targetRawIndex) {
+                        guard self.slideView.isZoomed else { return }
+                        let dims = CGSize(width: dec.originalWidth, height: dec.originalHeight)
+                        self.slideView.setZoom(
+                            true,
+                            anchorPointInView: mouseLocation,
+                            targetPaneIndex: slotOffset,
+                            fullResImage: (slotOffset == 0) ? dec.image : nil,
+                            originalDimensions: (slotOffset == 0) ? dims : nil,
+                            rightFullResImage: (slotOffset == 1) ? dec.image : nil,
+                            rightOriginalDimensions: (slotOffset == 1) ? dims : nil,
+                            multiFullResImages: (0..<4).map { $0 == slotOffset ? dec.image : nil },
+                            multiOriginalDimensions: (0..<4).map { $0 == slotOffset ? dims : .zero }
+                        )
                     }
-                    for await (slot, dec) in group {
-                        if let dec = dec {
-                            fullImages[slot] = dec.image
-                            fullDims[slot] = CGSize(width: dec.originalWidth, height: dec.originalHeight)
-                        }
+                }
+            } else {
+                let slotCount = multiUpMode.rawValue
+                var rawIndicesToFetch: [Int: Int] = [:] // [slot: rawIndex]
+                for s in 0..<slotCount {
+                    let pos = currentFilteredPos + s
+                    if pos < filteredIndices.count {
+                        rawIndicesToFetch[s] = filteredIndices[pos]
                     }
                 }
 
-                guard self.slideView.isZoomed else { return }
+                Task {
+                    var fullImages: [CGImage?] = Array(repeating: nil, count: 4)
+                    var fullDims: [CGSize] = Array(repeating: .zero, count: 4)
 
-                self.slideView.setZoom(
-                    true,
-                    anchorPointInView: mouseLocation,
-                    fullResImage: fullImages[0],
-                    originalDimensions: fullDims[0],
-                    rightFullResImage: fullImages[1],
-                    rightOriginalDimensions: fullDims[1],
-                    multiFullResImages: fullImages,
-                    multiOriginalDimensions: fullDims
-                )
+                    await withTaskGroup(of: (Int, DecodedImage?).self) { group in
+                        for (slot, rIdx) in rawIndicesToFetch {
+                            group.addTask {
+                                let dec = try? await self.pipeline.getFullResolutionImage(at: rIdx)
+                                return (slot, dec)
+                            }
+                        }
+                        for await (slot, dec) in group {
+                            if let dec = dec {
+                                fullImages[slot] = dec.image
+                                fullDims[slot] = CGSize(width: dec.originalWidth, height: dec.originalHeight)
+                            }
+                        }
+                    }
+
+                    guard self.slideView.isZoomed else { return }
+
+                    self.slideView.setZoom(
+                        true,
+                        anchorPointInView: mouseLocation,
+                        targetPaneIndex: slotOffset,
+                        fullResImage: fullImages[0],
+                        originalDimensions: fullDims[0],
+                        rightFullResImage: fullImages[1],
+                        rightOriginalDimensions: fullDims[1],
+                        multiFullResImages: fullImages,
+                        multiOriginalDimensions: fullDims
+                    )
+                }
             }
         }
     }
@@ -601,55 +1002,77 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
     public func slideViewJumpToFaceEye() {
         stopSlideshowIfRunning()
-        guard let rawIndex = currentRawIndex else { return }
-        let item = allItems[rawIndex]
+
+        let targetSlot: Int
+        let slotOffset: Int
+        if multiUpMode == .single {
+            targetSlot = 1
+            slotOffset = 0
+        } else {
+            targetSlot = slideView.hoveredSplitSlot
+            slotOffset = max(0, min(multiUpMode.rawValue - 1, targetSlot - 1))
+        }
+
+        let targetFilteredPos = currentFilteredPos + slotOffset
+        guard targetFilteredPos < filteredIndices.count else { return }
+        let targetRawIndex = filteredIndices[targetFilteredPos]
+        let item = allItems[targetRawIndex]
 
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
 
         Task {
-            var faces = self.detectedFacesForCurrentSlide
+            var faces = self.detectedFacesByRawIndex[targetRawIndex] ?? []
             if faces.isEmpty {
-                if let decoded = try? await self.pipeline.getImage(at: rawIndex) {
+                if let decoded = try? await self.pipeline.getImage(at: targetRawIndex) {
                     faces = await FaceDetectionEngine.shared.detectFaces(in: decoded.image, cacheKey: item.url.path)
-                    self.detectedFacesForCurrentSlide = faces
+                    self.detectedFacesByRawIndex[targetRawIndex] = faces
                 }
             }
 
             guard !faces.isEmpty else {
-                self.slideView.hudView.showMessage("No faces detected in frame")
+                let noFaceMsg = (self.multiUpMode != .single) ? "No faces in [\(targetSlot)]" : "No faces detected in frame"
+                self.slideView.showToast(noFaceMsg, icon: "👁️", shortcut: "⇧Z")
                 if !self.slideView.isZoomed {
                     let mouseInWindow = self.window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: self.slideView.bounds.midX, y: self.slideView.bounds.midY)
                     let localPt = self.slideView.convert(mouseInWindow, from: nil)
-                    self.slideView.setZoom(true, anchorPointInView: localPt)
+                    self.slideView.setZoom(true, anchorPointInView: localPt, targetPaneIndex: slotOffset)
                 }
                 return
             }
 
-            let leftFace = faces[self.currentFaceIndex % faces.count]
-            self.currentFaceIndex += 1
+            let nextIdx = (self.faceIndicesByRawIndex[targetRawIndex] ?? 0)
+            self.faceIndicesByRawIndex[targetRawIndex] = nextIdx + 1
+            let currentFace = faces[nextIdx % faces.count]
 
             let label: String
-            if faces.count > 1 {
-                label = "👁️ Face \(((self.currentFaceIndex - 1) % faces.count) + 1)/\(faces.count) (Eye Focus)"
+            if self.multiUpMode != .single {
+                label = faces.count > 1
+                    ? "👁️ [\(targetSlot)] Face \((nextIdx % faces.count) + 1)/\(faces.count) (Eye Focus)"
+                    : "👁️ [\(targetSlot)] Eye Focus"
             } else {
-                label = "👁️ Eye Focus"
+                label = faces.count > 1
+                    ? "👁️ Face \((nextIdx % faces.count) + 1)/\(faces.count) (Eye Focus)"
+                    : "👁️ Eye Focus"
             }
 
-            let leftPoint = leftFace.eyeCenter
+            let eyePoint = currentFace.eyeCenter
             self.slideView.zoomToNormalizedPoint(
-                leftPoint,
-                rightNormPoint: leftPoint,
+                eyePoint,
+                targetPaneIndex: slotOffset,
                 label: label
             )
 
-            // Concurrently fetch full resolution sensor data
-            if let fullDec = try? await self.pipeline.getFullResolutionImage(at: rawIndex) {
+            // Concurrently fetch full resolution sensor data for the target image
+            if let fullDec = try? await self.pipeline.getFullResolutionImage(at: targetRawIndex) {
                 let dims = CGSize(width: fullDec.originalWidth, height: fullDec.originalHeight)
                 self.slideView.zoomToNormalizedPoint(
-                    leftPoint,
-                    rightNormPoint: leftPoint,
-                    fullResImage: fullDec.image,
-                    originalDimensions: dims
+                    eyePoint,
+                    targetPaneIndex: slotOffset,
+                    fullResImage: (slotOffset == 0) ? fullDec.image : nil,
+                    originalDimensions: (slotOffset == 0) ? dims : nil,
+                    rightFullResImage: (slotOffset == 1) ? fullDec.image : nil,
+                    rightOriginalDimensions: (slotOffset == 1) ? dims : nil,
+                    label: nil
                 )
             }
         }
@@ -660,8 +1083,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     public func slideViewToggleHistogram() {
         isHistogramVisible.toggle()
         slideView.setHistogramVisible(isHistogramVisible)
-        let msg = isHistogramVisible ? "RGB Histogram: ON [H]" : "RGB Histogram: OFF [H]"
-        slideView.hudView.showMessage(msg)
+        slideView.showToast(isHistogramVisible ? "RGB Histogram: ON" : "RGB Histogram: OFF", icon: "📊", shortcut: "H")
 
         if isHistogramVisible {
             Task {
@@ -673,15 +1095,13 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     public func slideViewToggleExif() {
         isExifVisible.toggle()
         slideView.setExifVisible(isExifVisible)
-        let msg = isExifVisible ? "EXIF Info: ON [I]" : "EXIF Info: OFF [I]"
-        slideView.hudView.showMessage(msg)
+        slideView.showToast(isExifVisible ? "EXIF Info: ON" : "EXIF Info: OFF", icon: "ℹ️", shortcut: "I")
     }
 
     public func slideViewToggleClipping() {
         isClippingVisible.toggle()
         slideView.setClippingActive(isClippingVisible)
-        let msg = isClippingVisible ? "Clipping Warnings: ON [O]" : "Clipping Warnings: OFF [O]"
-        slideView.hudView.showMessage(msg)
+        slideView.showToast(isClippingVisible ? "Clipping Warnings: ON" : "Clipping Warnings: OFF", icon: "⚠️", shortcut: "O")
 
         if isClippingVisible {
             Task {
@@ -695,8 +1115,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     public func slideViewToggleFocusPeaking() {
         isFocusPeakingVisible.toggle()
         slideView.setPeakingActive(isFocusPeakingVisible)
-        let msg = isFocusPeakingVisible ? "Focus Peaking: ON [⇧F]" : "Focus Peaking: OFF [⇧F]"
-        slideView.hudView.showMessage(msg)
+        slideView.showToast(isFocusPeakingVisible ? "Focus Peaking: ON" : "Focus Peaking: OFF", icon: "🎯", shortcut: "⇧F")
 
         if isFocusPeakingVisible {
             Task {
@@ -718,13 +1137,27 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 let raw = filteredIndices[pos]
                 let itm = allItems[raw]
                 let m = cullingData[itm.id] ?? CullingMetadata()
+                let burstInfo = burstClusterCache[pos] ?? nil
+                let isSlotHero = burstInfo?.isHero ?? false
+                let burstDesc: String?
+                if isSlotHero {
+                    burstDesc = "👑 BEST IN BURST"
+                } else if let b = burstInfo {
+                    burstDesc = "📸 BURST [\(b.indexInBurst)/\(b.totalInBurst)]"
+                } else {
+                    burstDesc = nil
+                }
+                let slotScore = AestheticsEngine.shared.cachedScore(for: itm.url.path)
                 let sInfo = SplitPaneInfo(
                     slot: s + 1,
                     filename: itm.displayName,
                     pick: m.pick,
                     rating: m.rating,
                     color: m.color,
-                    isPairScouting: true
+                    isPairScouting: true,
+                    aestheticScore: slotScore,
+                    burstDescription: burstDesc,
+                    isHero: isSlotHero
                 )
                 slideView.updateSplitPaneInfo(slot: s + 1, info: sInfo)
             }
@@ -746,7 +1179,32 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             hudMeta.cameraProfile = .asShot
         }
 
-        let cachedAesthetic = (multiUpMode != .single) ? nil : AestheticsEngine.shared.cachedScore(for: item.url.path)
+        let cachedAesthetic = AestheticsEngine.shared.cachedScore(for: item.url.path)
+
+        let primaryPos = min(currentFilteredPos + primaryIdx, filteredIndices.count - 1)
+        var burstBreadcrumb: BurstBreadcrumbInfo? = nil
+        if let cached = burstClusterCache[primaryPos] {
+            burstBreadcrumb = cached
+        } else {
+            burstClusterTask?.cancel()
+            burstClusterTask = Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                let result = await self.computeBurstCluster(for: primaryPos)
+                let activePos = min(self.currentFilteredPos + min(self.activeHoverSlot - 1, self.multiUpMode.rawValue - 1), self.filteredIndices.count - 1)
+                if activePos == primaryPos {
+                    self.slideView.updateBurstBreadcrumb(result)
+                }
+                if self.multiUpMode != .single {
+                    for s in 0..<self.multiUpMode.rawValue {
+                        let p = self.currentFilteredPos + s
+                        if p < self.filteredIndices.count, let b = self.burstClusterCache[p] as? BurstBreadcrumbInfo {
+                            let desc = b.isHero ? "👑 BEST IN BURST" : "📸 BURST [\(b.indexInBurst)/\(b.totalInBurst)]"
+                            self.slideView.updateSlotScene(slot: s + 1, description: desc, isHero: b.isHero)
+                        }
+                    }
+                }
+            }
+        }
 
         let info = HudInfo(
             currentIndex: currentFilteredPos,
@@ -765,7 +1223,8 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             isSlideshow: isSlideshowActive,
             slideshowInterval: slideshowInterval,
             exportProgressText: exportProgressText,
-            aestheticScore: cachedAesthetic
+            aestheticScore: cachedAesthetic,
+            burstInfo: burstBreadcrumb
         )
         slideView.hudView.update(with: info)
     }
@@ -847,7 +1306,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     public func slideViewCycleCameraProfile() {
         // Enforce unbiased neutral standard baseline in multi-up compare
         if multiUpMode != .single {
-            slideView.hudView.showMessage("Color Profiles locked to Standard in Multi-Up Compare")
+            slideView.showToast("Profiles Locked in Multi-Up", icon: "🎨", shortcut: "V")
             return
         }
 
@@ -873,7 +1332,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             let brand = CameraProfileEngine.detectBrand(for: item, exif: nil)
             let brandName = nextProfile.displayName(for: brand)
             await loadAndDisplayCurrent()
-            slideView.hudView.showMessage("Profile: \(brandName) [V]")
+            slideView.showToast("Profile: \(brandName)", icon: "🎨", shortcut: "V")
         }
     }
 
@@ -990,8 +1449,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     public func slideViewToggleAutoAdvance() {
         autoAdvance.toggle()
         NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .default)
-        let status = autoAdvance ? "Auto-Advance: ON [C]" : "Auto-Advance: OFF [C]"
-        slideView.hudView.showMessage(status)
+        slideView.showToast(autoAdvance ? "Auto-Advance: ON" : "Auto-Advance: OFF", icon: "⚡", shortcut: "C")
         Task {
             await loadAndDisplayCurrent()
         }
@@ -1017,7 +1475,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         }
 
         rebuildFilter()
-        slideView.hudView.showMessage("Filter: \(currentFilter.title) [ \\ ]")
+        slideView.showToast("Filter: \(currentFilter.title)", icon: "🔍", shortcut: "\\")
         Task {
             await loadAndDisplayCurrent()
         }
@@ -1035,10 +1493,10 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 currentFilter = .hideRejects
                 rebuildFilter(targetIndex: currentRawIndex)
             }
-            slideView.hudView.showMessage("2-UP Compare [S] • Stepping: Pairs (±2)")
+            slideView.showToast("2-UP Compare (Pairs)", icon: "⊞", shortcut: "S")
         } else if newMode == .fourUp {
             activeHoverSlot = 1
-            slideView.hudView.showMessage("4-UP Quad Compare [S] • Stepping: Quads (±4)")
+            slideView.showToast("4-UP Quad Compare", icon: "⊞", shortcut: "S")
         } else {
             activeHoverSlot = 1
             if let prev = filterBeforeMultiUp {
@@ -1046,7 +1504,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 filterBeforeMultiUp = nil
                 rebuildFilter(targetIndex: currentRawIndex)
             }
-            slideView.hudView.showMessage("Single Fullscreen [S] • Stepping: Single (±1)")
+            slideView.showToast("Single Fullscreen", icon: "⊞", shortcut: "S")
             if isHistogramVisible {
                 slideView.updateHistogram(paneHistogramData[1] ?? .empty, slot: nil)
             }
@@ -1158,7 +1616,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 .rotate(itemID: $0.0.id, rawIndex: $0.1, direction: direction)
             }
             cullingUndoManager.record(.compound(actions))
-            slideView.hudView.showMessage("Rotating Burst...")
+            slideView.showToast("Rotating Burst...", icon: "🔄", shortcut: "R")
 
             Task.detached(priority: .userInitiated) { [weak self] in
                 do {
@@ -1169,12 +1627,12 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                     Task { @MainActor [weak self] in
                         guard let self = self else { return }
                         let dirTitle = (direction == .clockwise) ? "Clockwise 90° [R]" : "Counter-Clockwise 90° [L]"
-                        self.slideView.hudView.showMessage("Rotated Burst \(dirTitle)")
+                        self.slideView.showToast("Rotated Burst \(dirTitle)", icon: "🔄", shortcut: "R")
                         await self.loadAndDisplayCurrent()
                     }
                 } catch {
                     Task { @MainActor [weak self] in
-                        self?.slideView.hudView.showMessage("Rotation failed: \(error.localizedDescription)")
+                        self?.slideView.showToast("Rotation Failed", icon: "⚠️")
                     }
                 }
             }
@@ -1183,7 +1641,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
         let item = allItems[rawIndex]
         cullingUndoManager.record(.rotate(itemID: item.id, rawIndex: rawIndex, direction: direction))
-        slideView.hudView.showMessage("Rotating...")
+        slideView.showToast("Rotating...", icon: "🔄", shortcut: "R")
         Task.detached(priority: .userInitiated) { [weak self] in
             do {
                 _ = try LosslessRotationEngine.rotate(item: item, direction: direction)
@@ -1191,12 +1649,12 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 Task { @MainActor [weak self] in
                     guard let self = self else { return }
                     let dirTitle = (direction == .clockwise) ? "Clockwise 90° [R]" : "Counter-Clockwise 90° [L]"
-                    self.slideView.hudView.showMessage("Rotated \(dirTitle)")
+                    self.slideView.showToast("Rotated \(dirTitle)", icon: "🔄", shortcut: "R")
                     await self.loadAndDisplayCurrent()
                 }
             } catch {
                 Task { @MainActor [weak self] in
-                    self?.slideView.hudView.showMessage("Rotation failed: \(error.localizedDescription)")
+                    self?.slideView.showToast("Rotation Failed", icon: "⚠️")
                 }
             }
         }
@@ -1229,7 +1687,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         }
 
         guard !itemsToExport.isEmpty else {
-            slideView.hudView.showMessage("No photos to export.")
+            slideView.showToast("No Photos to Export", icon: "📁", shortcut: "E")
             return
         }
 
@@ -1238,7 +1696,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         let destination = parentDir.appendingPathComponent("Picks")
 
         isExporting = true
-        slideView.hudView.showMessage("Exporting \(reason)...")
+        slideView.showToast("Exporting \(reason)...", icon: "📁", shortcut: "E")
 
         Task { [weak self] in
             guard let self = self else { return }
@@ -1248,18 +1706,18 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                     destinationDirectory: destination
                 ) { [weak self] progress in
                     Task { @MainActor in
-                        self?.slideView.hudView.showMessage("Exporting \(progress.current) / \(progress.total)...")
+                        self?.slideView.showToast("Exporting \(progress.current) / \(progress.total)...", icon: "📁", shortcut: "E")
                     }
                 }
 
                 self.isExporting = false
                 let finishMsg = "Exported \(summary.exportedCount) shots (\(summary.totalFilesWritten) files) to ./Picks"
-                self.slideView.hudView.showMessage(finishMsg)
+                self.slideView.showToast(finishMsg, icon: "📁", shortcut: "E", tint: .systemGreen)
                 NSSound(named: "Glass")?.play()
                 NSWorkspace.shared.activateFileViewerSelecting([destination])
             } catch {
                 self.isExporting = false
-                self.slideView.hudView.showMessage("Export failed: \(error.localizedDescription)")
+                self.slideView.showToast("Export Failed", icon: "⚠️", tint: .systemRed)
             }
         }
     }
@@ -1315,7 +1773,7 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
     public func slideViewRequestUndo() {
         stopSlideshowIfRunning()
         guard let action = cullingUndoManager.popUndo() else {
-            slideView.hudView.showMessage("Nothing to Undo [⌘Z]")
+            slideView.showToast("Nothing to Undo", icon: "↩", shortcut: "⌘Z")
             return
         }
 
@@ -1326,7 +1784,7 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
             for act in actions.reversed() {
                 applyUndoSingleAction(act)
             }
-            slideView.hudView.showMessage("↩ Undone [⌘Z]")
+            slideView.showToast("Undone", icon: "↩", shortcut: "⌘Z")
             Task {
                 for act in actions {
                     if case .rotate(_, let rawIndex, _) = act {
@@ -1377,7 +1835,7 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
             jumpToRawIndex(idx)
             let brand = CameraProfileEngine.detectBrand(for: item, exif: nil)
             let profName = previous?.displayName(for: brand) ?? "As Shot"
-            slideView.hudView.showMessage("↩ Undone Profile: \(profName) [⌘Z]")
+            slideView.showToast("Undone Profile: \(profName)", icon: "↩", shortcut: "⌘Z")
 
         case .rotate(let itemID, _, let direction):
             guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
@@ -1388,7 +1846,7 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
                 await self?.pipeline.invalidateCache(at: idx)
                 Task { @MainActor [weak self] in
                     self?.jumpToRawIndex(idx)
-                    self?.slideView.hudView.showMessage("↩ Undone Rotation [⌘Z]")
+                    self?.slideView.showToast("Undone Rotation", icon: "↩", shortcut: "⌘Z")
                 }
             }
 
@@ -1408,7 +1866,7 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
                     self.currentFilteredPos = fPos
                 }
                 await self.loadAndDisplayCurrent()
-                self.slideView.hudView.showMessage("↩ Restored: \(item.displayName) [⌘Z]")
+                self.slideView.showToast("Restored: \(item.displayName)", icon: "↩", shortcut: "⌘Z")
             }
         }
     }
@@ -1416,7 +1874,7 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
     public func slideViewRequestRedo() {
         stopSlideshowIfRunning()
         guard let action = cullingUndoManager.popRedo() else {
-            slideView.hudView.showMessage("Nothing to Redo [⇧⌘Z]")
+            slideView.showToast("Nothing to Redo", icon: "↪", shortcut: "⇧⌘Z")
             return
         }
 
@@ -1427,7 +1885,7 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
             for act in actions {
                 applyRedoSingleAction(act)
             }
-            slideView.hudView.showMessage("↪ Redone [⇧⌘Z]")
+            slideView.showToast("Redone", icon: "↪", shortcut: "⇧⌘Z")
             Task {
                 for act in actions {
                     if case .rotate(_, let rawIndex, _) = act {
@@ -1478,7 +1936,7 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
             jumpToRawIndex(idx)
             let brand = CameraProfileEngine.detectBrand(for: item, exif: nil)
             let profName = new?.displayName(for: brand) ?? "As Shot"
-            slideView.hudView.showMessage("↪ Redone Profile: \(profName) [⇧⌘Z]")
+            slideView.showToast("Redone Profile: \(profName)", icon: "↪", shortcut: "⇧⌘Z")
 
         case .rotate(let itemID, _, let direction):
             guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
@@ -1488,7 +1946,7 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
                 await self?.pipeline.invalidateCache(at: idx)
                 Task { @MainActor [weak self] in
                     self?.jumpToRawIndex(idx)
-                    self?.slideView.hudView.showMessage("↪ Redone Rotation [⇧⌘Z]")
+                    self?.slideView.showToast("Redone Rotation", icon: "↪", shortcut: "⇧⌘Z")
                 }
             }
 
@@ -1507,7 +1965,7 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
                 } else {
                     await self.loadAndDisplayCurrent()
                 }
-                self.slideView.hudView.showMessage("↪ Trashed again [⇧⌘Z]")
+                self.slideView.showToast("Trashed Again", icon: "↪", shortcut: "⇧⌘Z")
             }
         }
     }
@@ -1532,7 +1990,7 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
 
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
         NSWorkspace.shared.open(targetURL)
-        slideView.hudView.showMessage("Opening: \(targetURL.lastPathComponent)")
+        slideView.showToast("Opening: \(targetURL.lastPathComponent)", icon: "📂")
     }
 
     private func applyUndoSingleAction(_ action: CullingAction) {

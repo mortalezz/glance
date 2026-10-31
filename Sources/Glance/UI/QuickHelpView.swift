@@ -214,18 +214,18 @@ public final class QuickHelpView: NSView {
         )] = [
             (
                 ("P", "Pick (Keeper)", "Flags photo as keeper. Writes crs:PickStatus to Adobe XMP sidecar."),
-                ("Z / ⇧Z", "100% / Eye Jump", "Z: 1:1 at cursor. ⇧Z or 2×Z: Offline Apple Vision auto-detects and centers subject's eye."),
+                ("Z / ⇧Z", "100% / Eye Jump", "Hold Z: spring-loaded 100% Loupe & pan. ⇧Z: Apple Vision centers eye on hovered frame."),
                 ("Return", "Slideshow", "Automated timed presentation. Any key or click stops it.")
             ),
             (
                 ("X", "Reject (Trash)", "Marks for purge. Writes xmp:Rating=-1 to sidecar."),
-                ("S", "Multi-Up Compare", "Cycles 1-UP ➔ 2-UP ➔ 4-UP quad grid with synchronized 100% zoom and pane culling."),
+                ("S", "Multi-Up Compare", "Cycles 1-UP ➔ 2-UP ➔ 4-UP quad grid with quadrant haptics, solo 100% loupe, and pane culling."),
                 ("+ / -", "Slideshow Speed", "Live interval stepping (1s, 2s, 3s, 5s, 8s... up to 30s).")
             ),
             (
                 ("U", "Unflag", "Clears pick/reject flags back to neutral in sidecar."),
                 ("H", "RGB Histogram", "Hardware 256-bin RGB & Rec. 709 Luminance curve overlay."),
-                ("R / L", "Lossless Rotation", "R or ]: 90° CW, L or [: 90° CCW via lossless EXIF rewrite.")
+                ("R / L", "Lossless Rotation", "R: 90° CW, L: 90° CCW via lossless EXIF rewrite.")
             ),
             (
                 ("1 – 5", "Star Ratings", "Rates 1 to 5 stars (xmp:Rating). 0 clears stars."),
@@ -243,12 +243,12 @@ public final class QuickHelpView: NSView {
                 ("⌫ / ⇧⌫", "Trash / Purge", "⌫ trashes active shot. ⇧⌫ batch-purges all rejected photos.")
             ),
             (
-                ("Space", "Traverse / Expand", "Next photo. In cheatsheet, toggles compact and detailed views."),
+                ("[ / ] / B", "Scene & Hero Leap", "[ / ]: Leap across scenes. B: Leap directly to 👑 Hero / Best in Burst."),
                 ("F / ⇧F", "Full Screen / Peaking", "F: edge-to-edge presentation mode. ⇧F: live EVF focus peaking overlay."),
                 ("?", "Cheatsheet", "Toggles this keyboard shortcut help overlay.")
             ),
             (
-                ("⌘Z / ⇧Z", "Undo / Redo", "Reverts ratings, flags, color tags, rotations, and restores trashed photos."),
+                ("⌘Z / ⇧⌘Z", "Undo / Redo", "Reverts ratings, flags, color tags, rotations, and restores trashed photos."),
                 ("⌘↵ / ⌘O", "Open in Editor", "Opens active RAW/photo in default editor (Lightroom, Photoshop, Preview)."),
                 ("Esc / Q", "Quit to Finder", "Unequivocally quits Glance to reveal Finder immediately.")
             )
