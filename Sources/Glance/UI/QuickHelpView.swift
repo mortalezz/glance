@@ -122,8 +122,8 @@ public final class QuickHelpView: NSView {
         let compactPairs: [(col1: (key: String, desc: String), col2: (key: String, desc: String))] = [
             (("P / ⇧P", "Pick / Knockout"), ("Z / ⇧Z", "100% / Eye Jump")),
             (("X", "Reject"), ("A / S", "Faces / Multi-Up")),
-            (("U", "Unflag"), ("H", "RGB Histogram")),
-            (("1 – 5", "Rating"), ("O", "Clipping warning")),
+            (("U", "Unflag"), ("M / ⌥", "Magnifier Loupe")),
+            (("1 – 5", "Rating"), ("H / O", "Histogram / Blinkies")),
             (("0", "Clear rating"), ("I", "EXIF Info")),
             (("6 – 9", "Color label"), ("V / T", "Profile / Theme")),
             (("C", "Auto-advance"), ("Return", "Slideshow")),
@@ -248,8 +248,8 @@ public final class QuickHelpView: NSView {
                 ("?", "Cheatsheet", "Toggles this keyboard shortcut help overlay.")
             ),
             (
-                ("⌘Z / ⇧⌘Z", "Undo / Redo", "Reverts ratings, flags, color tags, rotations, and restores trashed photos."),
-                ("⌘↵ / ⌘O", "Open in Editor", "Opens active RAW/photo in default editor (Lightroom, Photoshop, Preview)."),
+                ("⌘Z / ⌘↵", "Undo / Open Editor", "⌘Z reverts edits. ⌘↵ / ⌘O opens active photo in default editor (Lightroom, Photoshop)."),
+                ("M / ⌥", "Magnifier Loupe", "2× / 4× circular cursor loupe without displacing overall framing. Hold Option to glide."),
                 ("Esc / Q", "Quit to Finder", "Unequivocally quits Glance to reveal Finder immediately.")
             )
         ]

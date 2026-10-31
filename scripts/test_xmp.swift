@@ -1516,6 +1516,95 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+        // ==========================================
+        // TEST 30: Interactive Floating Magnifier Loupe (M / Option Glide)
+        // ==========================================
+        do {
+            print("🧪 TEST 30: Interactive Floating Magnifier Loupe (M / Option Glide)...")
+
+            await MainActor.run {
+                // 1. Component State & Transparency Invariants
+                let loupe = CursorLoupeView()
+                assertEqual(loupe.isPresented, false, "Loupe starts unpresented")
+                assertEqual(loupe.isTemporaryGlide, false, "isTemporaryGlide starts false")
+                assertEqual(loupe.magnification, 2.0, "Default magnification is 2.0x")
+                assertEqual(loupe.hitTest(NSPoint(x: 50, y: 50)), nil, "Loupe is completely transparent to mouse clicks")
+
+                // 2. Lifecycle Transitions: Temporary Glide vs Persistent
+                loupe.present(temporary: true)
+                assertEqual(loupe.isPresented, true, "Loupe presented")
+                assertEqual(loupe.isTemporaryGlide, true, "Temporary glide flag set")
+
+                loupe.dismiss()
+                assertEqual(loupe.isPresented, false, "Loupe dismissed")
+                assertEqual(loupe.isTemporaryGlide, false, "Temporary glide flag cleared")
+
+                loupe.toggle()
+                assertEqual(loupe.isPresented, true, "Loupe toggled on")
+                assertEqual(loupe.isTemporaryGlide, false, "Persistent toggle is not temporary glide")
+
+                // 3. Magnification Invariants: 2x / 4x Stepping
+                loupe.cycleMagnification()
+                assertEqual(loupe.magnification, 4.0, "Cycled to 4.0x")
+
+                loupe.cycleMagnification()
+                assertEqual(loupe.magnification, 2.0, "Cycled back to 2.0x")
+
+                loupe.setMagnification(4.0)
+                assertEqual(loupe.magnification, 4.0, "Explicit set to 4.0x")
+
+                loupe.setMagnification(2.0)
+                assertEqual(loupe.magnification, 2.0, "Explicit set to 2.0x")
+
+                loupe.dismiss()
+
+                // 4. SlideView Integration & Hardware-Accelerated Sampling Math Invariants
+                let slideView = SlideView(frame: NSRect(x: 0, y: 0, width: 1000, height: 1000))
+                let testImg = makeTestCGImage(width: 2000, height: 1000, r: 180, g: 140, b: 220)
+
+                slideView.displayImage(testImg)
+                assertEqual(slideView.cursorLoupeView.isPresented, false, "SlideView loupe initially inactive")
+
+                // Query image info at center (500, 500)
+                let info = slideView.imageInfoForPoint(CGPoint(x: 500, y: 500))
+                assertEqual(info != nil, true, "Found image info at center")
+                if let (img, rect) = info {
+                    assertEqual(img.width, 2000, "Image width matches")
+                    assertEqual(img.height, 1000, "Image height matches")
+                    // In a 1000x1000 square container, a 2:1 aspect image fits to 1000x500 centered vertically
+                    assertEqual(rect.origin.x, 0, "Aspect-fit rect origin.x is 0")
+                    assertEqual(rect.origin.y, 250, "Aspect-fit rect origin.y is 250")
+                    assertEqual(rect.width, 1000, "Aspect-fit rect width is 1000")
+                    assertEqual(rect.height, 500, "Aspect-fit rect height is 500")
+
+                    // Loupe sampling geometry check:
+                    let diameter: CGFloat = 210.0
+                    let mag: CGFloat = 2.0
+                    let spanX = (diameter / rect.width) / mag   // (210 / 1000) / 2 = 0.105
+                    let spanY = (diameter / rect.height) / mag  // (210 / 500) / 2 = 0.210
+
+                    let sampledImgPixelsX = spanX * CGFloat(img.width)   // 0.105 * 2000 = 210
+                    let sampledImgPixelsY = spanY * CGFloat(img.height)  // 0.210 * 1000 = 210
+                    assertEqual(sampledImgPixelsX, 210.0, "Sampled region X in image pixels is 210px")
+                    assertEqual(sampledImgPixelsY, 210.0, "Sampled region Y in image pixels is 210px")
+                    assertEqual(sampledImgPixelsX == sampledImgPixelsY, true, "Loupe samples 1:1 square aspect ratio without distortion")
+                }
+
+                // Toggle loupe via SlideView API
+                slideView.toggleCursorLoupe()
+                assertEqual(slideView.cursorLoupeView.isPresented, true, "SlideView loupe active after toggle")
+
+                slideView.cursorLoupeView.updatePosition(mousePt: CGPoint(x: 500, y: 500), in: slideView)
+                assertEqual(slideView.cursorLoupeView.frame.origin.x, 500 - 105, "Loupe centered horizontally on cursor")
+                assertEqual(slideView.cursorLoupeView.frame.origin.y, 500 - 105, "Loupe centered vertically on cursor")
+
+                slideView.cursorLoupeView.dismiss()
+                assertEqual(slideView.cursorLoupeView.isPresented, false, "SlideView loupe dismissed")
+            }
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

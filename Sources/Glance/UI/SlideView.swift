@@ -108,6 +108,7 @@ public final class SlideView: NSView {
     public let quickHelpView = QuickHelpView()
     public let topToastView = TopToastView()
     public let faceOverlayView = FaceLoupeOverlayView()
+    public let cursorLoupeView = CursorLoupeView()
 
     public let splitBadges: [SplitPaneBadgeView] = (1...4).map { SplitPaneBadgeView(slot: $0) }
     public var leftSplitBadge: SplitPaneBadgeView { splitBadges[0] }
@@ -274,6 +275,9 @@ public final class SlideView: NSView {
         faceOverlayView.onClose = { [weak self] in
             self?.delegate?.slideViewToggleFaceOverlay()
         }
+
+        cursorLoupeView.translatesAutoresizingMaskIntoConstraints = true
+        addSubview(cursorLoupeView)
 
         // Split Badges: positioned manually via frames in updateLayerLayout
         for badge in splitBadges {
@@ -601,6 +605,12 @@ public final class SlideView: NSView {
                 splitBadges[i].alphaValue = 0.0
             }
         }
+
+        if cursorLoupeView.isPresented {
+            let mouseInWindow = window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: bounds.midX, y: bounds.midY)
+            let localPt = convert(mouseInWindow, from: nil)
+            cursorLoupeView.updatePosition(mousePt: localPt, in: self)
+        }
     }
 
     public func displayImage(
@@ -777,11 +787,64 @@ public final class SlideView: NSView {
         )
     }
 
+    // MARK: - Magnifier Loupe Navigation & Interaction
+
+    public func toggleCursorLoupe() {
+        cursorLoupeView.toggle()
+        if cursorLoupeView.isPresented {
+            let mouseInWindow = window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: bounds.midX, y: bounds.midY)
+            let localPt = convert(mouseInWindow, from: nil)
+            cursorLoupeView.updatePosition(mousePt: localPt, in: self)
+            showToast("Magnifier Loupe \(Int(cursorLoupeView.magnification))×", icon: "🔍", shortcut: "M")
+        }
+    }
+
+    public func cycleCursorLoupeMagnification() {
+        cursorLoupeView.cycleMagnification()
+        let mouseInWindow = window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: bounds.midX, y: bounds.midY)
+        let localPt = convert(mouseInWindow, from: nil)
+        cursorLoupeView.updatePosition(mousePt: localPt, in: self)
+        showToast("Loupe Magnification \(Int(cursorLoupeView.magnification))×", icon: "🔍", shortcut: "+/-")
+    }
+
+    public func imageInfoForPoint(_ point: CGPoint) -> (image: CGImage, imageRectInView: CGRect)? {
+        let maxCount = min(4, multiUpMode.rawValue)
+        for i in 0..<maxCount {
+            let container = paneContainerLayers[i]
+            guard !container.isHidden, container.frame.contains(point) else { continue }
+            guard let raw = paneImageLayers[i].contents, CFGetTypeID(raw as CFTypeRef) == CGImage.typeID else { continue }
+            let img = raw as! CGImage
+
+            let pSize = container.bounds.size
+            guard pSize.width > 0 && pSize.height > 0 else { continue }
+
+            let rectInView: CGRect
+            if isZoomed {
+                let imgLayer = paneImageLayers[i]
+                let originX = container.frame.minX + imgLayer.position.x - imgLayer.bounds.width / 2.0
+                let originY = container.frame.minY + imgLayer.position.y - imgLayer.bounds.height / 2.0
+                rectInView = CGRect(x: originX, y: originY, width: imgLayer.bounds.width, height: imgLayer.bounds.height)
+            } else {
+                let imgSize = CGSize(width: img.width, height: img.height)
+                guard imgSize.width > 0 && imgSize.height > 0 else { continue }
+                let fitScale = min(pSize.width / imgSize.width, pSize.height / imgSize.height)
+                let fitW = imgSize.width * fitScale
+                let fitH = imgSize.height * fitScale
+                let originX = container.frame.minX + (pSize.width - fitW) / 2.0
+                let originY = container.frame.minY + (pSize.height - fitH) / 2.0
+                rectInView = CGRect(x: originX, y: originY, width: fitW, height: fitH)
+            }
+            return (img, rectInView)
+        }
+        return nil
+    }
+
     private func hideOverlaysForHelp() {
         guard !isHelpPresented else { return }
         isHelpPresented = true
         topToastView.dismiss(animated: false)
         faceOverlayView.dismiss()
+        cursorLoupeView.dismiss()
         savedHistogramAlpha = histogramHud.alphaValue
         savedExifAlpha = exifHud.alphaValue
         for i in 0..<4 {
@@ -1238,6 +1301,19 @@ public final class SlideView: NSView {
     }
 
     public override func scrollWheel(with event: NSEvent) {
+        if cursorLoupeView.isPresented {
+            if abs(event.scrollingDeltaY) > 2.0 {
+                if event.scrollingDeltaY > 0 {
+                    cursorLoupeView.setMagnification(4.0)
+                } else {
+                    cursorLoupeView.setMagnification(2.0)
+                }
+                let mousePt = convert(event.locationInWindow, from: nil)
+                cursorLoupeView.updatePosition(mousePt: mousePt, in: self)
+                return
+            }
+        }
+
         guard isZoomed else {
             super.scrollWheel(with: event)
             return
@@ -1299,6 +1375,32 @@ public final class SlideView: NSView {
         if faceOverlayView.isPresented {
             faceOverlayView.dismiss()
             return
+        }
+
+        // Esc closes Magnifier Loupe if open
+        if cursorLoupeView.isPresented && event.keyCode == 53 {
+            cursorLoupeView.dismiss()
+            return
+        }
+
+        // Magnifier Loupe Magnification Stepping: + / - or [ / ]
+        if cursorLoupeView.isPresented {
+            if chars == "+" || chars == "=" || chars == "]" || event.keyCode == 24 || event.keyCode == 30 {
+                cursorLoupeView.setMagnification(4.0)
+                let mouseInWindow = window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: bounds.midX, y: bounds.midY)
+                let localPt = convert(mouseInWindow, from: nil)
+                cursorLoupeView.updatePosition(mousePt: localPt, in: self)
+                showToast("Loupe 4×", icon: "🔍", shortcut: "+ / ]")
+                return
+            }
+            if chars == "-" || chars == "_" || chars == "[" || event.keyCode == 27 || event.keyCode == 33 {
+                cursorLoupeView.setMagnification(2.0)
+                let mouseInWindow = window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: bounds.midX, y: bounds.midY)
+                let localPt = convert(mouseInWindow, from: nil)
+                cursorLoupeView.updatePosition(mousePt: localPt, in: self)
+                showToast("Loupe 2×", icon: "🔍", shortcut: "- / [")
+                return
+            }
         }
 
         // Esc (KeyCode 53): If zoomed, exit zoom to grid/fit; otherwise quit Glance
@@ -1439,6 +1541,12 @@ public final class SlideView: NSView {
         // Focus Peaking: Shift + F
         if isShift && (lower == "f" || event.keyCode == 3) {
             delegate?.slideViewToggleFocusPeaking()
+            return
+        }
+
+        // Split-Screen Magnifier Loupe: 'M' (KeyCode 46)
+        if !isCmd && (lower == "m" || event.keyCode == 46) {
+            toggleCursorLoupe()
             return
         }
 
@@ -1636,11 +1744,32 @@ public final class SlideView: NSView {
         super.keyUp(with: event)
     }
 
+    public override func flagsChanged(with event: NSEvent) {
+        super.flagsChanged(with: event)
+        let isOption = event.modifierFlags.contains(.option)
+        if isOption {
+            if !cursorLoupeView.isPresented {
+                cursorLoupeView.present(temporary: true)
+                let mouseInWindow = window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: bounds.midX, y: bounds.midY)
+                let localPt = convert(mouseInWindow, from: nil)
+                cursorLoupeView.updatePosition(mousePt: localPt, in: self)
+            }
+        } else {
+            if cursorLoupeView.isPresented && cursorLoupeView.isTemporaryGlide {
+                cursorLoupeView.dismiss()
+            }
+        }
+    }
+
     public override func mouseMoved(with event: NSEvent) {
         hudView.pulse()
         resetCursorTimer()
 
         let mousePt = convert(event.locationInWindow, from: nil)
+
+        if cursorLoupeView.isPresented {
+            cursorLoupeView.updatePosition(mousePt: mousePt, in: self)
+        }
 
         // Hold-Z real-time mouse panning: if user holds Z and glides mouse without clicking
         if isZHeld && isZoomed {
