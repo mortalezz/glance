@@ -1,8 +1,8 @@
 import AppKit
 
-/// Model info passed to each split compare badge pane.
+/// Model info passed to each split/multi-up compare badge pane.
 public struct SplitPaneInfo: Sendable {
-    public let slot: Int // 1 or 2
+    public let slot: Int // 1..4
     public let filename: String
     public let pick: PickStatus
     public let rating: Int
@@ -38,14 +38,14 @@ public struct SplitPaneInfo: Sendable {
     }
 }
 
-/// Frosted glass floating pill badge labeling panes in 2-UP Split Compare mode (e.g. "[ 1 ] DSC_3088.NEF  ✨ 8.9 BEST  👑 CHAMPION").
+/// Frosted glass floating pill badge labeling panes in Multi-Up Compare mode (e.g. "[ 1 ] DSC_3088.NEF  ✨ 8.9 BEST  ✓ PICK").
 @MainActor
 public final class SplitPaneBadgeView: NSView {
     private let visualEffectView = NSVisualEffectView()
     private let scrimView = NSView()
     private let stackView = NSStackView()
 
-    // 1. Keycap Pill: [ 1 ] or [ 2 ]
+    // 1. Keycap Pill: [ 1 ], [ 2 ], [ 3 ], [ 4 ]
     private let keycapPill = NSView()
     private let keycapLabel = NSTextField(labelWithString: "1")
 
@@ -60,11 +60,19 @@ public final class SplitPaneBadgeView: NSView {
     private let burstPill = NSView()
     private let burstLabel = NSTextField(labelWithString: "")
 
-    // 4. Status Pill: 👑 CHAMPION / CHALLENGER / ✓ PICK / ✕ REJECT / PRESS 1
+    // 4. Status Pill: ✓ PICK / ✕ REJECT / ★ 5
     private let statusPill = NSView()
     private let statusLabel = NSTextField(labelWithString: "")
 
     public let slot: Int
+    public var isActiveSlot: Bool = false {
+        didSet {
+            if oldValue != isActiveSlot {
+                updateTheme()
+            }
+        }
+    }
+
     private var currentInfo: SplitPaneInfo?
     private var currentAestheticScore: AestheticScoreResult?
 
@@ -89,7 +97,6 @@ public final class SplitPaneBadgeView: NSView {
 
     private func setupView() {
         wantsLayer = true
-        // Allow SlideView.updateLayerLayout to frame-position the badge without Auto Layout solver fighting
         translatesAutoresizingMaskIntoConstraints = true
 
         visualEffectView.material = .hudWindow
@@ -275,9 +282,6 @@ public final class SplitPaneBadgeView: NSView {
                 pick: current.pick,
                 rating: current.rating,
                 color: current.color,
-                isChampion: current.isChampion,
-                isChallenger: current.isChallenger,
-                isPairScouting: current.isPairScouting,
                 aestheticScore: current.aestheticScore,
                 burstDescription: desc
             )
@@ -309,74 +313,109 @@ public final class SplitPaneBadgeView: NSView {
 
         visualEffectView.material = .hudWindow
         visualEffectView.appearance = theme.glassAppearance
-        visualEffectView.layer?.borderColor = theme.glassBorderColor
+        visualEffectView.layer?.borderColor = isActiveSlot
+            ? NSColor.white.withAlphaComponent(isDark ? 0.45 : 0.65).cgColor
+            : theme.glassBorderColor
         scrimView.layer?.backgroundColor = theme.scrimColor.cgColor
 
         let shadow = NSShadow()
         shadow.shadowColor = theme.shadowColor
         shadow.shadowOffset = NSSize(width: 0, height: -4)
-        shadow.shadowBlurRadius = 14
+        shadow.shadowBlurRadius = isActiveSlot ? 18 : 14
         self.shadow = shadow
 
         filenameLabel.textColor = theme.primaryTextColor
 
-        // Keycap appearance
-        if slot == 1 {
-            // Teal / Cyan for Slot 1
-            keycapPill.layer?.backgroundColor = isDark
-                ? NSColor(srgbRed: 0.15, green: 0.50, blue: 0.70, alpha: 0.85).cgColor
-                : NSColor(srgbRed: 0.10, green: 0.55, blue: 0.75, alpha: 0.88).cgColor
-            keycapPill.layer?.borderColor = NSColor(srgbRed: 0.30, green: 0.75, blue: 0.95, alpha: 0.50).cgColor
-            keycapLabel.textColor = .white
-        } else {
-            // Amber / Orange for Slot 2
-            keycapPill.layer?.backgroundColor = isDark
-                ? NSColor(srgbRed: 0.85, green: 0.45, blue: 0.15, alpha: 0.85).cgColor
-                : NSColor(srgbRed: 0.90, green: 0.50, blue: 0.15, alpha: 0.88).cgColor
-            keycapPill.layer?.borderColor = NSColor(srgbRed: 1.0, green: 0.70, blue: 0.35, alpha: 0.50).cgColor
-            keycapLabel.textColor = .white
+        // Semantic keycap colors across slots 1..4
+        let baseColor: NSColor
+        let highlightBorder: NSColor
+        switch slot {
+        case 1:
+            // Teal / Cyan
+            baseColor = isDark
+                ? NSColor(srgbRed: 0.15, green: 0.50, blue: 0.70, alpha: 0.85)
+                : NSColor(srgbRed: 0.10, green: 0.55, blue: 0.75, alpha: 0.88)
+            highlightBorder = NSColor(srgbRed: 0.30, green: 0.75, blue: 0.95, alpha: 0.80)
+        case 2:
+            // Amber / Orange
+            baseColor = isDark
+                ? NSColor(srgbRed: 0.85, green: 0.45, blue: 0.15, alpha: 0.85)
+                : NSColor(srgbRed: 0.90, green: 0.50, blue: 0.15, alpha: 0.88)
+            highlightBorder = NSColor(srgbRed: 1.0, green: 0.70, blue: 0.35, alpha: 0.80)
+        case 3:
+            // Purple / Violet
+            baseColor = isDark
+                ? NSColor(srgbRed: 0.55, green: 0.30, blue: 0.85, alpha: 0.85)
+                : NSColor(srgbRed: 0.50, green: 0.25, blue: 0.80, alpha: 0.88)
+            highlightBorder = NSColor(srgbRed: 0.75, green: 0.50, blue: 1.0, alpha: 0.80)
+        case 4:
+            // Emerald / Green
+            baseColor = isDark
+                ? NSColor(srgbRed: 0.18, green: 0.62, blue: 0.38, alpha: 0.85)
+                : NSColor(srgbRed: 0.15, green: 0.58, blue: 0.35, alpha: 0.88)
+            highlightBorder = NSColor(srgbRed: 0.35, green: 0.85, blue: 0.55, alpha: 0.80)
+        default:
+            baseColor = NSColor.systemGray
+            highlightBorder = NSColor.white
         }
+
+        keycapPill.layer?.backgroundColor = baseColor.cgColor
+        if isActiveSlot {
+            keycapPill.layer?.borderColor = NSColor.white.cgColor
+            keycapPill.layer?.borderWidth = 1.25
+        } else {
+            keycapPill.layer?.borderColor = highlightBorder.withAlphaComponent(0.40).cgColor
+            keycapPill.layer?.borderWidth = 0.5
+        }
+        keycapLabel.textColor = .white
 
         guard let info = currentInfo else { return }
 
         let starSuffix = info.rating > 0 ? " ★\(info.rating)" : ""
 
-        // Status badge: Handle King-of-the-Hill vs Pair Scouting
-        if info.isChampion {
-            statusLabel.stringValue = "👑 CHAMPION" + starSuffix
+        // Layout-Independent Culling Status Pill
+        switch info.pick {
+        case .pick:
+            statusLabel.stringValue = "✓ PICK" + starSuffix
             statusLabel.textColor = .white
             statusPill.layer?.backgroundColor = NSColor(srgbRed: 0.12, green: 0.65, blue: 0.35, alpha: 0.90).cgColor
             statusPill.layer?.borderColor = NSColor(srgbRed: 0.20, green: 0.85, blue: 0.45, alpha: 0.60).cgColor
             statusPill.isHidden = false
-        } else if info.isChallenger {
-            statusLabel.stringValue = "CHALLENGER" + starSuffix
+
+        case .reject:
+            statusLabel.stringValue = "✕ REJECT" + starSuffix
             statusLabel.textColor = .white
-            statusPill.layer?.backgroundColor = NSColor(srgbRed: 0.20, green: 0.45, blue: 0.85, alpha: 0.85).cgColor
-            statusPill.layer?.borderColor = NSColor(srgbRed: 0.40, green: 0.70, blue: 1.0, alpha: 0.50).cgColor
+            statusPill.layer?.backgroundColor = NSColor(srgbRed: 0.82, green: 0.22, blue: 0.22, alpha: 0.85).cgColor
+            statusPill.layer?.borderColor = NSColor(srgbRed: 0.95, green: 0.35, blue: 0.35, alpha: 0.50).cgColor
             statusPill.isHidden = false
-        } else {
-            switch info.pick {
-            case .pick:
-                statusLabel.stringValue = "✓ PICK" + starSuffix
-                statusLabel.textColor = .white
-                statusPill.layer?.backgroundColor = NSColor(srgbRed: 0.12, green: 0.65, blue: 0.35, alpha: 0.90).cgColor
-                statusPill.layer?.borderColor = NSColor(srgbRed: 0.20, green: 0.85, blue: 0.45, alpha: 0.60).cgColor
-                statusPill.isHidden = false
 
-            case .reject:
-                statusLabel.stringValue = "✕ REJECT" + starSuffix
+        case .unflagged:
+            if info.rating > 0 {
+                statusLabel.stringValue = "★\(info.rating)"
+                statusLabel.textColor = isDark ? NSColor(srgbRed: 1.0, green: 0.82, blue: 0.28, alpha: 1.0) : NSColor(srgbRed: 0.85, green: 0.60, blue: 0.10, alpha: 1.0)
+                statusPill.layer?.backgroundColor = isDark
+                    ? NSColor(srgbRed: 0.85, green: 0.65, blue: 0.12, alpha: 0.25).cgColor
+                    : NSColor(srgbRed: 0.95, green: 0.82, blue: 0.35, alpha: 0.30).cgColor
+                statusPill.layer?.borderColor = isDark
+                    ? NSColor(srgbRed: 1.0, green: 0.85, blue: 0.35, alpha: 0.45).cgColor
+                    : NSColor(srgbRed: 0.85, green: 0.65, blue: 0.12, alpha: 0.50).cgColor
+                statusPill.isHidden = false
+            } else if info.color != .none {
+                statusLabel.stringValue = info.color.title.uppercased()
                 statusLabel.textColor = .white
-                statusPill.layer?.backgroundColor = NSColor(srgbRed: 0.82, green: 0.22, blue: 0.22, alpha: 0.85).cgColor
-                statusPill.layer?.borderColor = NSColor(srgbRed: 0.95, green: 0.35, blue: 0.35, alpha: 0.50).cgColor
+                let c: NSColor
+                switch info.color {
+                case .red: c = .systemRed
+                case .yellow: c = .systemYellow
+                case .green: c = .systemGreen
+                case .blue: c = .systemBlue
+                default: c = .systemGray
+                }
+                statusPill.layer?.backgroundColor = c.withAlphaComponent(0.85).cgColor
+                statusPill.layer?.borderColor = c.withAlphaComponent(0.60).cgColor
                 statusPill.isHidden = false
-
-            case .unflagged:
-                let starPrefix = info.rating > 0 ? "★\(info.rating) • " : ""
-                statusLabel.stringValue = starPrefix + "PRESS \(info.slot)"
-                statusLabel.textColor = theme.secondaryTextColor
-                statusPill.layer?.backgroundColor = theme.pillBackgroundColor
-                statusPill.layer?.borderColor = theme.pillBorderColor
-                statusPill.isHidden = false
+            } else {
+                statusPill.isHidden = true
             }
         }
 

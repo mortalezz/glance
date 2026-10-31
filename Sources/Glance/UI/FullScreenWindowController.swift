@@ -18,14 +18,18 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     private var autoAdvance: Bool = false
     private var isDeleting: Bool = false
 
+    // Multi-Up View & Inspection
+    private var multiUpMode: MultiUpMode = .single
+    private var activeHoverSlot: Int = 1
+    private var filterBeforeMultiUp: CullingFilter? = nil
+
     // Phase 3: Histogram & Clipping Warnings
     private var isHistogramVisible: Bool = false
     private var isClippingVisible: Bool = false
     private var isFocusPeakingVisible: Bool = false
     private var isExifVisible: Bool = false
-    private var leftHistogramData: HistogramData? = nil
-    private var rightHistogramData: HistogramData? = nil
-    private var activeHoverSlot: Int = 1
+    private var paneHistogramData: [Int: HistogramData] = [:]
+    private var paneExifData: [Int: (exif: ExifMetadata?, dims: String, size: String?)] = [:]
 
     // Phase 4: Output & Productivity
     private var isSlideshowActive: Bool = false
@@ -46,17 +50,6 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     // Live directory monitoring with self-trigger suppression
     private var directoryWatcher: DirectoryWatcher? = nil
     private var pipelineMaxPixelSize: Int = 4096
-
-    /// Culling state in 2-UP split comparison: uncommitted pair scouting vs. active king-of-the-hill elimination.
-    public enum SplitCompareState: Equatable, Sendable {
-        case pairScouting
-        case kingOfTheHill(championRawIndex: Int)
-    }
-
-    // Split Compare State
-    private var splitCompareState: SplitCompareState = .pairScouting
-    private var splitChallengerPos: Int? = nil
-    private var filterBeforeMultiUp: CullingFilter? = nil
 
     public init() {
         let screenRect = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
@@ -194,251 +187,200 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             return
         }
 
-        let item = allItems[rawIndex]
-        let meta = cullingData[item.id] ?? CullingMetadata()
+        let slotCount = multiUpMode.rawValue
+        var slotImages: [CGImage?] = Array(repeating: nil, count: 4)
+        var slotSizes: [CGSize] = Array(repeating: .zero, count: 4)
+        var slotInfos: [SplitPaneInfo?] = Array(repeating: nil, count: 4)
+        var slotDecoded: [DecodedImage?] = Array(repeating: nil, count: 4)
+        var slotItems: [SlideItem?] = Array(repeating: nil, count: 4)
+        var slotPaths: [String?] = Array(repeating: nil, count: 4)
 
+        for s in 0..<slotCount {
+            let pos = currentFilteredPos + s
+            guard pos < filteredIndices.count else { continue }
+            let raw = filteredIndices[pos]
+            let itm = allItems[raw]
+            slotItems[s] = itm
+            slotPaths[s] = itm.url.path
+            let m = cullingData[itm.id] ?? CullingMetadata()
+
+            if let dec = try? await pipeline.getImage(at: raw) {
+                slotDecoded[s] = dec
+                slotSizes[s] = CGSize(width: dec.originalWidth, height: dec.originalHeight)
+
+                // In multi-up mode, force neutral baseline so comparison is completely unbiased
+                let activeProf = (multiUpMode != .single) ? .asShot : (m.cameraProfile ?? .asShot)
+                let brand = CameraProfileEngine.detectBrand(for: itm, exif: dec.exif)
+                let rendered = (activeProf != .asShot)
+                    ? (CameraProfileEngine.apply(profile: activeProf, brand: brand, to: dec.image) ?? dec.image)
+                    : dec.image
+                slotImages[s] = rendered
+
+                let fmtSize = itm.totalStackSize > 0
+                    ? ByteCountFormatter.string(fromByteCount: itm.totalStackSize, countStyle: .file)
+                    : nil
+                let res = "\(dec.originalWidth) × \(dec.originalHeight)"
+                paneExifData[s + 1] = (dec.exif, res, fmtSize)
+            }
+
+            if multiUpMode != .single {
+                slotInfos[s] = SplitPaneInfo(
+                    slot: s + 1,
+                    filename: itm.displayName,
+                    pick: m.pick,
+                    rating: m.rating,
+                    color: m.color,
+                    isPairScouting: true
+                )
+            }
+        }
+
+        // Primary item under view / active slot
+        let primaryIdx = min(activeHoverSlot - 1, slotCount - 1)
+        guard let item = slotItems[primaryIdx] ?? slotItems[0],
+              let decoded = slotDecoded[primaryIdx] ?? slotDecoded[0] else {
+            let info = HudInfo(
+                currentIndex: currentFilteredPos,
+                totalCount: filteredIndices.count,
+                filename: allItems[rawIndex].displayName,
+                culling: cullingData[allItems[rawIndex].id] ?? CullingMetadata(),
+                autoAdvance: autoAdvance,
+                errorMessage: "Failed to decode primary image"
+            )
+            slideView.displayImage(nil, info: info)
+            return
+        }
+
+        let meta = cullingData[item.id] ?? CullingMetadata()
         let formattedSize = item.totalStackSize > 0
             ? ByteCountFormatter.string(fromByteCount: item.totalStackSize, countStyle: .file)
             : nil
+        let resText = "\(decoded.originalWidth) × \(decoded.originalHeight)"
+        let filterBadge = currentFilter == .all ? nil : currentFilter.title
 
-        do {
-            let decoded = try await pipeline.getImage(at: rawIndex)
-            let resText = "\(decoded.originalWidth) × \(decoded.originalHeight)"
+        var hudMeta = meta
+        if multiUpMode != .single {
+            hudMeta.cameraProfile = .asShot
+        }
 
-            var splitCgImage: CGImage? = nil
-            var splitChallengerExif: ExifMetadata? = nil
-            var rightNativeSize: CGSize? = nil
-            var leftSplitInfo: SplitPaneInfo? = nil
-            var rightSplitInfo: SplitPaneInfo? = nil
+        let cachedAesthetic = (multiUpMode != .single) ? nil : AestheticsEngine.shared.cachedScore(for: item.url.path)
 
-            let isSplit = slideView.isSplitMode
-
-            if isSplit {
-                // Ensure challenger position is valid
-                if splitChallengerPos == nil || splitChallengerPos! <= currentFilteredPos || splitChallengerPos! >= filteredIndices.count {
-                    splitChallengerPos = (currentFilteredPos + 1 < filteredIndices.count) ? (currentFilteredPos + 1) : nil
-                }
-
-                let isScouting: Bool
-                let isLeftChamp: Bool
-                let isRightChamp: Bool
-
-                switch splitCompareState {
-                case .pairScouting:
-                    isScouting = true
-                    isLeftChamp = false
-                    isRightChamp = false
-                case .kingOfTheHill(let champRaw):
-                    isScouting = false
-                    isLeftChamp = (currentRawIndex == champRaw)
-                    isRightChamp = !isLeftChamp
-                }
-
-                leftSplitInfo = SplitPaneInfo(
-                    slot: 1,
-                    filename: item.displayName,
-                    pick: meta.pick,
-                    rating: meta.rating,
-                    color: meta.color,
-                    isChampion: isLeftChamp,
-                    isChallenger: !isLeftChamp && !isScouting,
-                    isPairScouting: isScouting
-                )
-
-                if let cPos = splitChallengerPos, cPos < filteredIndices.count {
-                    let nextRaw = filteredIndices[cPos]
-                    let challengerItem = allItems[nextRaw]
-                    let challengerMeta = cullingData[challengerItem.id] ?? CullingMetadata()
-
-                    if let nextDecoded = try? await pipeline.getImage(at: nextRaw) {
-                        splitCgImage = nextDecoded.image
-                        splitChallengerExif = nextDecoded.exif
-                        rightNativeSize = CGSize(width: nextDecoded.originalWidth, height: nextDecoded.originalHeight)
+        let info = HudInfo(
+            currentIndex: currentFilteredPos,
+            totalCount: filteredIndices.count,
+            filename: item.displayName,
+            dimensions: resText,
+            fileSize: formattedSize,
+            isRaw: decoded.isRaw || item.rawURL != nil,
+            isStacked: item.isStacked,
+            isDownscaled: decoded.isDownscaled,
+            culling: hudMeta,
+            autoAdvance: autoAdvance,
+            filterTitle: filterBadge,
+            isZoomed: slideView.isZoomed,
+            exif: {
+                var parsed = decoded.exif
+                if parsed?.pictureControl == nil {
+                    let targetURL = item.rawURL ?? item.url
+                    if let extracted = CameraProfileEngine.extractCameraProfile(from: targetURL) {
+                        parsed = ExifMetadata(
+                            cameraMake: parsed?.cameraMake,
+                            cameraModel: parsed?.cameraModel,
+                            lensModel: parsed?.lensModel,
+                            shutterSpeed: parsed?.shutterSpeed,
+                            aperture: parsed?.aperture,
+                            iso: parsed?.iso,
+                            focalLength: parsed?.focalLength,
+                            focalLength35mm: parsed?.focalLength35mm,
+                            exposureBias: parsed?.exposureBias,
+                            flashFired: parsed?.flashFired,
+                            dateTimeOriginal: parsed?.dateTimeOriginal,
+                            pictureControl: extracted
+                        )
                     }
-
-                    rightSplitInfo = SplitPaneInfo(
-                        slot: 2,
-                        filename: challengerItem.displayName,
-                        pick: challengerMeta.pick,
-                        rating: challengerMeta.rating,
-                        color: challengerMeta.color,
-                        isChampion: isRightChamp,
-                        isChallenger: !isRightChamp && !isScouting,
-                        isPairScouting: isScouting
-                    )
                 }
-            }
+                return parsed
+            }(),
+            isSlideshow: isSlideshowActive,
+            slideshowInterval: slideshowInterval,
+            exportProgressText: exportProgressText,
+            aestheticScore: cachedAesthetic
+        )
 
-            let filterBadge = currentFilter == .all ? nil : currentFilter.title
+        slideView.displayMultiUp(
+            images: slotImages,
+            nativeSizes: slotSizes,
+            splitInfos: slotInfos,
+            info: info
+        )
 
-            // In 2-UP mode, force neutral baseline so comparison is completely unbiased
-            var hudMeta = meta
-            if isSplit {
-                hudMeta.cameraProfile = .asShot
-            }
+        // Asynchronous Histogram calculations for all visible panes
+        if isHistogramVisible {
+            updateHistogramAsync(for: slotImages)
+        }
+        if isClippingVisible {
+            updateClippingMaskAsync(for: slotImages)
+        }
+        if isFocusPeakingVisible {
+            updatePeakingMaskAsync(for: slotImages)
+        }
 
-            let cachedAesthetic = isSplit ? nil : AestheticsEngine.shared.cachedScore(for: item.url.path)
-
-            let info = HudInfo(
-                currentIndex: currentFilteredPos,
-                totalCount: filteredIndices.count,
-                filename: item.displayName,
-                dimensions: resText,
-                fileSize: formattedSize,
-                isRaw: decoded.isRaw || item.rawURL != nil,
-                isStacked: item.isStacked,
-                isDownscaled: decoded.isDownscaled,
-                culling: hudMeta,
-                autoAdvance: autoAdvance,
-                filterTitle: filterBadge,
-                isZoomed: slideView.isZoomed,
-                exif: {
-                    var parsed = decoded.exif
-                    if parsed?.pictureControl == nil {
-                        let targetURL = item.rawURL ?? item.url
-                        if let extracted = CameraProfileEngine.extractCameraProfile(from: targetURL) {
-                            parsed = ExifMetadata(
-                                cameraMake: parsed?.cameraMake,
-                                cameraModel: parsed?.cameraModel,
-                                lensModel: parsed?.lensModel,
-                                shutterSpeed: parsed?.shutterSpeed,
-                                aperture: parsed?.aperture,
-                                iso: parsed?.iso,
-                                focalLength: parsed?.focalLength,
-                                focalLength35mm: parsed?.focalLength35mm,
-                                exposureBias: parsed?.exposureBias,
-                                flashFired: parsed?.flashFired,
-                                dateTimeOriginal: parsed?.dateTimeOriginal,
-                                pictureControl: extracted
-                            )
-                        }
-                    }
-                    return parsed
-                }(),
-                isSlideshow: isSlideshowActive,
-                slideshowInterval: slideshowInterval,
-                exportProgressText: exportProgressText,
-                aestheticScore: cachedAesthetic
-            )
-
-            // Detect camera brand for tailored profile color science and naming
-            let cameraBrand = CameraProfileEngine.detectBrand(for: item, exif: decoded.exif)
-
-            // Apply Camera Profile / Picture Control if active (forced to .asShot in 2-UP mode for unbiased comparison)
-            let activeProfile = isSplit ? .asShot : (meta.cameraProfile ?? .asShot)
-            let renderedImage = (activeProfile != .asShot)
-                ? (CameraProfileEngine.apply(profile: activeProfile, brand: cameraBrand, to: decoded.image) ?? decoded.image)
-                : decoded.image
-
-            let nativeSize = CGSize(width: decoded.originalWidth, height: decoded.originalHeight)
-            slideView.displayImage(
-                renderedImage,
-                nextImage: splitCgImage,
-                info: info,
-                nativeSize: nativeSize,
-                rightNativeSize: rightNativeSize,
-                leftSplitInfo: leftSplitInfo,
-                rightSplitInfo: rightSplitInfo
-            )
-
-            // Trigger background async histogram and clipping calculations (Phase 3)
-            if isHistogramVisible {
-                updateHistogramAsync(for: decoded.image, nextImage: splitCgImage)
-            }
-            if isClippingVisible {
-                updateClippingMaskAsync(for: decoded.image, nextImage: splitCgImage)
-            }
-            if isFocusPeakingVisible {
-                updatePeakingMaskAsync(for: decoded.image, nextImage: splitCgImage)
-            }
-
-            // Pre-detect faces asynchronously via Apple Neural Engine (ANE) for both frames
-            currentFaceIndex = 0
-            detectedFacesForCurrentSlide = []
-            detectedFacesForChallengerSlide = []
-            let currentPath = item.url.path
-            let cPos = splitChallengerPos ?? (currentFilteredPos + 1)
-            let challengerItem = (isSplit && cPos < filteredIndices.count) ? allItems[filteredIndices[cPos]] : nil
-            let challengerPath = challengerItem?.url.path
-            let rightCg = splitCgImage
-
+        // Face detection asynchronously
+        currentFaceIndex = 0
+        detectedFacesForCurrentSlide = []
+        detectedFacesForChallengerSlide = []
+        if let p = slotPaths[0], let img0 = slotImages[0] {
             Task.detached(priority: .utility) { [weak self] in
-                async let f1 = FaceDetectionEngine.shared.detectFaces(in: decoded.image, cacheKey: currentPath)
-                async let f2: [DetectedFace] = {
-                    if let rImg = rightCg, let rPath = challengerPath {
-                        return await FaceDetectionEngine.shared.detectFaces(in: rImg, cacheKey: rPath)
-                    }
-                    return []
-                }()
-                let (faces1, faces2) = await (f1, f2)
+                let faces = await FaceDetectionEngine.shared.detectFaces(in: img0, cacheKey: p)
                 await MainActor.run { [weak self] in
                     guard let self = self, self.currentRawIndex == rawIndex else { return }
-                    self.detectedFacesForCurrentSlide = faces1
-                    self.detectedFacesForChallengerSlide = faces2
+                    self.detectedFacesForCurrentSlide = faces
                 }
             }
+        }
 
-            // Evaluate Apple Neural Engine (ANE) scene & burst similarity
-            if isSplit, let rImg = rightCg {
-                let leftExif = decoded.exif
-                let rExif = splitChallengerExif
-                Task.detached(priority: .utility) { [weak self] in
-                    var dt: TimeInterval? = nil
-                    if let d1 = leftExif?.date, let d2 = rExif?.date {
-                        dt = abs(d2.timeIntervalSince(d1))
-                    }
-                    let sceneResult = await SceneDetectionEngine.shared.compareScenes(
-                        imageA: decoded.image,
-                        keyA: currentPath,
-                        imageB: rImg,
-                        keyB: challengerPath,
-                        timeDelta: dt
-                    )
-                    await MainActor.run { [weak self] in
-                        guard let self = self, self.currentRawIndex == rawIndex else { return }
-                        self.slideView.updateSplitScene(description: sceneResult.statusDescription)
-                    }
+        // ANE Burst / Scene Similarity
+        if multiUpMode != .single, let img1 = slotImages[0], let img2 = slotImages[1], let p1 = slotPaths[0], let p2 = slotPaths[1] {
+            let d1 = slotDecoded[0]?.exif?.date
+            let d2 = slotDecoded[1]?.exif?.date
+            let dt = (d1 != nil && d2 != nil) ? abs(d2!.timeIntervalSince(d1!)) : nil
+            Task.detached(priority: .utility) { [weak self] in
+                let sceneResult = await SceneDetectionEngine.shared.compareScenes(
+                    imageA: img1,
+                    keyA: p1,
+                    imageB: img2,
+                    keyB: p2,
+                    timeDelta: dt
+                )
+                await MainActor.run { [weak self] in
+                    guard let self = self, self.currentRawIndex == rawIndex else { return }
+                    self.slideView.updateSlotScene(slot: 1, description: sceneResult.statusDescription)
+                    self.slideView.updateSlotScene(slot: 2, description: sceneResult.statusDescription)
                 }
             }
+        }
 
-            // Evaluate Apple Vision aesthetic & integral quality scores
-            if isSplit, let rImg = rightCg, let rPath = challengerPath {
+        // Apple Vision Aesthetic Scoring
+        if multiUpMode != .single {
+            for s in 0..<slotCount {
+                guard let img = slotImages[s], let path = slotPaths[s] else { continue }
+                let slotNum = s + 1
                 Task.detached(priority: .utility) { [weak self] in
-                    async let s1 = AestheticsEngine.shared.computeScore(for: decoded.image, cacheKey: currentPath)
-                    async let s2 = AestheticsEngine.shared.computeScore(for: rImg, cacheKey: rPath)
-                    let (score1, score2) = await (s1, s2)
-                    let (compared1, compared2) = AestheticScoreResult.compareMatchup(left: score1, right: score2)
+                    let score = await AestheticsEngine.shared.computeScore(for: img, cacheKey: path)
                     await MainActor.run { [weak self] in
                         guard let self = self, self.currentRawIndex == rawIndex else { return }
-                        self.slideView.updateSplitAesthetics(left: compared1, right: compared2)
-                    }
-                }
-            } else if !isSplit {
-                Task.detached(priority: .utility) { [weak self] in
-                    let score = await AestheticsEngine.shared.computeScore(for: decoded.image, cacheKey: currentPath)
-                    await MainActor.run { [weak self] in
-                        guard let self = self, self.currentRawIndex == rawIndex else { return }
-                        self.slideView.updateAestheticScore(score)
+                        self.slideView.updateSlotAesthetics(slot: slotNum, score: score)
                     }
                 }
             }
-        } catch {
-            let info = HudInfo(
-                currentIndex: currentFilteredPos,
-                totalCount: filteredIndices.count,
-                filename: item.displayName,
-                isRaw: item.rawURL != nil,
-                isStacked: item.isStacked,
-                culling: meta,
-                autoAdvance: autoAdvance,
-                errorMessage: "Decode error: \(error.localizedDescription)",
-                isSlideshow: isSlideshowActive,
-                slideshowInterval: slideshowInterval,
-                exportProgressText: exportProgressText
-            )
-            slideView.displayImage(nil, info: info)
-            slideView.updateClippingMask(nil, rightMask: nil)
-            slideView.updatePeakingMask(nil, rightMask: nil)
+        } else if let img = slotImages[0], let path = slotPaths[0] {
+            Task.detached(priority: .utility) { [weak self] in
+                let score = await AestheticsEngine.shared.computeScore(for: img, cacheKey: path)
+                await MainActor.run { [weak self] in
+                    guard let self = self, self.currentRawIndex == rawIndex else { return }
+                    self.slideView.updateAestheticScore(score)
+                }
+            }
         }
     }
 
@@ -448,39 +390,21 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         stopSlideshowIfRunning()
         guard !filteredIndices.isEmpty else { return }
 
-        // In 2-UP split compare mode:
-        if slideView.isSplitMode {
-            switch splitCompareState {
-            case .pairScouting:
-                // Unpicked Pair Scouting: Advance by +2 (Next Pair)
-                if currentFilteredPos + 2 < filteredIndices.count {
-                    let nextPos = currentFilteredPos + 2
-                    splitChallengerPos = (nextPos + 1 < filteredIndices.count) ? (nextPos + 1) : nil
-                    navigate(toFilteredPos: nextPos, direction: .forward)
-                } else if currentFilteredPos + 1 < filteredIndices.count {
-                    navigate(toFilteredPos: currentFilteredPos + 1, direction: .forward)
-                    splitChallengerPos = nil
-                    slideView.hudView.showMessage("Last Photo in Set")
-                } else {
-                    slideView.hudView.showMessage("End of Set")
-                }
-            case .kingOfTheHill:
-                // Elimination mode: Step challenger by +1 without marking champion
-                let cPos = splitChallengerPos ?? (currentFilteredPos + 1)
-                if cPos + 1 < filteredIndices.count {
-                    splitChallengerPos = cPos + 1
-                    Task { await loadAndDisplayCurrent() }
-                } else {
-                    slideView.hudView.showMessage("No more challengers in scene")
-                }
-            }
-            return
-        }
+        let stride = multiUpMode.rawValue
+        let nextPos = currentFilteredPos + stride
 
-        if currentFilteredPos + 1 < filteredIndices.count {
+        if nextPos < filteredIndices.count {
+            navigate(toFilteredPos: nextPos, direction: .forward)
+        } else if currentFilteredPos + 1 < filteredIndices.count && multiUpMode != .single {
+            // Remainder partial block at end of directory
             navigate(toFilteredPos: currentFilteredPos + 1, direction: .forward)
+            slideView.hudView.showMessage("Last Photo in Set")
         } else {
-            navigate(toFilteredPos: 0, direction: .forward)
+            if multiUpMode == .single {
+                navigate(toFilteredPos: 0, direction: .forward)
+            } else {
+                slideView.hudView.showMessage("End of Set")
+            }
         }
     }
 
@@ -488,79 +412,24 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         stopSlideshowIfRunning()
         guard !filteredIndices.isEmpty else { return }
 
-        // In 2-UP split compare mode:
-        if slideView.isSplitMode {
-            switch splitCompareState {
-            case .pairScouting:
-                // Step back by -2 (Previous Pair)
-                if currentFilteredPos - 2 >= 0 {
-                    let prevPos = currentFilteredPos - 2
-                    splitChallengerPos = prevPos + 1
-                    navigate(toFilteredPos: prevPos, direction: .backward)
-                } else if currentFilteredPos - 1 >= 0 {
-                    let prevPos = currentFilteredPos - 1
-                    splitChallengerPos = currentFilteredPos
-                    navigate(toFilteredPos: prevPos, direction: .backward)
-                } else {
-                    slideView.hudView.showMessage("First pair in set")
-                }
-            case .kingOfTheHill:
-                let cPos = splitChallengerPos ?? (currentFilteredPos + 1)
-                if cPos > currentFilteredPos + 1 {
-                    splitChallengerPos = cPos - 1
-                    Task { await loadAndDisplayCurrent() }
-                } else {
-                    slideView.hudView.showMessage("First challenger against Champion")
-                }
-            }
-            return
-        }
+        let stride = multiUpMode.rawValue
+        let prevPos = currentFilteredPos - stride
 
-        if currentFilteredPos - 1 >= 0 {
-            navigate(toFilteredPos: currentFilteredPos - 1, direction: .backward)
+        if prevPos >= 0 {
+            navigate(toFilteredPos: prevPos, direction: .backward)
+        } else if currentFilteredPos > 0 && multiUpMode != .single {
+            navigate(toFilteredPos: 0, direction: .backward)
         } else {
-            navigate(toFilteredPos: filteredIndices.count - 1, direction: .backward)
+            if multiUpMode == .single {
+                navigate(toFilteredPos: filteredIndices.count - 1, direction: .backward)
+            } else {
+                slideView.hudView.showMessage("First photos in set")
+            }
         }
     }
 
-    /// Finalizes current King-of-the-Hill champion or advances unpicked scouting pair (Spacebar)
     public func slideViewCommitSplitMatchup() {
-        guard slideView.isSplitMode else {
-            slideViewRequestNext()
-            return
-        }
-
-        switch splitCompareState {
-        case .kingOfTheHill:
-            // Finalize burst/scene: advance past current burst to next unculled pair
-            splitCompareState = .pairScouting
-            if currentFilteredPos + 2 < filteredIndices.count {
-                let nextPos = currentFilteredPos + 2
-                splitChallengerPos = (nextPos + 1 < filteredIndices.count) ? (nextPos + 1) : nil
-                navigate(toFilteredPos: nextPos, direction: .forward)
-                slideView.hudView.showMessage("🏆 Burst Finalized! Next Pair [Space]")
-            } else if currentFilteredPos + 1 < filteredIndices.count {
-                navigate(toFilteredPos: currentFilteredPos + 1, direction: .forward)
-                splitChallengerPos = nil
-                slideView.hudView.showMessage("🏆 Final Burst Complete")
-            } else {
-                slideView.hudView.showMessage("End of Set")
-            }
-
-        case .pairScouting:
-            // Unpicked Pair Scouting: Advance by +2 (Next Pair)
-            if currentFilteredPos + 2 < filteredIndices.count {
-                let nextPos = currentFilteredPos + 2
-                splitChallengerPos = (nextPos + 1 < filteredIndices.count) ? (nextPos + 1) : nil
-                navigate(toFilteredPos: nextPos, direction: .forward)
-            } else if currentFilteredPos + 1 < filteredIndices.count {
-                navigate(toFilteredPos: currentFilteredPos + 1, direction: .forward)
-                splitChallengerPos = nil
-                slideView.hudView.showMessage("Last Photo in Set")
-            } else {
-                slideView.hudView.showMessage("End of Set")
-            }
-        }
+        slideViewRequestNext()
     }
 
     public func slideViewRequestFirst() {
@@ -576,7 +445,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
     public func slideViewRequestDelete() {
         stopSlideshowIfRunning()
-        guard let rawIndex = currentRawIndex, !isDeleting else { return }
+        let targetPos = (multiUpMode != .single) ? (currentFilteredPos + activeHoverSlot - 1) : currentFilteredPos
+        guard targetPos < filteredIndices.count, !isDeleting else { return }
+        let rawIndex = filteredIndices[targetPos]
         let itemToDelete = allItems[rawIndex]
         let previousMeta = cullingData[itemToDelete.id]
         isDeleting = true
@@ -621,71 +492,50 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         }
     }
 
-    // MARK: - Batch Purge Rejects
-
     public func slideViewRequestPurgeRejects() {
-        let rejectIndices = allItems.indices.filter { idx in
-            let item = allItems[idx]
-            return cullingData[item.id]?.pick == .reject
+        stopSlideshowIfRunning()
+        let rejectedItems = allItems.filter { item in
+            let meta = cullingData[item.id] ?? CullingMetadata()
+            return meta.pick == .reject
         }
 
-        guard !rejectIndices.isEmpty else {
-            slideView.hudView.showMessage("No rejected files to purge.")
+        guard !rejectedItems.isEmpty else {
+            slideView.hudView.showMessage("No rejected photos to purge.")
             return
         }
 
         let alert = NSAlert()
-        alert.messageText = "Purge \(rejectIndices.count) Rejected Files?"
-        alert.informativeText = "All stacked RAW, JPEG, and XMP files will be safely moved to macOS Trash."
-        alert.alertStyle = .warning
+        alert.messageText = "Purge \(rejectedItems.count) Rejected Photos?"
+        alert.informativeText = "These files and their Adobe XMP sidecars will be moved directly to the macOS Trash. This operation can be undone via ⌘Z."
+        alert.alertStyle = .critical
         alert.addButton(withTitle: "Move to Trash")
         alert.addButton(withTitle: "Cancel")
 
-        guard let window = self.window else { return }
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard let self = self, response == .alertFirstButtonReturn else { return }
-            self.executePurgeRejects(indices: Set(rejectIndices))
-        }
-    }
-
-    private func executePurgeRejects(indices: Set<Int>) {
-        isDeleting = true
-        slideView.hudView.showMessage("Trashing \(indices.count) rejected files...")
-
-        Task {
-            var trashedCount = 0
-            for idx in indices {
-                let item = allItems[idx]
-                for fileURL in item.allURLs {
-                    if (try? await TrashManager.moveToTrash(url: fileURL)) != nil {
+        if alert.runModal() == .alertFirstButtonReturn {
+            Task {
+                var trashedCount = 0
+                for item in rejectedItems {
+                    if let idx = self.allItems.firstIndex(where: { $0.id == item.id }) {
+                        for url in item.allURLs {
+                            _ = try? await TrashManager.moveToTrash(url: url)
+                        }
+                        if let sidecar = XmpSidecarManager.existingSidecarURL(for: item.url) {
+                            _ = try? await TrashManager.moveToTrash(url: sidecar)
+                        }
+                        _ = await self.pipeline.removeItem(at: idx)
+                        self.allItems.remove(at: idx)
+                        self.cullingData.removeValue(forKey: item.id)
                         trashedCount += 1
                     }
-                    if let sidecarURL = XmpSidecarManager.existingSidecarURL(for: fileURL) {
-                        _ = try? await TrashManager.moveToTrash(url: sidecarURL)
-                    }
                 }
-                cullingData.removeValue(forKey: item.id)
-            }
-
-            await pipeline.removeItems(at: indices)
-            let sortedDesc = indices.sorted(by: >)
-            for idx in sortedDesc {
-                allItems.remove(at: idx)
-            }
-
-            self.rebuildFilter()
-            self.isDeleting = false
-
-            if self.allItems.isEmpty {
-                self.displayEmptyState("Directory is now empty.")
-            } else {
-                slideView.hudView.showMessage("Moved \(trashedCount) rejected files to Trash.")
+                self.rebuildFilter()
                 await self.loadAndDisplayCurrent()
+                self.slideView.hudView.showMessage("Purged \(trashedCount) rejected photos to Trash.")
             }
         }
     }
 
-    // MARK: - 100% 1:1 Pixel Peep Action
+    // MARK: - Synchronized Multi-Up 100% Zoom & Pan Mechanics
 
     public func slideViewRequestZoomToggle(mouseLocation: CGPoint) {
         stopSlideshowIfRunning()
@@ -693,45 +543,51 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             currentFaceIndex = 0
             slideView.setZoom(false)
         } else {
-            guard let rawIndex = currentRawIndex else { return }
+            guard currentRawIndex != nil else { return }
 
-            // Instantly zoom the view using the screen-bounded layer first (0ms latency!)
+            // Instantly zoom the view using the screen-bounded layer (0ms latency!)
             slideView.setZoom(true, anchorPointInView: mouseLocation)
 
-            // Check if in split mode to decode both left and right images at 100%
-            let isSplit = slideView.isSplitMode
-            let cPos = splitChallengerPos ?? (currentFilteredPos + 1)
-            let nextRawIndex: Int? = (isSplit && cPos < filteredIndices.count)
-                ? filteredIndices[cPos]
-                : nil
+            let slotCount = multiUpMode.rawValue
+            var rawIndicesToFetch: [Int: Int] = [:] // [slot: rawIndex]
+            for s in 0..<slotCount {
+                let pos = currentFilteredPos + s
+                if pos < filteredIndices.count {
+                    rawIndicesToFetch[s] = filteredIndices[pos]
+                }
+            }
 
-            // Concurrently fetch the full 100% unconstrained sensor resolution in background
             Task {
-                async let leftFullTask = try? self.pipeline.getFullResolutionImage(at: rawIndex)
-                async let rightFullTask: DecodedImage? = {
-                    if let rIdx = nextRawIndex {
-                        return try? await self.pipeline.getFullResolutionImage(at: rIdx)
+                var fullImages: [CGImage?] = Array(repeating: nil, count: 4)
+                var fullDims: [CGSize] = Array(repeating: .zero, count: 4)
+
+                await withTaskGroup(of: (Int, DecodedImage?).self) { group in
+                    for (slot, rIdx) in rawIndicesToFetch {
+                        group.addTask {
+                            let dec = try? await self.pipeline.getFullResolutionImage(at: rIdx)
+                            return (slot, dec)
+                        }
                     }
-                    return nil
-                }()
+                    for await (slot, dec) in group {
+                        if let dec = dec {
+                            fullImages[slot] = dec.image
+                            fullDims[slot] = CGSize(width: dec.originalWidth, height: dec.originalHeight)
+                        }
+                    }
+                }
 
-                let (leftFull, rightFull) = await (leftFullTask, rightFullTask)
-
-                // Guard against race conditions if user zoomed out while async decode was running
                 guard self.slideView.isZoomed else { return }
 
-                if leftFull != nil || rightFull != nil {
-                    let fullDims = leftFull != nil ? CGSize(width: leftFull!.originalWidth, height: leftFull!.originalHeight) : nil
-                    let rightDims = rightFull != nil ? CGSize(width: rightFull!.originalWidth, height: rightFull!.originalHeight) : nil
-                    self.slideView.setZoom(
-                        true,
-                        anchorPointInView: mouseLocation,
-                        fullResImage: leftFull?.image,
-                        originalDimensions: fullDims,
-                        rightFullResImage: rightFull?.image,
-                        rightOriginalDimensions: rightDims
-                    )
-                }
+                self.slideView.setZoom(
+                    true,
+                    anchorPointInView: mouseLocation,
+                    fullResImage: fullImages[0],
+                    originalDimensions: fullDims[0],
+                    rightFullResImage: fullImages[1],
+                    rightOriginalDimensions: fullDims[1],
+                    multiFullResImages: fullImages,
+                    multiOriginalDimensions: fullDims
+                )
             }
         }
     }
@@ -745,13 +601,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
 
-        let isSplit = slideView.isSplitMode
-        let cPos = splitChallengerPos ?? (currentFilteredPos + 1)
-        let rightRawIndex: Int? = (isSplit && cPos < filteredIndices.count) ? filteredIndices[cPos] : nil
-        let rightItem: SlideItem? = rightRawIndex != nil ? allItems[rightRawIndex!] : nil
-
         Task {
-            // Left faces (Champion)
             var faces = self.detectedFacesForCurrentSlide
             if faces.isEmpty {
                 if let decoded = try? await self.pipeline.getImage(at: rawIndex) {
@@ -760,16 +610,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 }
             }
 
-            // Right faces (Challenger) if in 2-UP split compare mode
-            var rightFaces: [DetectedFace] = self.detectedFacesForChallengerSlide
-            if rightFaces.isEmpty, let rIdx = rightRawIndex, let rItem = rightItem {
-                if let rDecoded = try? await self.pipeline.getImage(at: rIdx) {
-                    rightFaces = await FaceDetectionEngine.shared.detectFaces(in: rDecoded.image, cacheKey: rItem.url.path)
-                    self.detectedFacesForChallengerSlide = rightFaces
-                }
-            }
-
-            guard !faces.isEmpty || !rightFaces.isEmpty else {
+            guard !faces.isEmpty else {
                 self.slideView.hudView.showMessage("No faces detected in frame")
                 if !self.slideView.isZoomed {
                     let mouseInWindow = self.window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: self.slideView.bounds.midX, y: self.slideView.bounds.midY)
@@ -779,54 +620,31 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 return
             }
 
-            let leftFace = !faces.isEmpty ? faces[self.currentFaceIndex % faces.count] : nil
-            let rightFace = !rightFaces.isEmpty ? rightFaces[self.currentFaceIndex % rightFaces.count] : nil
+            let leftFace = faces[self.currentFaceIndex % faces.count]
             self.currentFaceIndex += 1
 
             let label: String
-            if isSplit {
-                let maxFaces = max(faces.count, rightFaces.count)
-                if maxFaces > 1 {
-                    let faceNum = ((self.currentFaceIndex - 1) % maxFaces) + 1
-                    label = "👁️ Dual-Eye Focus (Face \(faceNum)/\(maxFaces)) [⇧Z]"
-                } else {
-                    label = "👁️ Dual-Eye Focus [⇧Z]"
-                }
-            } else if faces.count > 1 {
+            if faces.count > 1 {
                 label = "👁️ Face \(((self.currentFaceIndex - 1) % faces.count) + 1)/\(faces.count) (Eye Focus)"
             } else {
                 label = "👁️ Eye Focus"
             }
 
-            let leftPoint = leftFace?.eyeCenter ?? (rightFace?.eyeCenter ?? CGPoint(x: 0.5, y: 0.5))
-            let rightPoint = rightFace?.eyeCenter ?? (leftFace?.eyeCenter ?? CGPoint(x: 0.5, y: 0.5))
-
+            let leftPoint = leftFace.eyeCenter
             self.slideView.zoomToNormalizedPoint(
                 leftPoint,
-                rightNormPoint: rightPoint,
+                rightNormPoint: leftPoint,
                 label: label
             )
 
-            // Concurrently fetch full resolution sensor data for ultra-sharp 100% pixel peeping
-            async let leftFullTask = try? self.pipeline.getFullResolutionImage(at: rawIndex)
-            async let rightFullTask: DecodedImage? = {
-                if let rIdx = rightRawIndex {
-                    return try? await self.pipeline.getFullResolutionImage(at: rIdx)
-                }
-                return nil
-            }()
-
-            let (leftFull, rightFull) = await (leftFullTask, rightFullTask)
-            if leftFull != nil || rightFull != nil {
-                let fullDims = leftFull != nil ? CGSize(width: leftFull!.originalWidth, height: leftFull!.originalHeight) : nil
-                let rightDims = rightFull != nil ? CGSize(width: rightFull!.originalWidth, height: rightFull!.originalHeight) : nil
+            // Concurrently fetch full resolution sensor data
+            if let fullDec = try? await self.pipeline.getFullResolutionImage(at: rawIndex) {
+                let dims = CGSize(width: fullDec.originalWidth, height: fullDec.originalHeight)
                 self.slideView.zoomToNormalizedPoint(
                     leftPoint,
-                    rightNormPoint: rightPoint,
-                    fullResImage: leftFull?.image,
-                    originalDimensions: fullDims,
-                    rightFullResImage: rightFull?.image,
-                    rightOriginalDimensions: rightDims
+                    rightNormPoint: leftPoint,
+                    fullResImage: fullDec.image,
+                    originalDimensions: dims
                 )
             }
         }
@@ -840,17 +658,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         let msg = isHistogramVisible ? "RGB Histogram: ON [H]" : "RGB Histogram: OFF [H]"
         slideView.hudView.showMessage(msg)
 
-        if isHistogramVisible, let rawIndex = currentRawIndex {
+        if isHistogramVisible {
             Task {
-                if let decoded = try? await pipeline.getImage(at: rawIndex) {
-                    var nextImg: CGImage? = nil
-                    let cPos = self.splitChallengerPos ?? (self.currentFilteredPos + 1)
-                    if self.slideView.isSplitMode && cPos < self.filteredIndices.count {
-                        let nextRaw = self.filteredIndices[cPos]
-                        nextImg = (try? await pipeline.getImage(at: nextRaw))?.image
-                    }
-                    updateHistogramAsync(for: decoded.image, nextImage: nextImg)
-                }
+                await loadAndDisplayCurrent()
             }
         }
     }
@@ -868,20 +678,12 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         let msg = isClippingVisible ? "Clipping Warnings: ON [O]" : "Clipping Warnings: OFF [O]"
         slideView.hudView.showMessage(msg)
 
-        if isClippingVisible, let rawIndex = currentRawIndex {
+        if isClippingVisible {
             Task {
-                if let decoded = try? await pipeline.getImage(at: rawIndex) {
-                    var nextImg: CGImage? = nil
-                    let cPos = self.splitChallengerPos ?? (self.currentFilteredPos + 1)
-                    if self.slideView.isSplitMode && cPos < self.filteredIndices.count {
-                        let nextRaw = self.filteredIndices[cPos]
-                        nextImg = (try? await pipeline.getImage(at: nextRaw))?.image
-                    }
-                    updateClippingMaskAsync(for: decoded.image, nextImage: nextImg)
-                }
+                await loadAndDisplayCurrent()
             }
         } else {
-            slideView.updateClippingMask(nil, rightMask: nil)
+            slideView.updateClippingMasks([nil, nil, nil, nil])
         }
     }
 
@@ -891,77 +693,82 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         let msg = isFocusPeakingVisible ? "Focus Peaking: ON [⇧F]" : "Focus Peaking: OFF [⇧F]"
         slideView.hudView.showMessage(msg)
 
-        if isFocusPeakingVisible, let rawIndex = currentRawIndex {
+        if isFocusPeakingVisible {
             Task {
-                if let decoded = try? await pipeline.getImage(at: rawIndex) {
-                    var nextImg: CGImage? = nil
-                    let cPos = self.splitChallengerPos ?? (self.currentFilteredPos + 1)
-                    if self.slideView.isSplitMode && cPos < self.filteredIndices.count {
-                        let nextRaw = self.filteredIndices[cPos]
-                        nextImg = (try? await pipeline.getImage(at: nextRaw))?.image
-                    }
-                    updatePeakingMaskAsync(for: decoded.image, nextImage: nextImg)
-                }
+                await loadAndDisplayCurrent()
             }
         } else {
-            slideView.updatePeakingMask(nil, rightMask: nil)
+            slideView.updatePeakingMasks([nil, nil, nil, nil])
         }
     }
 
     public func slideViewHoverPaneChanged(to slot: Int) {
-        guard slideView.isSplitMode else { return }
+        guard multiUpMode != .single else { return }
         guard activeHoverSlot != slot else { return }
         activeHoverSlot = slot
 
-        guard isHistogramVisible else { return }
-        let data = (slot == 2 ? rightHistogramData : leftHistogramData) ?? .empty
-        slideView.updateHistogram(data, slot: slot)
+        if isHistogramVisible {
+            let data = paneHistogramData[slot] ?? .empty
+            slideView.updateHistogram(data, slot: slot)
+        }
+
+        if isExifVisible, let exifData = paneExifData[slot] {
+            slideView.exifHud.update(with: exifData.exif, dimensions: exifData.dims, fileSize: exifData.size)
+        }
     }
 
-    private func updateHistogramAsync(for cgImage: CGImage, nextImage: CGImage? = nil) {
-        let isSplit = slideView.isSplitMode
+    private func updateHistogramAsync(for images: [CGImage?]) {
         let hoverSlot = activeHoverSlot
+        let mode = multiUpMode
         Task.detached(priority: .userInitiated) { [weak self] in
-            let leftData = HistogramEngine.compute(for: cgImage)
-            var rightData: HistogramData? = nil
-            if isSplit, let rImg = nextImage {
-                rightData = HistogramEngine.compute(for: rImg)
+            var results: [Int: HistogramData] = [:]
+            for (i, img) in images.enumerated() {
+                if let img = img {
+                    results[i + 1] = HistogramEngine.compute(for: img)
+                }
             }
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
-                self.leftHistogramData = leftData
-                self.rightHistogramData = rightData
-
-                if self.slideView.isSplitMode {
-                    let activeData = (hoverSlot == 2 ? rightData : leftData) ?? leftData
+                self.paneHistogramData = results
+                if mode != .single {
+                    let activeData = results[hoverSlot] ?? results[1] ?? .empty
                     self.slideView.updateHistogram(activeData, slot: hoverSlot)
                 } else {
-                    self.slideView.updateHistogram(leftData, slot: nil)
+                    let singleData = results[1] ?? .empty
+                    self.slideView.updateHistogram(singleData, slot: nil)
                 }
             }
         }
     }
 
-    private func updateClippingMaskAsync(for cgImage: CGImage, nextImage: CGImage? = nil) {
+    private func updateClippingMaskAsync(for images: [CGImage?]) {
         let expectedIndex = currentRawIndex
         Task.detached(priority: .userInitiated) { [weak self] in
-            let mask = ClippingEngine.generateClippingMask(for: cgImage)
-            let rightMask: CGImage? = (nextImage != nil) ? ClippingEngine.generateClippingMask(for: nextImage!) : nil
+            var masks: [CGImage?] = Array(repeating: nil, count: 4)
+            for (i, img) in images.enumerated() where i < 4 {
+                if let img = img {
+                    masks[i] = ClippingEngine.generateClippingMask(for: img)
+                }
+            }
             Task { @MainActor [weak self] in
                 guard let self = self, self.currentRawIndex == expectedIndex else { return }
-                self.slideView.updateClippingMask(mask, rightMask: rightMask)
+                self.slideView.updateClippingMasks(masks)
             }
         }
     }
 
-    private func updatePeakingMaskAsync(for cgImage: CGImage, nextImage: CGImage? = nil) {
+    private func updatePeakingMaskAsync(for images: [CGImage?]) {
         let expectedIndex = currentRawIndex
         Task.detached(priority: .userInitiated) { [weak self] in
-            let mask = FocusPeakingEngine.generatePeakingMask(for: cgImage)
-            let rightMask: CGImage? = (nextImage != nil) ? FocusPeakingEngine.generatePeakingMask(for: nextImage!) : nil
+            var masks: [CGImage?] = Array(repeating: nil, count: 4)
+            for (i, img) in images.enumerated() where i < 4 {
+                if let img = img {
+                    masks[i] = FocusPeakingEngine.generatePeakingMask(for: img)
+                }
+            }
             Task { @MainActor [weak self] in
                 guard let self = self, self.currentRawIndex == expectedIndex else { return }
-                self.slideView.updatePeakingMask(mask, rightMask: rightMask)
+                self.slideView.updatePeakingMasks(masks)
             }
         }
     }
@@ -969,9 +776,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     // MARK: - Camera Profiles & Picture Controls
 
     public func slideViewCycleCameraProfile() {
-        // Enforce unbiased neutral standard baseline in 2-UP compare
-        if slideView.isSplitMode {
-            slideView.hudView.showMessage("Color Profiles locked to Standard in 2-UP Compare")
+        // Enforce unbiased neutral standard baseline in multi-up compare
+        if multiUpMode != .single {
+            slideView.hudView.showMessage("Color Profiles locked to Standard in Multi-Up Compare")
             return
         }
 
@@ -1001,172 +808,88 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         }
     }
 
-    // MARK: - Culling Actions
+    // MARK: - Independent Multi-Up Culling Actions
 
     public func slideViewSetRating(_ rating: Int) {
-        guard let rawIndex = currentRawIndex else { return }
+        let targetPos = (multiUpMode != .single) ? (currentFilteredPos + activeHoverSlot - 1) : currentFilteredPos
+        guard targetPos < filteredIndices.count else { return }
+        let targetRawIndex = filteredIndices[targetPos]
+
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
-        let item = allItems[rawIndex]
+        let item = allItems[targetRawIndex]
         var meta = cullingData[item.id] ?? CullingMetadata()
         let previous = meta.rating
         let newRating = (meta.rating == rating) ? 0 : rating
         meta.rating = newRating
         cullingData[item.id] = meta
 
-        cullingUndoManager.record(.rating(itemID: item.id, rawIndex: rawIndex, previous: previous, new: newRating))
+        cullingUndoManager.record(.rating(itemID: item.id, rawIndex: targetRawIndex, previous: previous, new: newRating))
 
-        if slideView.isSplitMode {
+        if multiUpMode != .single {
             let starText = newRating > 0 ? "★ \(newRating)" : "Cleared"
-            slideView.hudView.showMessage("Champion [ 1 ] Rating: \(starText)")
+            slideView.hudView.showMessage("Slot [ \(activeHoverSlot) ] Rating: \(starText)")
+            Task { await loadAndDisplayCurrent() }
+        } else {
+            applyCullingUpdate()
         }
-
-        applyCullingUpdate()
         saveMetadataAsync(meta: meta, for: item)
     }
 
     public func slideViewSetPick(_ pick: PickStatus) {
-        guard let rawIndex = currentRawIndex else { return }
-
-        // In 2-UP split compare mode:
-        if slideView.isSplitMode, let cPos = splitChallengerPos, cPos < filteredIndices.count {
-            let rightRaw = filteredIndices[cPos]
-            let leftItem = allItems[rawIndex]
-            let rightItem = allItems[rightRaw]
-
-            var leftMeta = cullingData[leftItem.id] ?? CullingMetadata()
-            var rightMeta = cullingData[rightItem.id] ?? CullingMetadata()
-
-            let prevLeft = leftMeta.pick
-            let prevRight = rightMeta.pick
-
-            leftMeta.pick = pick
-            rightMeta.pick = pick
-
-            cullingData[leftItem.id] = leftMeta
-            cullingData[rightItem.id] = rightMeta
-
-            saveMetadataAsync(meta: leftMeta, for: leftItem)
-            saveMetadataAsync(meta: rightMeta, for: rightItem)
-
-            let a1 = CullingAction.pick(itemID: leftItem.id, rawIndex: rawIndex, previous: prevLeft, new: pick)
-            let a2 = CullingAction.pick(itemID: rightItem.id, rawIndex: rightRaw, previous: prevRight, new: pick)
-            cullingUndoManager.record(.compound([a1, a2]))
-
-            let msg = (pick == .pick) ? "✓ Both Picked [P]" : (pick == .reject ? "✕ Both Rejected [X]" : "Both Unflagged [U]")
-            slideView.hudView.showMessage(msg)
-
-            if pick == .reject || pick == .unflagged {
-                splitCompareState = .pairScouting
-                rebuildFilter(targetIndex: nil)
-                splitChallengerPos = (currentFilteredPos + 1 < filteredIndices.count) ? (currentFilteredPos + 1) : nil
-            }
-
-            Task {
-                await loadAndDisplayCurrent()
-            }
-            return
-        }
+        let targetPos = (multiUpMode != .single) ? (currentFilteredPos + activeHoverSlot - 1) : currentFilteredPos
+        guard targetPos < filteredIndices.count else { return }
+        let targetRawIndex = filteredIndices[targetPos]
 
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
-        let item = allItems[rawIndex]
+        let item = allItems[targetRawIndex]
         var meta = cullingData[item.id] ?? CullingMetadata()
         let previous = meta.pick
         let newPick = (meta.pick == pick) ? .unflagged : pick
         meta.pick = newPick
         cullingData[item.id] = meta
 
-        cullingUndoManager.record(.pick(itemID: item.id, rawIndex: rawIndex, previous: previous, new: newPick))
+        cullingUndoManager.record(.pick(itemID: item.id, rawIndex: targetRawIndex, previous: previous, new: newPick))
 
-        applyCullingUpdate()
+        let msg: String
+        switch newPick {
+        case .pick: msg = (multiUpMode != .single) ? "✓ Picked [ \(activeHoverSlot) ]" : "✓ Picked [P]"
+        case .reject: msg = (multiUpMode != .single) ? "✕ Rejected [ \(activeHoverSlot) ]" : "✕ Rejected [X]"
+        case .unflagged: msg = (multiUpMode != .single) ? "Unflagged [ \(activeHoverSlot) ]" : "Unflagged [U]"
+        }
+        slideView.hudView.showMessage(msg)
+
+        if currentFilter == .hideRejects && newPick == .reject {
+            rebuildFilter(targetIndex: currentRawIndex)
+        }
+        Task { await loadAndDisplayCurrent() }
         saveMetadataAsync(meta: meta, for: item)
     }
 
     public func slideViewPickWinner(slot: Int) {
-        guard slideView.isSplitMode else { return }
-        guard let leftRaw = currentRawIndex else { return }
-
-        let cPos = splitChallengerPos ?? (currentFilteredPos + 1)
-        guard cPos < filteredIndices.count else {
-            slideView.hudView.showMessage("No opponent to compare")
-            return
-        }
-        let rightRaw = filteredIndices[cPos]
-
-        let leftItem = allItems[leftRaw]
-        let rightItem = allItems[rightRaw]
-
-        var leftMeta = cullingData[leftItem.id] ?? CullingMetadata()
-        var rightMeta = cullingData[rightItem.id] ?? CullingMetadata()
-
-        let prevLeft = leftMeta.pick
-        let prevRight = rightMeta.pick
-
-        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
-
-        let winnerItem: SlideItem
-        let winnerMsg: String
-
-        if slot == 1 {
-            // [ 1 ] Defends: Left is Picked, Right is Rejected
-            leftMeta.pick = .pick
-            rightMeta.pick = .reject
-            winnerItem = leftItem
-            winnerMsg = "🏆 [ 1 ] Defended Champion: \(leftItem.displayName)"
-        } else {
-            // [ 2 ] Deposes: Right is Picked, Left is Rejected
-            rightMeta.pick = .pick
-            leftMeta.pick = .reject
-            winnerItem = rightItem
-            winnerMsg = "🏆 [ 2 ] New Champion: \(rightItem.displayName)"
-        }
-
-        cullingData[leftItem.id] = leftMeta
-        cullingData[rightItem.id] = rightMeta
-
-        saveMetadataAsync(meta: leftMeta, for: leftItem)
-        saveMetadataAsync(meta: rightMeta, for: rightItem)
-
-        // Compound Undo record
-        let action1 = CullingAction.pick(itemID: leftItem.id, rawIndex: leftRaw, previous: prevLeft, new: leftMeta.pick)
-        let action2 = CullingAction.pick(itemID: rightItem.id, rawIndex: rightRaw, previous: prevRight, new: rightMeta.pick)
-        cullingUndoManager.record(.compound([action1, action2]))
-
-        // King of the Hill progression:
-        let championRaw = (slot == 1) ? leftRaw : rightRaw
-        splitCompareState = .kingOfTheHill(championRawIndex: championRaw)
-        rebuildFilter(targetIndex: championRaw)
-
-        // Advance challenger to next unrejected photo in filteredIndices
-        let nextChallenger = (currentFilteredPos + 1 < filteredIndices.count) ? (currentFilteredPos + 1) : nil
-        splitChallengerPos = nextChallenger
-
-        Task {
-            await loadAndDisplayCurrent()
-            if nextChallenger == nil {
-                slideView.hudView.showMessage("🏆 Final Champion Crowned: \(winnerItem.displayName)")
-            } else {
-                slideView.hudView.showMessage(winnerMsg)
-            }
-        }
+        // King of the Hill elimination removed; no-op preserved for protocol compatibility
     }
 
     public func slideViewSetColor(_ color: ColorLabel) {
-        guard let rawIndex = currentRawIndex else { return }
+        let targetPos = (multiUpMode != .single) ? (currentFilteredPos + activeHoverSlot - 1) : currentFilteredPos
+        guard targetPos < filteredIndices.count else { return }
+        let targetRawIndex = filteredIndices[targetPos]
+
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
-        let item = allItems[rawIndex]
+        let item = allItems[targetRawIndex]
         var meta = cullingData[item.id] ?? CullingMetadata()
         let previous = meta.color
         let newColor = (meta.color == color) ? .none : color
         meta.color = newColor
         cullingData[item.id] = meta
 
-        cullingUndoManager.record(.color(itemID: item.id, rawIndex: rawIndex, previous: previous, new: newColor))
+        cullingUndoManager.record(.color(itemID: item.id, rawIndex: targetRawIndex, previous: previous, new: newColor))
 
-        if slideView.isSplitMode {
-            slideView.hudView.showMessage("Champion [ 1 ] Color: \(newColor.title)")
+        if multiUpMode != .single {
+            slideView.hudView.showMessage("Slot [ \(activeHoverSlot) ] Color: \(newColor.title)")
+            Task { await loadAndDisplayCurrent() }
+        } else {
+            applyCullingUpdate()
         }
-
-        applyCullingUpdate()
         saveMetadataAsync(meta: meta, for: item)
     }
 
@@ -1190,7 +913,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
             await loadAndDisplayCurrent()
 
-            if autoAdvance && !slideView.isSplitMode {
+            if autoAdvance && multiUpMode == .single {
                 slideViewRequestNext()
             }
         }
@@ -1207,7 +930,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     }
 
     public func slideViewCycleFilter() {
-        filterBeforeMultiUp = nil // User manually changed filter; do not override upon exit
+        filterBeforeMultiUp = nil
         switch currentFilter {
         case .all:
             currentFilter = .hideRejects
@@ -1232,38 +955,41 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         }
     }
 
-    public func slideViewToggleSplitCompare() {
-        let newState = !slideView.isSplitMode
-        slideView.setSplitMode(newState)
-        if newState {
+    public func slideViewCycleMultiUp() {
+        let newMode = multiUpMode.next
+        multiUpMode = newMode
+        slideView.setMultiUpMode(newMode)
+
+        if newMode == .twoUp {
             activeHoverSlot = 1
-            // Auto-engage .hideRejects so rejected photos are not cycled in comparison arena
             if currentFilter == .all || currentFilter == .rejectsOnly {
                 filterBeforeMultiUp = currentFilter
                 currentFilter = .hideRejects
                 rebuildFilter(targetIndex: currentRawIndex)
             }
-            splitCompareState = .pairScouting
-            splitChallengerPos = (currentFilteredPos + 1 < filteredIndices.count) ? (currentFilteredPos + 1) : nil
-            slideView.hudView.showMessage("2-UP Compare: Next Pair [→/Space] • Pick Winner [ 1 / 2 ]")
+            slideView.hudView.showMessage("2-UP Compare [S] • Stepping: Pairs (±2)")
+        } else if newMode == .fourUp {
+            activeHoverSlot = 1
+            slideView.hudView.showMessage("4-UP Quad Compare [S] • Stepping: Quads (±4)")
         } else {
             activeHoverSlot = 1
-            // Restore previous filter when exiting multi-up compare if user did not manually change it
             if let prev = filterBeforeMultiUp {
                 currentFilter = prev
                 filterBeforeMultiUp = nil
                 rebuildFilter(targetIndex: currentRawIndex)
             }
-            splitCompareState = .pairScouting
-            splitChallengerPos = nil
-            slideView.hudView.showMessage("Single Fullscreen [S]")
+            slideView.hudView.showMessage("Single Fullscreen [S] • Stepping: Single (±1)")
             if isHistogramVisible {
-                slideView.updateHistogram(leftHistogramData ?? .empty, slot: nil)
+                slideView.updateHistogram(paneHistogramData[1] ?? .empty, slot: nil)
             }
         }
         Task {
             await loadAndDisplayCurrent()
         }
+    }
+
+    public func slideViewToggleSplitCompare() {
+        slideViewCycleMultiUp()
     }
 
     public func slideViewToggleFullScreen() {
@@ -1348,36 +1074,34 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     public func slideViewRotate(direction: RotationDirection) {
         stopSlideshowIfRunning()
         guard let rawIndex = currentRawIndex, rawIndex >= 0 && rawIndex < allItems.count else { return }
-        let item = allItems[rawIndex]
 
-        // In 2-UP split compare mode: rotate BOTH frames concurrently (essential for portrait bursts)
-        if slideView.isSplitMode {
-            let cPos = splitChallengerPos ?? (currentFilteredPos + 1)
-            let rightRaw: Int? = (cPos < filteredIndices.count) ? filteredIndices[cPos] : nil
-            let leftItem = item
-            let rightItem = (rightRaw != nil) ? allItems[rightRaw!] : nil
+        // In multi-up mode, rotate all currently displayed photos concurrently
+        if multiUpMode != .single {
+            var itemsToRotate: [(SlideItem, Int)] = []
+            for s in 0..<multiUpMode.rawValue {
+                let pos = currentFilteredPos + s
+                if pos < filteredIndices.count {
+                    let rIdx = filteredIndices[pos]
+                    itemsToRotate.append((allItems[rIdx], rIdx))
+                }
+            }
 
-            var actions: [CullingAction] = [
-                .rotate(itemID: leftItem.id, rawIndex: rawIndex, direction: direction)
-            ]
-            if let right = rightItem, let rRaw = rightRaw {
-                actions.append(.rotate(itemID: right.id, rawIndex: rRaw, direction: direction))
+            let actions: [CullingAction] = itemsToRotate.map {
+                .rotate(itemID: $0.0.id, rawIndex: $0.1, direction: direction)
             }
             cullingUndoManager.record(.compound(actions))
-            slideView.hudView.showMessage("Rotating Both...")
+            slideView.hudView.showMessage("Rotating Burst...")
 
             Task.detached(priority: .userInitiated) { [weak self] in
                 do {
-                    _ = try LosslessRotationEngine.rotate(item: leftItem, direction: direction)
-                    await self?.pipeline.invalidateCache(at: rawIndex)
-                    if let right = rightItem, let rRaw = rightRaw {
-                        _ = try LosslessRotationEngine.rotate(item: right, direction: direction)
-                        await self?.pipeline.invalidateCache(at: rRaw)
+                    for (item, rIdx) in itemsToRotate {
+                        _ = try LosslessRotationEngine.rotate(item: item, direction: direction)
+                        await self?.pipeline.invalidateCache(at: rIdx)
                     }
                     Task { @MainActor [weak self] in
                         guard let self = self else { return }
                         let dirTitle = (direction == .clockwise) ? "Clockwise 90° [R]" : "Counter-Clockwise 90° [L]"
-                        self.slideView.hudView.showMessage("Rotated Both \(dirTitle)")
+                        self.slideView.hudView.showMessage("Rotated Burst \(dirTitle)")
                         await self.loadAndDisplayCurrent()
                     }
                 } catch {
@@ -1389,6 +1113,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             return
         }
 
+        let item = allItems[rawIndex]
         cullingUndoManager.record(.rotate(itemID: item.id, rawIndex: rawIndex, direction: direction))
         slideView.hudView.showMessage("Rotating...")
         Task.detached(priority: .userInitiated) { [weak self] in
@@ -1413,7 +1138,6 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         stopSlideshowIfRunning()
         guard !allItems.isEmpty, !isExporting else { return }
 
-        // Resolve target items
         let itemsToExport: [SlideItem]
         let reason: String
         if currentFilter != .all {
@@ -1428,7 +1152,6 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 itemsToExport = picks
                 reason = "Picks & 4★+ (\(itemsToExport.count) shots)"
             } else if let raw = currentRawIndex, raw < allItems.count {
-                // If no picks exist, export the currently viewed photo
                 itemsToExport = [allItems[raw]]
                 reason = "Current Shot"
             } else {
@@ -1471,7 +1194,6 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 self.slideView.hudView.showMessage("Export failed: \(error.localizedDescription)")
             }
         }
-        return
     }
 
     // MARK: - Window Delegate
@@ -1543,10 +1265,7 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
                         await pipeline.invalidateCache(at: rawIndex)
                     }
                 }
-                if slideView.isSplitMode {
-                    rebuildFilter(targetIndex: currentRawIndex)
-                    splitChallengerPos = (currentFilteredPos + 1 < filteredIndices.count) ? (currentFilteredPos + 1) : nil
-                }
+                rebuildFilter(targetIndex: currentRawIndex)
                 await loadAndDisplayCurrent()
             }
             return
@@ -1648,10 +1367,7 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
                         await pipeline.invalidateCache(at: rawIndex)
                     }
                 }
-                if slideView.isSplitMode {
-                    rebuildFilter(targetIndex: currentRawIndex)
-                    splitChallengerPos = (currentFilteredPos + 1 < filteredIndices.count) ? (currentFilteredPos + 1) : nil
-                }
+                rebuildFilter(targetIndex: currentRawIndex)
                 await loadAndDisplayCurrent()
             }
             return
@@ -1827,5 +1543,4 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
             break
         }
     }
-
 }

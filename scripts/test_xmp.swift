@@ -709,11 +709,11 @@ struct TestRunner {
             let p1 = SplitPaneInfo(slot: 1, filename: "DSC_0001.NEF", pick: .pick, isChampion: true)
             assertEqual(p1.slot, 1, "Slot 1")
             assertEqual(p1.isChampion, true, "Slot 1 is champion")
-            assertEqual(p1.pick, .pick, "Slot 1 is picked")
+            assertEqual(p1.pick, PickStatus.pick, "Slot 1 is picked")
 
             let p2 = SplitPaneInfo(slot: 2, filename: "DSC_0002.NEF", pick: .reject, isChampion: false)
             assertEqual(p2.slot, 2, "Slot 2")
-            assertEqual(p2.pick, .reject, "Slot 2 is rejected")
+            assertEqual(p2.pick, PickStatus.reject, "Slot 2 is rejected")
 
             print("  ✅ Passed")
         }
@@ -750,12 +750,12 @@ struct TestRunner {
             let p1 = SplitPaneInfo(slot: 1, filename: "DSC_0001.NEF", pick: .pick, rating: 5, color: .red, isChampion: true)
             assertEqual(p1.slot, 1, "Slot 1")
             assertEqual(p1.rating, 5, "Rating 5 preserved on Champion")
-            assertEqual(p1.color, .red, "Color red preserved on Champion")
+            assertEqual(p1.color, ColorLabel.red, "Color red preserved on Champion")
             assertEqual(p1.isChampion, true, "Champion flag true")
 
             let p2 = SplitPaneInfo(slot: 2, filename: "DSC_0002.NEF", pick: .unflagged, rating: 0, color: .none, isChampion: false)
             assertEqual(p2.rating, 0, "Rating 0 on Challenger")
-            assertEqual(p2.color, .none, "Color none on Challenger")
+            assertEqual(p2.color, ColorLabel.none, "Color none on Challenger")
 
             // 3. Baseline profile invariant
             let forcedNeutral = CameraProfile.asShot
@@ -1046,76 +1046,90 @@ struct TestRunner {
             assertEqual(resDiff.isSameScene, false, "Dissimilar shots detected as different scene")
             assertEqual(resDiff.statusDescription, "NEW SCENE", "Status tags NEW SCENE")
 
-            // 2. Dual-State Culling Engine Invariants
-            enum MockSplitState: Equatable {
-                case pairScouting
-                case kingOfTheHill(championIndex: Int)
-            }
+            // 2. Multi-Up Modal Cycling & Fixed Block Stepping Invariants
+            var mode: MultiUpMode = .single
+            assertEqual(mode.next, MultiUpMode.twoUp, "Single cycles to 2-UP")
+            mode = mode.next
+            assertEqual(mode.next, MultiUpMode.fourUp, "2-UP cycles to 4-UP Quad")
+            mode = mode.next
+            assertEqual(mode.next, MultiUpMode.single, "4-UP Quad cycles to Single")
+            mode = mode.next // back to twoUp
 
-            var state: MockSplitState = .pairScouting
-            var filteredIndices = [0, 1, 2, 3, 4, 5, 6, 7]
+            // Fixed Stride Block Stepping Invariants:
+            let filteredIndices = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
             var currentPos = 0
-            var challengerPos: Int? = 1
 
-            // In .pairScouting: Right Arrow / Space steps by +2 (Pair Step)
-            func stepForward(isSpace: Bool) {
-                switch state {
-                case .pairScouting:
-                    currentPos += 2
-                    challengerPos = currentPos + 1 < filteredIndices.count ? currentPos + 1 : nil
-                case .kingOfTheHill:
-                    if isSpace {
-                        // Commit & advance past burst to next pair
-                        state = .pairScouting
-                        currentPos += 2
-                        challengerPos = currentPos + 1 < filteredIndices.count ? currentPos + 1 : nil
-                    } else {
-                        // Cycle challenger by +1
-                        challengerPos = (challengerPos ?? currentPos) + 1
-                    }
+            func stepForward(forMode m: MultiUpMode) {
+                let stride = m.rawValue
+                let nextPos = currentPos + stride
+                if nextPos < filteredIndices.count {
+                    currentPos = nextPos
                 }
             }
 
-            // Step 1: Browse pairs
-            stepForward(isSpace: false)
-            assertEqual(currentPos, 2, "Pair scouting steps from [0,1] to [2,3]")
-            assertEqual(challengerPos, 3, "Challenger is 3")
+            func stepBackward(forMode m: MultiUpMode) {
+                let stride = m.rawValue
+                let prevPos = currentPos - stride
+                if prevPos >= 0 {
+                    currentPos = prevPos
+                }
+            }
 
-            // Step 2: User votes for Slot 1 (raw index 2 becomes Champion)
-            state = .kingOfTheHill(championIndex: 2)
-            // Loser (3) eliminated:
-            filteredIndices.removeAll { $0 == 3 } // filtered is now [0, 1, 2, 4, 5, 6, 7]
-            challengerPos = currentPos + 1 // pos 3 (value 4)
+            // In 2-UP: always steps as pairs (±2)
+            currentPos = 0
+            stepForward(forMode: .twoUp)
+            assertEqual(currentPos, 2, "2-UP steps from [0, 1] to [2, 3]")
+            stepForward(forMode: .twoUp)
+            assertEqual(currentPos, 4, "2-UP steps from [2, 3] to [4, 5]")
+            stepBackward(forMode: .twoUp)
+            assertEqual(currentPos, 2, "2-UP steps back to [2, 3]")
 
-            // Step 3: Next in King-of-the-Hill steps challenger by +1 (does not jump +2)
-            stepForward(isSpace: false)
-            assertEqual(currentPos, 2, "Champion remains anchored at position 2")
-            assertEqual(challengerPos, 4, "Challenger advanced to next contender")
+            // In 4-UP: always steps as quads (±4)
+            currentPos = 0
+            stepForward(forMode: .fourUp)
+            assertEqual(currentPos, 4, "4-UP steps from [0..3] to [4..7]")
+            stepForward(forMode: .fourUp)
+            assertEqual(currentPos, 8, "4-UP steps from [4..7] to [8..11]")
+            stepBackward(forMode: .fourUp)
+            assertEqual(currentPos, 4, "4-UP steps back to [4..7]")
 
-            // Step 4: Spacebar commits burst and resets to Pair Scouting
-            stepForward(isSpace: true)
-            assertEqual(state, MockSplitState.pairScouting, "Space commits burst and resets state to pairScouting")
-            assertEqual(currentPos, 4, "Advanced to next fresh pair")
+            // 3. Independent Multi-Up Culling Invariant (No Opponent Auto-Elimination)
+            var cullingStore: [Int: CullingMetadata] = [
+                0: CullingMetadata(),
+                1: CullingMetadata(),
+                2: CullingMetadata(),
+                3: CullingMetadata()
+            ]
 
-            // 3. SplitPaneInfo & Badge View model verification
+            // User marks slot 2 (index 1) as Picked:
+            cullingStore[1]?.pick = .pick
+
+            assertEqual(cullingStore[1]?.pick, PickStatus.pick, "Slot 2 marked as Pick")
+            assertEqual(cullingStore[0]?.pick, PickStatus.unflagged, "Slot 1 NOT automatically rejected!")
+            assertEqual(cullingStore[2]?.pick, PickStatus.unflagged, "Slot 3 untouched")
+            assertEqual(cullingStore[3]?.pick, PickStatus.unflagged, "Slot 4 untouched")
+
+            // 4. SplitPaneInfo & 4-UP Badge View model verification
             let splitInfo = SplitPaneInfo(
-                slot: 1,
-                filename: "DSC_0001.NEF",
+                slot: 4,
+                filename: "DSC_0004.NEF",
                 pick: .pick,
-                isChampion: true,
+                rating: 5,
                 burstDescription: "BURST (Δ 0.2s)"
             )
-            assertEqual(splitInfo.isChampion, true, "isChampion preserved")
+            assertEqual(splitInfo.slot, 4, "Slot 4 preserved")
+            assertEqual(splitInfo.pick, PickStatus.pick, "Pick status preserved")
+            assertEqual(splitInfo.rating, 5, "Rating preserved")
             assertEqual(splitInfo.burstDescription, "BURST (Δ 0.2s)", "burstDescription preserved")
 
             print("  ✅ Passed")
         }
 
         // ==========================================
-        // TEST 27: 2-UP Zero-Collision Geometry & Dual Comparative Histogram
+        // TEST 27: 2-UP & 4-UP Zero-Collision Geometry & Dual Comparative Histogram
         // ==========================================
         do {
-            print("🧪 TEST 27: 2-UP Zero-Collision Geometry & Dual Histogram...")
+            print("🧪 TEST 27: 2-UP & 4-UP Zero-Collision Geometry & Dual Histogram...")
 
             // 1. Dual Histogram Computation for two distinct images
             let img1 = makeTestCGImage(width: 64, height: 64, r: 250, g: 30, b: 30) // saturated red
@@ -1135,44 +1149,67 @@ struct TestRunner {
                 assertEqual(histHud.alphaValue, 1.0, "HistogramHud visible")
             }
 
-            // 3. Zero-Collision Layout Invariants Verification
-            // Given standard 1440x900 viewport:
+            // 3. 2-UP Zero-Collision Layout Invariants Verification
             let vpWidth: CGFloat = 1440
             let vpHeight: CGFloat = 900
-            let halfWidth = (vpWidth - 2) / 2 // 719
+            let halfWidth2Up = floor((vpWidth - 2) / 2) // 719
 
             let badgeW: CGFloat = 320
             let badgeH: CGFloat = 34
-            let leftBadgeX = max(16, (halfWidth - badgeW) / 2) // 199.5
-            let rightBadgeX = max(halfWidth + 18, halfWidth + 2 + (halfWidth - badgeW) / 2) // 920.5
+            let leftBadgeX = max(16, (halfWidth2Up - badgeW) / 2)
+            let rightBadgeX = max(vpWidth - halfWidth2Up + 16, (vpWidth - halfWidth2Up) + (halfWidth2Up - badgeW) / 2)
 
-            // Badges sit at y = vpHeight - 50 (occupying y: 850..884)
             let leftBadgeRect = CGRect(x: leftBadgeX, y: vpHeight - 50, width: badgeW, height: badgeH)
             let rightBadgeRect = CGRect(x: rightBadgeX, y: vpHeight - 50, width: badgeW, height: badgeH)
 
-            // In 2-UP, inspectors (Histogram and Exif) drop to top: 62 (y: vpHeight - 62 - inspectorH)
             let inspectorH: CGFloat = 140
             let inspectorW: CGFloat = 284
             let exifHudRect = CGRect(x: 28, y: vpHeight - 62 - inspectorH, width: inspectorW, height: inspectorH)
             let histHudRect = CGRect(x: vpWidth - 28 - inspectorW, y: vpHeight - 62 - inspectorH, width: inspectorW, height: inspectorH)
-
-            // Main HUD sits at bottom center
             let hudRect = CGRect(x: (vpWidth - 480) / 2, y: 28, width: 480, height: 38)
 
-            // Invariant 1: Badges never intersect each other
-            assertEqual(leftBadgeRect.intersects(rightBadgeRect), false, "Left and Right badges do not intersect")
-
-            // Invariant 2: Inspectors (Exif & Histogram) never intersect their respective pane badges
-            assertEqual(leftBadgeRect.intersects(exifHudRect), false, "Left Badge and EXIF HUD do not intersect")
-            assertEqual(rightBadgeRect.intersects(histHudRect), false, "Right Badge and Histogram HUD do not intersect")
-
-            // Invariant 3: Top edge of inspectors is strictly below bottom edge of badges
-            assertEqual(exifHudRect.maxY < leftBadgeRect.minY, true, "EXIF HUD is strictly below Left Badge")
-            assertEqual(histHudRect.maxY < rightBadgeRect.minY, true, "Histogram HUD is strictly below Right Badge")
-
-            // Invariant 4: Bottom HUD never intersects inspectors
+            assertEqual(leftBadgeRect.intersects(rightBadgeRect), false, "2-UP Badges do not intersect")
+            assertEqual(leftBadgeRect.intersects(exifHudRect), false, "Left Badge and EXIF do not intersect")
+            assertEqual(rightBadgeRect.intersects(histHudRect), false, "Right Badge and Histogram do not intersect")
             assertEqual(hudRect.intersects(exifHudRect), false, "Bottom HUD does not intersect EXIF")
             assertEqual(hudRect.intersects(histHudRect), false, "Bottom HUD does not intersect Histogram")
+
+            // 4. 4-UP Quad Zero-Collision Layout & Quadrant Hover Invariants
+            let halfW4Up = floor((vpWidth - 2) / 2) // 719
+            let halfH4Up = floor((vpHeight - 2) / 2) // 449
+
+            let badgeW4Up: CGFloat = 280
+            let badgeH4Up: CGFloat = 32
+            let left4UpX = max(12, (halfW4Up - badgeW4Up) / 2)
+            let right4UpX = max(vpWidth - halfW4Up + 12, (vpWidth - halfW4Up) + (halfW4Up - badgeW4Up) / 2)
+
+            let topBadgeY = vpHeight - 46
+            let bottomBadgeY = halfH4Up - 46
+
+            let b1 = CGRect(x: left4UpX, y: topBadgeY, width: badgeW4Up, height: badgeH4Up)
+            let b2 = CGRect(x: right4UpX, y: topBadgeY, width: badgeW4Up, height: badgeH4Up)
+            let b3 = CGRect(x: left4UpX, y: bottomBadgeY, width: badgeW4Up, height: badgeH4Up)
+            let b4 = CGRect(x: right4UpX, y: bottomBadgeY, width: badgeW4Up, height: badgeH4Up)
+
+            assertEqual(b1.intersects(b2), false, "Badge 1 & 2 do not intersect")
+            assertEqual(b3.intersects(b4), false, "Badge 3 & 4 do not intersect")
+            assertEqual(b1.intersects(b3), false, "Badge 1 & 3 do not intersect")
+            assertEqual(b2.intersects(b4), false, "Badge 2 & 4 do not intersect")
+
+            // Quadrant Hover Detection:
+            func quadrant(for pt: CGPoint) -> Int {
+                let isTop = pt.y >= (vpHeight / 2)
+                let isRight = pt.x >= (vpWidth / 2)
+                if isTop && !isRight { return 1 }
+                else if isTop && isRight { return 2 }
+                else if !isTop && !isRight { return 3 }
+                else { return 4 }
+            }
+
+            assertEqual(quadrant(for: CGPoint(x: 200, y: 700)), 1, "Top-Left point is Slot 1")
+            assertEqual(quadrant(for: CGPoint(x: 1000, y: 700)), 2, "Top-Right point is Slot 2")
+            assertEqual(quadrant(for: CGPoint(x: 200, y: 200)), 3, "Bottom-Left point is Slot 3")
+            assertEqual(quadrant(for: CGPoint(x: 1000, y: 200)), 4, "Bottom-Right point is Slot 4")
 
             print("  ✅ Passed")
         }

@@ -30,7 +30,8 @@ public actor SlidePipeline {
 
     /// Cache radius: 1 gives triple buffering [curr-1, curr, curr+1].
     /// Setting to 2 gives 5 images [curr-2, curr-1, curr, curr+1, curr+2] for silky smooth fast-skipping.
-    private let cacheRadius: Int = 2
+    /// Cache radius: 8 allows instant 0ms stepping across 2 full 4-UP quads or 4 2-UP pairs ahead/behind.
+    private let cacheRadius: Int = 8
 
     public init(decoder: ImageDecoder = ImageDecoder.shared) {
         self.decoder = decoder
@@ -137,8 +138,8 @@ public actor SlidePipeline {
 
         do {
             let decoded = try await task.value
-            // Keep at most 4 full-res images in RAM to preserve memory across multi-up
-            if fullResCache.count >= 4 {
+            // Keep up to 6 full-res images in RAM to comfortably peek across full 4-UP quads
+            if fullResCache.count >= 6 {
                 fullResCache.removeAll()
             }
             fullResCache[index] = decoded
@@ -155,11 +156,11 @@ public actor SlidePipeline {
         guard index >= 0 && index < items.count else { return }
         self.currentIndex = index
         // Prune full-res cache when navigating away
-        if fullResCache.keys.contains(where: { abs($0 - index) > 2 }) {
+        if fullResCache.keys.contains(where: { abs($0 - index) > 8 }) {
             fullResCache.removeAll()
         }
         for (idx, task) in inFlightFullResTasks {
-            if abs(idx - index) > 2 {
+            if abs(idx - index) > 8 {
                 task.cancel()
                 inFlightFullResTasks.removeValue(forKey: idx)
             }
