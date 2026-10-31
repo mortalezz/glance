@@ -340,7 +340,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
             // Trigger background async histogram and clipping calculations (Phase 3)
             if isHistogramVisible {
-                updateHistogramAsync(for: decoded.image)
+                updateHistogramAsync(for: decoded.image, nextImage: splitCgImage)
             }
             if isClippingVisible {
                 updateClippingMaskAsync(for: decoded.image, nextImage: splitCgImage)
@@ -843,7 +843,13 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         if isHistogramVisible, let rawIndex = currentRawIndex {
             Task {
                 if let decoded = try? await pipeline.getImage(at: rawIndex) {
-                    updateHistogramAsync(for: decoded.image)
+                    var nextImg: CGImage? = nil
+                    let cPos = self.splitChallengerPos ?? (self.currentFilteredPos + 1)
+                    if self.slideView.isSplitMode && cPos < self.filteredIndices.count {
+                        let nextRaw = self.filteredIndices[cPos]
+                        nextImg = (try? await pipeline.getImage(at: nextRaw))?.image
+                    }
+                    updateHistogramAsync(for: decoded.image, nextImage: nextImg)
                 }
             }
         }
@@ -902,11 +908,21 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         }
     }
 
-    private func updateHistogramAsync(for cgImage: CGImage) {
+    private func updateHistogramAsync(for cgImage: CGImage, nextImage: CGImage? = nil) {
+        let isSplit = slideView.isSplitMode
         Task.detached(priority: .userInitiated) { [weak self] in
-            let data = HistogramEngine.compute(for: cgImage)
+            let leftData = HistogramEngine.compute(for: cgImage)
+            var rightData: HistogramData? = nil
+            if isSplit, let rImg = nextImage {
+                rightData = HistogramEngine.compute(for: rImg)
+            }
             Task { @MainActor [weak self] in
-                self?.slideView.updateHistogram(data)
+                guard let self = self else { return }
+                if let rData = rightData {
+                    self.slideView.updateDualHistogram(left: leftData, right: rData)
+                } else {
+                    self.slideView.updateHistogram(leftData)
+                }
             }
         }
     }

@@ -78,6 +78,9 @@ public final class SlideView: NSView {
     public let leftSplitBadge = SplitPaneBadgeView(slot: 1)
     public let rightSplitBadge = SplitPaneBadgeView(slot: 2)
 
+    private var histogramTopConstraint: NSLayoutConstraint?
+    private var exifTopConstraint: NSLayoutConstraint?
+
     public private(set) var isSplitMode: Bool = false
     public private(set) var isZoomed: Bool = false
     public private(set) var isClippingActive: Bool = false
@@ -229,11 +232,19 @@ public final class SlideView: NSView {
             hudView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -32),
             hudView.heightAnchor.constraint(greaterThanOrEqualToConstant: 38),
 
-            histogramHud.topAnchor.constraint(equalTo: topAnchor, constant: 28),
+            {
+                let c = histogramHud.topAnchor.constraint(equalTo: topAnchor, constant: 28)
+                self.histogramTopConstraint = c
+                return c
+            }(),
             histogramHud.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -28),
             histogramHud.widthAnchor.constraint(equalToConstant: 284),
 
-            exifHud.topAnchor.constraint(equalTo: topAnchor, constant: 28),
+            {
+                let c = exifHud.topAnchor.constraint(equalTo: topAnchor, constant: 28)
+                self.exifTopConstraint = c
+                return c
+            }(),
             exifHud.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 28),
             exifHud.widthAnchor.constraint(equalToConstant: 284),
 
@@ -282,8 +293,10 @@ public final class SlideView: NSView {
             rightContainerLayer.isHidden = false
 
             let badgeW: CGFloat = min(360, max(220, halfWidth - 48))
-            leftSplitBadge.frame = CGRect(x: 20, y: bounds.height - 54, width: badgeW, height: 34)
-            rightSplitBadge.frame = CGRect(x: halfWidth + 22, y: bounds.height - 54, width: badgeW, height: 34)
+            let leftBadgeX = max(16, (halfWidth - badgeW) / 2)
+            let rightBadgeX = max(halfWidth + 18, halfWidth + 2 + (halfWidth - badgeW) / 2)
+            leftSplitBadge.frame = CGRect(x: leftBadgeX, y: bounds.height - 50, width: badgeW, height: 34)
+            rightSplitBadge.frame = CGRect(x: rightBadgeX, y: bounds.height - 50, width: badgeW, height: 34)
             leftSplitBadge.isHidden = false
             rightSplitBadge.isHidden = false
 
@@ -442,6 +455,8 @@ public final class SlideView: NSView {
         isSplitMode = enabled
         leftSplitBadge.isHidden = !enabled
         rightSplitBadge.isHidden = !enabled
+        histogramTopConstraint?.constant = enabled ? 62 : 28
+        exifTopConstraint?.constant = enabled ? 62 : 28
         needsLayout = true
     }
 
@@ -471,6 +486,10 @@ public final class SlideView: NSView {
 
     public func updateHistogram(_ data: HistogramData) {
         histogramHud.update(with: data)
+    }
+
+    public func updateDualHistogram(left: HistogramData, right: HistogramData) {
+        histogramHud.updateDual(left: left, right: right)
     }
 
     public func setHistogramVisible(_ visible: Bool) {

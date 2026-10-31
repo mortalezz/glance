@@ -3,8 +3,10 @@ import Accelerate
 
 /// A dedicated canvas view that renders multi-channel curves (Red, Green, Blue, Luminance)
 /// over a tonal grid using square-root scaling, outlier suppression, and additive RGB blending.
+/// Supports both single-photo full view and 2-UP dual side-by-side comparative views.
 final class HistogramCanvasView: NSView {
     private var data: HistogramData = .empty
+    private var rightData: HistogramData? = nil
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -18,6 +20,13 @@ final class HistogramCanvasView: NSView {
 
     public func update(with data: HistogramData) {
         self.data = data
+        self.rightData = nil
+        needsDisplay = true
+    }
+
+    public func updateDual(left: HistogramData, right: HistogramData) {
+        self.data = left
+        self.rightData = right
         needsDisplay = true
     }
 
@@ -26,8 +35,40 @@ final class HistogramCanvasView: NSView {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
 
         let rect = bounds
-        guard rect.width > 10 && rect.height > 10 else { return }
+        guard rect.width > 20 && rect.height > 10 else { return }
 
+        if let right = rightData {
+            let pad: CGFloat = 8
+            let scopeW = floor((rect.width - pad) / 2)
+            let leftRect = CGRect(x: rect.minX, y: rect.minY, width: scopeW, height: rect.height)
+            let rightRect = CGRect(x: rect.minX + scopeW + pad, y: rect.minY, width: scopeW, height: rect.height)
+
+            // Draw left scope [ 1 ]
+            drawScope(in: leftRect, data: data, ctx: ctx, slotBadge: "1")
+
+            // Vertical divider between comparative scopes
+            let divX = floor(rect.minX + scopeW + pad / 2) + 0.5
+            ctx.saveGState()
+            let isDark = ThemeManager.shared.isDark
+            let divColor = isDark
+                ? NSColor.white.withAlphaComponent(0.18).cgColor
+                : NSColor.black.withAlphaComponent(0.18).cgColor
+            ctx.setStrokeColor(divColor)
+            ctx.setLineWidth(0.75)
+            ctx.move(to: CGPoint(x: divX, y: rect.minY + 4))
+            ctx.addLine(to: CGPoint(x: divX, y: rect.maxY - 4))
+            ctx.strokePath()
+            ctx.restoreGState()
+
+            // Draw right scope [ 2 ]
+            drawScope(in: rightRect, data: right, ctx: ctx, slotBadge: "2")
+        } else {
+            drawScope(in: rect, data: data, ctx: ctx, slotBadge: nil)
+        }
+    }
+
+    private func drawScope(in rect: CGRect, data: HistogramData, ctx: CGContext, slotBadge: String?) {
+        guard rect.width > 10 && rect.height > 10 else { return }
         let isDark = ThemeManager.shared.isDark
 
         // 1. Subtle exposure zone dividers (25% Shadows, 50% Midtones, 75% Highlights)
@@ -167,6 +208,31 @@ final class HistogramCanvasView: NSView {
         ctx.strokePath()
 
         ctx.restoreGState()
+
+        // 7. In Dual mode, draw small slot pill tag: [ 1 ] or [ 2 ]
+        if let badge = slotBadge {
+            ctx.saveGState()
+            let badgeRect = CGRect(x: rect.minX + 5, y: rect.maxY - 14, width: 14, height: 11)
+            let badgePath = NSBezierPath(roundedRect: badgeRect, xRadius: 2.5, yRadius: 2.5)
+            let pillBg = (badge == "1")
+                ? NSColor.systemIndigo.withAlphaComponent(0.40)
+                : NSColor.systemOrange.withAlphaComponent(0.40)
+            pillBg.setFill()
+            badgePath.fill()
+
+            let badgeAttr: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 8, weight: .bold),
+                .foregroundColor: NSColor.white
+            ]
+            let str = NSAttributedString(string: badge, attributes: badgeAttr)
+            let strSize = str.size()
+            let strPt = CGPoint(
+                x: badgeRect.midX - strSize.width / 2,
+                y: badgeRect.midY - strSize.height / 2
+            )
+            str.draw(at: strPt)
+            ctx.restoreGState()
+        }
     }
 }
 
@@ -238,6 +304,7 @@ final class ClippingTriangleView: NSView {
 }
 
 /// Modern macOS frosted-glass HUD overlay displaying a live RGB & Luminance histogram.
+/// Supports both single-frame monitoring and 2-UP dual side-by-side comparative views.
 @MainActor
 public final class HistogramHudView: NSView {
     private let visualEffectView = NSVisualEffectView()
@@ -249,6 +316,7 @@ public final class HistogramHudView: NSView {
     private let shadowClipIndicator = ClippingTriangleView(kind: .shadow)
     private let highlightClipIndicator = ClippingTriangleView(kind: .highlight)
     private var footerLabels: [NSTextField] = []
+    private var isDualMode: Bool = false
 
     public var onToggleClipping: (() -> Void)?
 
@@ -432,8 +500,9 @@ public final class HistogramHudView: NSView {
     }
 
     private func updateTitleLabel() {
+        let title = isDualMode ? "HISTOGRAM [ 1 vs 2 ]" : "HISTOGRAM"
         let attrTitle = NSMutableAttributedString(
-            string: "HISTOGRAM",
+            string: title,
             attributes: [
                 .font: NSFont.systemFont(ofSize: 10, weight: .bold),
                 .foregroundColor: ThemeManager.shared.primaryTextColor,
@@ -527,11 +596,26 @@ public final class HistogramHudView: NSView {
     }
 
     public func update(with data: HistogramData) {
+        self.isDualMode = false
+        updateTitleLabel()
         canvas.update(with: data)
 
         // Update clipping indicators:
         let hasShadowClip = (data.red[0] > 30 || data.green[0] > 30 || data.blue[0] > 30)
         let hasHighlightClip = (data.red[255] > 30 || data.green[255] > 30 || data.blue[255] > 30)
+
+        shadowClipIndicator.isClipped = hasShadowClip
+        highlightClipIndicator.isClipped = hasHighlightClip
+    }
+
+    /// Dual side-by-side comparative histogram for 2-UP split comparison
+    public func updateDual(left: HistogramData, right: HistogramData) {
+        self.isDualMode = true
+        updateTitleLabel()
+        canvas.updateDual(left: left, right: right)
+
+        let hasShadowClip = (left.red[0] > 30 || left.green[0] > 30 || left.blue[0] > 30)
+        let hasHighlightClip = (right.red[255] > 30 || right.green[255] > 30 || right.blue[255] > 30)
 
         shadowClipIndicator.isClipped = hasShadowClip
         highlightClipIndicator.isClipped = hasHighlightClip

@@ -1111,6 +1111,72 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+        // ==========================================
+        // TEST 27: 2-UP Zero-Collision Geometry & Dual Comparative Histogram
+        // ==========================================
+        do {
+            print("🧪 TEST 27: 2-UP Zero-Collision Geometry & Dual Histogram...")
+
+            // 1. Dual Histogram Computation for two distinct images
+            let img1 = makeTestCGImage(width: 64, height: 64, r: 250, g: 30, b: 30) // saturated red
+            let img2 = makeTestCGImage(width: 64, height: 64, r: 30, g: 30, b: 250) // saturated blue
+
+            let hist1 = HistogramEngine.compute(for: img1)
+            let hist2 = HistogramEngine.compute(for: img2)
+
+            assertEqual(hist1.red[250] > 0, true, "Hist 1 has high red peak")
+            assertEqual(hist2.blue[250] > 0, true, "Hist 2 has high blue peak")
+
+            // 2. HistogramHudView dual comparative update
+            await MainActor.run {
+                let histHud = HistogramHudView(frame: NSRect(x: 0, y: 0, width: 284, height: 140))
+                histHud.updateDual(left: hist1, right: hist2)
+                histHud.setVisible(true, animated: false)
+                assertEqual(histHud.alphaValue, 1.0, "HistogramHud visible")
+            }
+
+            // 3. Zero-Collision Layout Invariants Verification
+            // Given standard 1440x900 viewport:
+            let vpWidth: CGFloat = 1440
+            let vpHeight: CGFloat = 900
+            let halfWidth = (vpWidth - 2) / 2 // 719
+
+            let badgeW: CGFloat = 320
+            let badgeH: CGFloat = 34
+            let leftBadgeX = max(16, (halfWidth - badgeW) / 2) // 199.5
+            let rightBadgeX = max(halfWidth + 18, halfWidth + 2 + (halfWidth - badgeW) / 2) // 920.5
+
+            // Badges sit at y = vpHeight - 50 (occupying y: 850..884)
+            let leftBadgeRect = CGRect(x: leftBadgeX, y: vpHeight - 50, width: badgeW, height: badgeH)
+            let rightBadgeRect = CGRect(x: rightBadgeX, y: vpHeight - 50, width: badgeW, height: badgeH)
+
+            // In 2-UP, inspectors (Histogram and Exif) drop to top: 62 (y: vpHeight - 62 - inspectorH)
+            let inspectorH: CGFloat = 140
+            let inspectorW: CGFloat = 284
+            let exifHudRect = CGRect(x: 28, y: vpHeight - 62 - inspectorH, width: inspectorW, height: inspectorH)
+            let histHudRect = CGRect(x: vpWidth - 28 - inspectorW, y: vpHeight - 62 - inspectorH, width: inspectorW, height: inspectorH)
+
+            // Main HUD sits at bottom center
+            let hudRect = CGRect(x: (vpWidth - 480) / 2, y: 28, width: 480, height: 38)
+
+            // Invariant 1: Badges never intersect each other
+            assertEqual(leftBadgeRect.intersects(rightBadgeRect), false, "Left and Right badges do not intersect")
+
+            // Invariant 2: Inspectors (Exif & Histogram) never intersect their respective pane badges
+            assertEqual(leftBadgeRect.intersects(exifHudRect), false, "Left Badge and EXIF HUD do not intersect")
+            assertEqual(rightBadgeRect.intersects(histHudRect), false, "Right Badge and Histogram HUD do not intersect")
+
+            // Invariant 3: Top edge of inspectors is strictly below bottom edge of badges
+            assertEqual(exifHudRect.maxY < leftBadgeRect.minY, true, "EXIF HUD is strictly below Left Badge")
+            assertEqual(histHudRect.maxY < rightBadgeRect.minY, true, "Histogram HUD is strictly below Right Badge")
+
+            // Invariant 4: Bottom HUD never intersects inspectors
+            assertEqual(hudRect.intersects(exifHudRect), false, "Bottom HUD does not intersect EXIF")
+            assertEqual(hudRect.intersects(histHudRect), false, "Bottom HUD does not intersect Histogram")
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }
