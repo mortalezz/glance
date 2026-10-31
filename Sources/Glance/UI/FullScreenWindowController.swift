@@ -520,6 +520,11 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             return
         }
 
+        if currentFilteredPos - 1 >= 0 {
+            navigate(toFilteredPos: currentFilteredPos - 1, direction: .backward)
+        } else {
+            navigate(toFilteredPos: filteredIndices.count - 1, direction: .backward)
+        }
     }
 
     /// Finalizes current King-of-the-Hill champion or advances unpicked scouting pair (Spacebar)
@@ -560,12 +565,6 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             } else {
                 slideView.hudView.showMessage("End of Set")
             }
-        }
-
-        if currentFilteredPos - 1 >= 0 {
-            navigate(toFilteredPos: currentFilteredPos - 1, direction: .backward)
-        } else {
-            navigate(toFilteredPos: filteredIndices.count - 1, direction: .backward)
         }
     }
 
