@@ -1232,6 +1232,30 @@ public final class SlideView: NSView {
         let isShift = event.modifierFlags.contains(.shift)
         let isCmd = event.modifierFlags.contains(.command)
 
+        // Cheatsheet Overlay active: Esc compacts extended mode or dismisses compact mode
+        if quickHelpView.alphaValue > 0.0 {
+            if event.keyCode == 53 {
+                if quickHelpView.isExpanded {
+                    quickHelpView.collapse()
+                } else {
+                    quickHelpView.dismiss()
+                }
+                return
+            }
+            // Space key toggles between compact and expanded cheatsheet
+            if event.keyCode == 49 {
+                quickHelpView.toggleExpansion()
+                return
+            }
+            // "?" toggles cheatsheet
+            if chars == "?" || (event.keyCode == 44 && isShift) {
+                quickHelpView.dismiss()
+                return
+            }
+            // Other inputs dismiss cheatsheet and proceed
+            quickHelpView.dismiss()
+        }
+
         // Esc (KeyCode 53): If zoomed, exit zoom to grid/fit; otherwise quit Glance
         if event.keyCode == 53 {
             if isZoomed {
@@ -1264,21 +1288,6 @@ public final class SlideView: NSView {
             delegate?.slideViewStopSlideshow()
             delegate?.slideViewRequestOpenInEditor()
             return
-        }
-
-        if quickHelpView.alphaValue > 0.0 {
-            // Space key toggles between compact and expanded cheatsheet
-            if event.keyCode == 49 {
-                quickHelpView.toggleExpansion()
-                return
-            }
-            // "?" toggles cheatsheet
-            if chars == "?" || (event.keyCode == 44 && isShift) {
-                quickHelpView.dismiss()
-                return
-            }
-            // Other inputs dismiss cheatsheet and proceed
-            quickHelpView.dismiss()
         }
 
         // Scene Leap Navigation: ']' or Cmd+Right/Down or Opt+Right/Down

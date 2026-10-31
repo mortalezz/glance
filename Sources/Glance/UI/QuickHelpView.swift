@@ -419,7 +419,7 @@ public final class QuickHelpView: NSView {
     private func updateClueLabel() {
         let isDark = ThemeManager.shared.isDark
         if isExpanded {
-            clueLabel.stringValue = "␣ Space or Click to collapse ▴"
+            clueLabel.stringValue = "⎋ Esc or ␣ Space to collapse ▴"
             if isDark {
                 cluePill.layer?.backgroundColor = NSColor(white: 1.0, alpha: 0.12).cgColor
                 cluePill.layer?.borderColor = NSColor.white.withAlphaComponent(0.22).cgColor
@@ -430,7 +430,7 @@ public final class QuickHelpView: NSView {
                 clueLabel.textColor = NSColor(white: 0.20, alpha: 1.0)
             }
         } else {
-            clueLabel.stringValue = "␣ Space or Click to expand details ▾"
+            clueLabel.stringValue = "␣ Space to expand details ▾  •  ⎋ Esc to close"
             if isDark {
                 cluePill.layer?.backgroundColor = NSColor(white: 1.0, alpha: 0.08).cgColor
                 cluePill.layer?.borderColor = NSColor.white.withAlphaComponent(0.14).cgColor
@@ -492,6 +492,21 @@ public final class QuickHelpView: NSView {
     }
 
     // MARK: - Interactive Expand / Collapse Toggle
+
+    public func collapse() {
+        guard isExpanded else { return }
+        isExpanded = false
+        updateClueLabel()
+        resetDismissTimer(timeout: 5.0)
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.22
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            self.compactContainer.animator().isHidden = false
+            self.expandedContainer.animator().isHidden = true
+            self.layoutSubtreeIfNeeded()
+        }
+    }
 
     public func toggleExpansion() {
         isExpanded.toggle()
