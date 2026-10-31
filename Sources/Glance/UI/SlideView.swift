@@ -23,6 +23,7 @@ public protocol SlideViewDelegate: AnyObject {
     func slideViewToggleSplitCompare()
     func slideViewPickWinner(slot: Int)
     func slideViewCommitSplitMatchup()
+    func slideViewHoverPaneChanged(to slot: Int)
 
     // 100% Zoom Action
     func slideViewRequestZoomToggle(mouseLocation: CGPoint)
@@ -51,7 +52,7 @@ public protocol SlideViewDelegate: AnyObject {
 /// Ultra-responsive, zero-latency layer-backed NSView.
 /// Supports single image full-screen display, 2-up split burst compare mode,
 /// instant 100% 1:1 pixel peeping with smooth pan/drag, live RGB histogram,
-/// and camera-style exposure clipping warnings ("blinkies").
+/// dynamic pane hover inspection, and camera-style exposure clipping warnings ("blinkies").
 @MainActor
 public final class SlideView: NSView {
     public weak var delegate: SlideViewDelegate?
@@ -82,6 +83,7 @@ public final class SlideView: NSView {
     private var exifTopConstraint: NSLayoutConstraint?
 
     public private(set) var isSplitMode: Bool = false
+    public private(set) var hoveredSplitSlot: Int = 1
     public private(set) var isZoomed: Bool = false
     public private(set) var isClippingActive: Bool = false
     public private(set) var isPeakingActive: Bool = false
@@ -220,6 +222,9 @@ public final class SlideView: NSView {
         quickHelpView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(quickHelpView)
 
+        // Split Badges: positioned manually via frames in updateLayerLayout
+        leftSplitBadge.translatesAutoresizingMaskIntoConstraints = true
+        rightSplitBadge.translatesAutoresizingMaskIntoConstraints = true
         addSubview(leftSplitBadge)
         addSubview(rightSplitBadge)
         leftSplitBadge.isHidden = true
@@ -295,10 +300,15 @@ public final class SlideView: NSView {
             let badgeW: CGFloat = min(360, max(220, halfWidth - 48))
             let leftBadgeX = max(16, (halfWidth - badgeW) / 2)
             let rightBadgeX = max(halfWidth + 18, halfWidth + 2 + (halfWidth - badgeW) / 2)
+            
+            // Frame positioning for badges without CoreAnimation action interference
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
             leftSplitBadge.frame = CGRect(x: leftBadgeX, y: bounds.height - 50, width: badgeW, height: 34)
             rightSplitBadge.frame = CGRect(x: rightBadgeX, y: bounds.height - 50, width: badgeW, height: 34)
             leftSplitBadge.isHidden = false
             rightSplitBadge.isHidden = false
+            CATransaction.commit()
 
             if isZoomed {
                 // Synchronous 100% Pixel Peeping across BOTH split panes!
@@ -453,6 +463,7 @@ public final class SlideView: NSView {
 
     public func setSplitMode(_ enabled: Bool) {
         isSplitMode = enabled
+        hoveredSplitSlot = 1
         leftSplitBadge.isHidden = !enabled
         rightSplitBadge.isHidden = !enabled
         histogramTopConstraint?.constant = enabled ? 62 : 28
@@ -484,12 +495,13 @@ public final class SlideView: NSView {
 
     // MARK: - Phase 3: Histogram & Clipping Warnings ("Blinkies")
 
-    public func updateHistogram(_ data: HistogramData) {
-        histogramHud.update(with: data)
+    public func updateHistogram(_ data: HistogramData, slot: Int? = nil) {
+        histogramHud.update(with: data, slot: slot)
     }
 
     public func updateDualHistogram(left: HistogramData, right: HistogramData) {
-        histogramHud.updateDual(left: left, right: right)
+        let active = (hoveredSplitSlot == 2) ? right : left
+        histogramHud.update(with: active, slot: hoveredSplitSlot)
     }
 
     public func setHistogramVisible(_ visible: Bool) {
@@ -1099,11 +1111,21 @@ public final class SlideView: NSView {
         }
     }
 
-    // MARK: - Non-Blocking Cursor Auto-Hide
+    // MARK: - Non-Blocking Cursor Auto-Hide & Hover Tracking
 
     public override func mouseMoved(with event: NSEvent) {
         hudView.pulse()
         resetCursorTimer()
+
+        if isSplitMode {
+            let mousePt = convert(event.locationInWindow, from: nil)
+            let halfWidth = (bounds.width - 2) / 2
+            let slot = (mousePt.x > halfWidth) ? 2 : 1
+            if slot != hoveredSplitSlot {
+                hoveredSplitSlot = slot
+                delegate?.slideViewHoverPaneChanged(to: slot)
+            }
+        }
     }
 
     public override func mouseExited(with event: NSEvent) {

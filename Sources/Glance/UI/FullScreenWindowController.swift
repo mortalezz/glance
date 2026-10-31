@@ -23,6 +23,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     private var isClippingVisible: Bool = false
     private var isFocusPeakingVisible: Bool = false
     private var isExifVisible: Bool = false
+    private var leftHistogramData: HistogramData? = nil
+    private var rightHistogramData: HistogramData? = nil
+    private var activeHoverSlot: Int = 1
 
     // Phase 4: Output & Productivity
     private var isSlideshowActive: Bool = false
@@ -720,13 +723,16 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
                 let (leftFull, rightFull) = await (leftFullTask, rightFullTask)
 
-                if let fullRes = leftFull {
-                    let fullDims = CGSize(width: fullRes.originalWidth, height: fullRes.originalHeight)
+                // Guard against race conditions if user zoomed out while async decode was running
+                guard self.slideView.isZoomed else { return }
+
+                if leftFull != nil || rightFull != nil {
+                    let fullDims = leftFull != nil ? CGSize(width: leftFull!.originalWidth, height: leftFull!.originalHeight) : nil
                     let rightDims = rightFull != nil ? CGSize(width: rightFull!.originalWidth, height: rightFull!.originalHeight) : nil
                     self.slideView.setZoom(
                         true,
                         anchorPointInView: mouseLocation,
-                        fullResImage: fullRes.image,
+                        fullResImage: leftFull?.image,
                         originalDimensions: fullDims,
                         rightFullResImage: rightFull?.image,
                         rightOriginalDimensions: rightDims
@@ -908,8 +914,19 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         }
     }
 
+    public func slideViewHoverPaneChanged(to slot: Int) {
+        guard slideView.isSplitMode else { return }
+        guard activeHoverSlot != slot else { return }
+        activeHoverSlot = slot
+
+        guard isHistogramVisible else { return }
+        let data = (slot == 2 ? rightHistogramData : leftHistogramData) ?? .empty
+        slideView.updateHistogram(data, slot: slot)
+    }
+
     private func updateHistogramAsync(for cgImage: CGImage, nextImage: CGImage? = nil) {
         let isSplit = slideView.isSplitMode
+        let hoverSlot = activeHoverSlot
         Task.detached(priority: .userInitiated) { [weak self] in
             let leftData = HistogramEngine.compute(for: cgImage)
             var rightData: HistogramData? = nil
@@ -918,10 +935,14 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             }
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
-                if let rData = rightData {
-                    self.slideView.updateDualHistogram(left: leftData, right: rData)
+                self.leftHistogramData = leftData
+                self.rightHistogramData = rightData
+
+                if self.slideView.isSplitMode {
+                    let activeData = (hoverSlot == 2 ? rightData : leftData) ?? leftData
+                    self.slideView.updateHistogram(activeData, slot: hoverSlot)
                 } else {
-                    self.slideView.updateHistogram(leftData)
+                    self.slideView.updateHistogram(leftData, slot: nil)
                 }
             }
         }
@@ -1221,6 +1242,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         let newState = !slideView.isSplitMode
         slideView.setSplitMode(newState)
         if newState {
+            activeHoverSlot = 1
             // Auto-engage .hideRejects so rejected photos are not cycled in comparison arena
             if currentFilter == .all || currentFilter == .rejectsOnly {
                 filterBeforeMultiUp = currentFilter
@@ -1231,6 +1253,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             splitChallengerPos = (currentFilteredPos + 1 < filteredIndices.count) ? (currentFilteredPos + 1) : nil
             slideView.hudView.showMessage("2-UP Compare: Next Pair [→/Space] • Pick Winner [ 1 / 2 ]")
         } else {
+            activeHoverSlot = 1
             // Restore previous filter when exiting multi-up compare if user did not manually change it
             if let prev = filterBeforeMultiUp {
                 currentFilter = prev
@@ -1240,6 +1263,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             splitCompareState = .pairScouting
             splitChallengerPos = nil
             slideView.hudView.showMessage("Single Fullscreen [S]")
+            if isHistogramVisible {
+                slideView.updateHistogram(leftHistogramData ?? .empty, slot: nil)
+            }
         }
         Task {
             await loadAndDisplayCurrent()

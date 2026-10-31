@@ -23,8 +23,8 @@ public actor SlidePipeline {
     /// In-memory cache of full-resolution 1:1 images for pixel-peeping: [Index: DecodedImage]
     private var fullResCache: [Int: DecodedImage] = [:]
 
-    /// Active full-resolution decode task
-    private var inFlightFullResTask: (index: Int, task: Task<DecodedImage, Error>)?
+    /// Active full-resolution decode tasks: [Index: Task<DecodedImage, Error>]
+    private var inFlightFullResTasks: [Int: Task<DecodedImage, Error>] = [:]
 
     private let decoder: ImageDecoder
 
@@ -118,13 +118,10 @@ public actor SlidePipeline {
             return fullCached
         }
 
-        // 3. Check if current task in flight
-        if let inFlight = inFlightFullResTask, inFlight.index == index {
-            return try await inFlight.task.value
+        // 3. Check if current task in flight for this specific index
+        if let inFlight = inFlightFullResTasks[index] {
+            return try await inFlight.value
         }
-
-        // Cancel previous full-res task if user moved to another photo
-        inFlightFullResTask?.task.cancel()
 
         let decoder = self.decoder
         // For stacked shots, decode 100% actual device pixels from the master RAW file!
@@ -136,19 +133,19 @@ public actor SlidePipeline {
             return try decoder.decode(at: targetURL, maxBoundingPixelSize: 0)
         }
 
-        inFlightFullResTask = (index: index, task: task)
+        inFlightFullResTasks[index] = task
 
         do {
             let decoded = try await task.value
-            // Keep at most 2 full-res images in RAM to preserve memory
-            if fullResCache.count >= 2 {
+            // Keep at most 4 full-res images in RAM to preserve memory across multi-up
+            if fullResCache.count >= 4 {
                 fullResCache.removeAll()
             }
             fullResCache[index] = decoded
-            inFlightFullResTask = nil
+            inFlightFullResTasks.removeValue(forKey: index)
             return decoded
         } catch {
-            inFlightFullResTask = nil
+            inFlightFullResTasks.removeValue(forKey: index)
             throw error
         }
     }
@@ -158,11 +155,15 @@ public actor SlidePipeline {
         guard index >= 0 && index < items.count else { return }
         self.currentIndex = index
         // Prune full-res cache when navigating away
-        if fullResCache.keys.contains(where: { abs($0 - index) > 1 }) {
+        if fullResCache.keys.contains(where: { abs($0 - index) > 2 }) {
             fullResCache.removeAll()
         }
-        inFlightFullResTask?.task.cancel()
-        inFlightFullResTask = nil
+        for (idx, task) in inFlightFullResTasks {
+            if abs(idx - index) > 2 {
+                task.cancel()
+                inFlightFullResTasks.removeValue(forKey: idx)
+            }
+        }
 
         pruneAndPreload(around: index, direction: direction)
     }
@@ -175,6 +176,8 @@ public actor SlidePipeline {
         inFlightTasks.removeValue(forKey: index)
         cache.removeValue(forKey: index)
         fullResCache.removeValue(forKey: index)
+        inFlightFullResTasks[index]?.cancel()
+        inFlightFullResTasks.removeValue(forKey: index)
 
         items.remove(at: index)
 
@@ -244,6 +247,8 @@ public actor SlidePipeline {
         fullResCache.removeValue(forKey: index)
         inFlightTasks[index]?.cancel()
         inFlightTasks.removeValue(forKey: index)
+        inFlightFullResTasks[index]?.cancel()
+        inFlightFullResTasks.removeValue(forKey: index)
     }
 
     /// Batch removes items at the given indices.
@@ -343,7 +348,9 @@ public actor SlidePipeline {
             task.cancel()
         }
         inFlightTasks.removeAll()
-        inFlightFullResTask?.task.cancel()
-        inFlightFullResTask = nil
+        for (_, task) in inFlightFullResTasks {
+            task.cancel()
+        }
+        inFlightFullResTasks.removeAll()
     }
 }

@@ -3,10 +3,8 @@ import Accelerate
 
 /// A dedicated canvas view that renders multi-channel curves (Red, Green, Blue, Luminance)
 /// over a tonal grid using square-root scaling, outlier suppression, and additive RGB blending.
-/// Supports both single-photo full view and 2-UP dual side-by-side comparative views.
 final class HistogramCanvasView: NSView {
     private var data: HistogramData = .empty
-    private var rightData: HistogramData? = nil
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -20,13 +18,6 @@ final class HistogramCanvasView: NSView {
 
     public func update(with data: HistogramData) {
         self.data = data
-        self.rightData = nil
-        needsDisplay = true
-    }
-
-    public func updateDual(left: HistogramData, right: HistogramData) {
-        self.data = left
-        self.rightData = right
         needsDisplay = true
     }
 
@@ -37,37 +28,10 @@ final class HistogramCanvasView: NSView {
         let rect = bounds
         guard rect.width > 20 && rect.height > 10 else { return }
 
-        if let right = rightData {
-            let pad: CGFloat = 8
-            let scopeW = floor((rect.width - pad) / 2)
-            let leftRect = CGRect(x: rect.minX, y: rect.minY, width: scopeW, height: rect.height)
-            let rightRect = CGRect(x: rect.minX + scopeW + pad, y: rect.minY, width: scopeW, height: rect.height)
-
-            // Draw left scope [ 1 ]
-            drawScope(in: leftRect, data: data, ctx: ctx, slotBadge: "1")
-
-            // Vertical divider between comparative scopes
-            let divX = floor(rect.minX + scopeW + pad / 2) + 0.5
-            ctx.saveGState()
-            let isDark = ThemeManager.shared.isDark
-            let divColor = isDark
-                ? NSColor.white.withAlphaComponent(0.18).cgColor
-                : NSColor.black.withAlphaComponent(0.18).cgColor
-            ctx.setStrokeColor(divColor)
-            ctx.setLineWidth(0.75)
-            ctx.move(to: CGPoint(x: divX, y: rect.minY + 4))
-            ctx.addLine(to: CGPoint(x: divX, y: rect.maxY - 4))
-            ctx.strokePath()
-            ctx.restoreGState()
-
-            // Draw right scope [ 2 ]
-            drawScope(in: rightRect, data: right, ctx: ctx, slotBadge: "2")
-        } else {
-            drawScope(in: rect, data: data, ctx: ctx, slotBadge: nil)
-        }
+        drawScope(in: rect, data: data, ctx: ctx)
     }
 
-    private func drawScope(in rect: CGRect, data: HistogramData, ctx: CGContext, slotBadge: String?) {
+    private func drawScope(in rect: CGRect, data: HistogramData, ctx: CGContext) {
         guard rect.width > 10 && rect.height > 10 else { return }
         let isDark = ThemeManager.shared.isDark
 
@@ -208,31 +172,6 @@ final class HistogramCanvasView: NSView {
         ctx.strokePath()
 
         ctx.restoreGState()
-
-        // 7. In Dual mode, draw small slot pill tag: [ 1 ] or [ 2 ]
-        if let badge = slotBadge {
-            ctx.saveGState()
-            let badgeRect = CGRect(x: rect.minX + 5, y: rect.maxY - 14, width: 14, height: 11)
-            let badgePath = NSBezierPath(roundedRect: badgeRect, xRadius: 2.5, yRadius: 2.5)
-            let pillBg = (badge == "1")
-                ? NSColor.systemIndigo.withAlphaComponent(0.40)
-                : NSColor.systemOrange.withAlphaComponent(0.40)
-            pillBg.setFill()
-            badgePath.fill()
-
-            let badgeAttr: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 8, weight: .bold),
-                .foregroundColor: NSColor.white
-            ]
-            let str = NSAttributedString(string: badge, attributes: badgeAttr)
-            let strSize = str.size()
-            let strPt = CGPoint(
-                x: badgeRect.midX - strSize.width / 2,
-                y: badgeRect.midY - strSize.height / 2
-            )
-            str.draw(at: strPt)
-            ctx.restoreGState()
-        }
     }
 }
 
@@ -304,7 +243,7 @@ final class ClippingTriangleView: NSView {
 }
 
 /// Modern macOS frosted-glass HUD overlay displaying a live RGB & Luminance histogram.
-/// Supports both single-frame monitoring and 2-UP dual side-by-side comparative views.
+/// Supports both single-frame monitoring and dynamic pane-hover tracking in 2-UP split comparison.
 @MainActor
 public final class HistogramHudView: NSView {
     private let visualEffectView = NSVisualEffectView()
@@ -316,7 +255,7 @@ public final class HistogramHudView: NSView {
     private let shadowClipIndicator = ClippingTriangleView(kind: .shadow)
     private let highlightClipIndicator = ClippingTriangleView(kind: .highlight)
     private var footerLabels: [NSTextField] = []
-    private var isDualMode: Bool = false
+    public private(set) var activeSlot: Int? = nil
 
     public var onToggleClipping: (() -> Void)?
 
@@ -500,15 +439,34 @@ public final class HistogramHudView: NSView {
     }
 
     private func updateTitleLabel() {
-        let title = isDualMode ? "HISTOGRAM [ 1 vs 2 ]" : "HISTOGRAM"
+        let titleString: String
+        let slotColor: NSColor?
+
+        if let slot = activeSlot {
+            titleString = "HISTOGRAM [ \(slot) ]"
+            slotColor = (slot == 1) ? NSColor.systemTeal : NSColor.systemOrange
+        } else {
+            titleString = "HISTOGRAM"
+            slotColor = nil
+        }
+
         let attrTitle = NSMutableAttributedString(
-            string: title,
+            string: titleString,
             attributes: [
                 .font: NSFont.systemFont(ofSize: 10, weight: .bold),
                 .foregroundColor: ThemeManager.shared.primaryTextColor,
                 .kern: 0.8
             ]
         )
+
+        if let slot = activeSlot, let color = slotColor {
+            let target = "[ \(slot) ]"
+            let range = (titleString as NSString).range(of: target)
+            if range.location != NSNotFound {
+                attrTitle.addAttribute(.foregroundColor, value: color, range: range)
+            }
+        }
+
         titleLabel.attributedStringValue = attrTitle
     }
 
@@ -595,8 +553,9 @@ public final class HistogramHudView: NSView {
         canvas.needsDisplay = true
     }
 
-    public func update(with data: HistogramData) {
-        self.isDualMode = false
+    /// Updates the single full-width histogram canvas and tracks the active hovered pane slot (1 or 2)
+    public func update(with data: HistogramData, slot: Int? = nil) {
+        self.activeSlot = slot
         updateTitleLabel()
         canvas.update(with: data)
 
@@ -608,17 +567,11 @@ public final class HistogramHudView: NSView {
         highlightClipIndicator.isClipped = hasHighlightClip
     }
 
-    /// Dual side-by-side comparative histogram for 2-UP split comparison
+    /// Backward compatibility fallback for dual update requests
     public func updateDual(left: HistogramData, right: HistogramData) {
-        self.isDualMode = true
-        updateTitleLabel()
-        canvas.updateDual(left: left, right: right)
-
-        let hasShadowClip = (left.red[0] > 30 || left.green[0] > 30 || left.blue[0] > 30)
-        let hasHighlightClip = (right.red[255] > 30 || right.green[255] > 30 || right.blue[255] > 30)
-
-        shadowClipIndicator.isClipped = hasShadowClip
-        highlightClipIndicator.isClipped = hasHighlightClip
+        let slot = activeSlot ?? 1
+        let activeData = (slot == 2) ? right : left
+        update(with: activeData, slot: slot)
     }
 
     public func setVisible(_ visible: Bool, animated: Bool = true) {

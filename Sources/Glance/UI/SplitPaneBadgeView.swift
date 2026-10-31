@@ -79,9 +79,15 @@ public final class SplitPaneBadgeView: NSView {
         setupView()
     }
 
+    /// Completely transparent to mouse clicks so user can click anywhere in the window to zoom in/out
+    public override func hitTest(_ point: NSPoint) -> NSView? {
+        return nil
+    }
+
     private func setupView() {
         wantsLayer = true
-        translatesAutoresizingMaskIntoConstraints = false
+        // Allow SlideView.updateLayerLayout to frame-position the badge without Auto Layout solver fighting
+        translatesAutoresizingMaskIntoConstraints = true
 
         visualEffectView.material = .hudWindow
         visualEffectView.blendingMode = .withinWindow
