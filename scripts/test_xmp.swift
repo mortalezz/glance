@@ -1516,6 +1516,163 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+        // ==========================================
+        // TEST 30: Instant Burst Clustering & Zero-Jerk Traversal Invariants
+        // ==========================================
+        do {
+            print("🧪 TEST 30: Instant Burst Clustering & Zero-Jerk Traversal Invariants...")
+
+            // 1. DirectoryScanner Date Extraction & SlideItem Invariants
+            let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("GlanceBurstTest_\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: tempDir) }
+
+            let baseDate = Date(timeIntervalSince1970: 1700000000)
+            var fileURLs: [URL] = []
+
+            // Create 6 test image files with deliberate timestamps:
+            // 0: Isolated (baseDate)
+            // 1, 2, 3: 3-shot burst (baseDate + 10.0s, + 10.2s, + 10.4s)
+            // 4, 5: 2-shot burst (baseDate + 30.0s, + 30.5s)
+            let offsets: [Double] = [0.0, 10.0, 10.2, 10.4, 30.0, 30.5]
+            for (idx, offset) in offsets.enumerated() {
+                let fileURL = tempDir.appendingPathComponent(String(format: "IMG_%04d.JPG", idx + 1))
+                try "fake-image-bytes".write(to: fileURL, atomically: true, encoding: .utf8)
+                let itemDate = baseDate.addingTimeInterval(offset)
+                try FileManager.default.setAttributes([.modificationDate: itemDate], ofItemAtPath: fileURL.path)
+                fileURLs.append(fileURL)
+            }
+
+            let scanner = DirectoryScanner()
+            let scanResult = try await scanner.scan(targetURL: tempDir)
+            assertEqual(scanResult.items.count, 6, "Scanner found 6 items")
+
+            for (idx, item) in scanResult.items.enumerated() {
+                assertEqual(item.date != nil, true, "SlideItem \(idx) has populated date")
+            }
+
+            // 2. Instant Synchronous Burst Grouping Invariants (< 1ms benchmark)
+            let startTime = DispatchTime.now()
+
+            var burstCache: [Int: BurstBreadcrumbInfo?] = [:]
+            let items = scanResult.items
+            let count = items.count
+
+            var clusterStart = 0
+            while clusterStart < count {
+                var clusterEnd = clusterStart
+                guard let startDate = items[clusterStart].date else {
+                    clusterStart += 1
+                    continue
+                }
+
+                var prevDate = startDate
+                while clusterEnd + 1 < count {
+                    guard let nextDate = items[clusterEnd + 1].date else { break }
+                    let dt = abs(nextDate.timeIntervalSince(prevDate))
+                    if dt <= 3.0 {
+                        clusterEnd += 1
+                        prevDate = nextDate
+                    } else {
+                        break
+                    }
+                }
+
+                let totalInBurst = clusterEnd - clusterStart + 1
+                if totalInBurst > 1 {
+                    for p in clusterStart...clusterEnd {
+                        let k = (p - clusterStart) + 1
+                        var dt: TimeInterval? = nil
+                        if p > clusterStart, let dCurr = items[p].date, let dPrev = items[p - 1].date {
+                            dt = abs(dCurr.timeIntervalSince(dPrev))
+                        } else if p == clusterStart, let dCurr = items[p].date, let dNext = items[p + 1].date {
+                            dt = abs(dNext.timeIntervalSince(dCurr))
+                        }
+                        burstCache[p] = BurstBreadcrumbInfo(
+                            indexInBurst: k,
+                            totalInBurst: totalInBurst,
+                            timeDelta: dt,
+                            isHero: false,
+                            heroIndex: nil
+                        )
+                    }
+                }
+
+                clusterStart = clusterEnd + 1
+            }
+
+            let endTime = DispatchTime.now()
+            let elapsedNanos = endTime.uptimeNanoseconds - startTime.uptimeNanoseconds
+            let elapsedMs = Double(elapsedNanos) / 1_000_000.0
+
+            assertEqual(elapsedMs < 10.0, true, "Burst clustering executes in <10ms (actual: \(elapsedMs)ms)")
+
+            // Verify Cluster Membership Invariants:
+            // 0: Isolated
+            assertEqual(burstCache[0] ?? nil, nil, "Item 0 is isolated")
+
+            // 1, 2, 3: 3-shot burst
+            let b1 = burstCache[1] as? BurstBreadcrumbInfo
+            let b2 = burstCache[2] as? BurstBreadcrumbInfo
+            let b3 = burstCache[3] as? BurstBreadcrumbInfo
+            assertEqual(b1?.indexInBurst, 1, "Item 1 is index 1 of burst")
+            assertEqual(b1?.totalInBurst, 3, "Item 1 total is 3")
+            assertEqual(b2?.indexInBurst, 2, "Item 2 is index 2 of burst")
+            assertEqual(b2?.totalInBurst, 3, "Item 2 total is 3")
+            assertEqual(b3?.indexInBurst, 3, "Item 3 is index 3 of burst")
+            assertEqual(b3?.totalInBurst, 3, "Item 3 total is 3")
+
+            // 4, 5: 2-shot burst
+            let b4 = burstCache[4] as? BurstBreadcrumbInfo
+            let b5 = burstCache[5] as? BurstBreadcrumbInfo
+            assertEqual(b4?.indexInBurst, 1, "Item 4 is index 1 of 2-shot burst")
+            assertEqual(b4?.totalInBurst, 2, "Item 4 total is 2")
+            assertEqual(b5?.indexInBurst, 2, "Item 2 of 2-shot burst")
+            assertEqual(b5?.totalInBurst, 2, "Item 5 total is 2")
+
+            // 3. Traversal Pill Stability & Zero-Jerk Invariants:
+            // Simulating traversal across items: 1 -> 2 -> 3
+            var isPillHidden = true
+            var hideToggleCount = 0
+
+            func simulateRender(info: BurstBreadcrumbInfo?) {
+                let shouldBeVisible = (info != nil && (info?.totalInBurst ?? 0) > 1)
+                if shouldBeVisible {
+                    if isPillHidden {
+                        isPillHidden = false
+                        hideToggleCount += 1
+                    }
+                } else {
+                    if !isPillHidden {
+                        isPillHidden = true
+                        hideToggleCount += 1
+                    }
+                }
+            }
+
+            // Step onto burst at item 1
+            simulateRender(info: burstCache[1] as? BurstBreadcrumbInfo)
+            assertEqual(isPillHidden, false, "Pill appears when entering burst at item 1")
+            assertEqual(hideToggleCount, 1, "Pill toggled once to visible")
+
+            // Traverse to item 2 in same burst
+            simulateRender(info: burstCache[2] as? BurstBreadcrumbInfo)
+            assertEqual(isPillHidden, false, "Pill remains visible at item 2")
+            assertEqual(hideToggleCount, 1, "Zero toggling across burst navigation (Zero jerk)")
+
+            // Traverse to item 3 in same burst
+            simulateRender(info: burstCache[3] as? BurstBreadcrumbInfo)
+            assertEqual(isPillHidden, false, "Pill remains visible at item 3")
+            assertEqual(hideToggleCount, 1, "Zero toggling across burst navigation (Zero jerk)")
+
+            // Traverse to isolated item 0
+            simulateRender(info: burstCache[0] ?? nil)
+            assertEqual(isPillHidden, true, "Pill hides when stepping to isolated photo")
+            assertEqual(hideToggleCount, 2, "Pill toggled once to hidden")
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

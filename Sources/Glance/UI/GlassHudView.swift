@@ -865,16 +865,12 @@ public final class GlassHudView: NSView {
         if let burst = burst, burst.totalInBurst > 1 {
             burstLabel.stringValue = burst.displayText
             applyBurstTheme(isHero: burst.isHero)
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.12
-                context.allowsImplicitAnimation = true
-                burstPill.isHidden = false
+            if burstPill.isHidden {
+                burstPill.animator().isHidden = false
             }
         } else {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.12
-                context.allowsImplicitAnimation = true
-                burstPill.isHidden = true
+            if !burstPill.isHidden {
+                burstPill.animator().isHidden = true
             }
         }
     }
@@ -898,9 +894,13 @@ public final class GlassHudView: NSView {
         if let burst = info.burstInfo, burst.totalInBurst > 1 {
             burstLabel.stringValue = burst.displayText
             applyBurstTheme(isHero: burst.isHero)
-            burstPill.isHidden = false
+            if burstPill.isHidden {
+                burstPill.animator().isHidden = false
+            }
         } else {
-            burstPill.isHidden = true
+            if !burstPill.isHidden {
+                burstPill.animator().isHidden = true
+            }
         }
 
         NSAnimationContext.runAnimationGroup { context in
