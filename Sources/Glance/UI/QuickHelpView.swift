@@ -120,7 +120,7 @@ public final class QuickHelpView: NSView {
         grid.rowSpacing = 8
 
         let compactPairs: [(col1: (key: String, desc: String), col2: (key: String, desc: String))] = [
-            (("P", "Pick"), ("Z / ⇧Z", "100% / Eye Jump")),
+            (("P / ⇧P", "Pick / Knockout"), ("Z / ⇧Z", "100% / Eye Jump")),
             (("X", "Reject"), ("S", "Multi-Up (1/2/4-UP)")),
             (("U", "Unflag"), ("H", "RGB Histogram")),
             (("1 – 5", "Rating"), ("O", "Clipping warning")),
@@ -213,13 +213,13 @@ public final class QuickHelpView: NSView {
             c3: (key: String, title: String, desc: String)
         )] = [
             (
-                ("P", "Pick (Keeper)", "Flags photo as keeper. Writes crs:PickStatus to Adobe XMP sidecar."),
+                ("P / ⇧P", "Pick / Knockout", "P: Flag keeper. ⇧P: Burst Knockout (pick best, auto-reject all burst siblings)."),
                 ("Z / ⇧Z", "100% / Eye Jump", "Hold Z: spring-loaded 100% Loupe & pan. ⇧Z: Apple Vision centers eye on hovered frame."),
                 ("Return", "Slideshow", "Automated timed presentation. Any key or click stops it.")
             ),
             (
                 ("X", "Reject (Trash)", "Marks for purge. Writes xmp:Rating=-1 to sidecar."),
-                ("S", "Multi-Up Compare", "Cycles 1-UP ➔ 2-UP ➔ 4-UP quad grid with quadrant haptics, solo 100% loupe, and pane culling."),
+                ("S", "Scene Multi-Up", "Cycles 1-UP ➔ 2-UP ➔ 4-UP quad grid; bursts stay unified on one page without fracturing."),
                 ("+ / -", "Slideshow Speed", "Live interval stepping (1s, 2s, 3s, 5s, 8s... up to 30s).")
             ),
             (

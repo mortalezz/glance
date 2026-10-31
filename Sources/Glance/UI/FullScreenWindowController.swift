@@ -21,6 +21,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     // Multi-Up View & Inspection
     private var multiUpMode: MultiUpMode = .single
     private var activeHoverSlot: Int = 1
+    private var displayedMultiUpPositions: [Int] = []
     private var filterBeforeMultiUp: CullingFilter? = nil
 
     // Phase 3: Histogram & Clipping Warnings
@@ -203,6 +204,19 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         }
 
         let slotCount = multiUpMode.rawValue
+        let pagePositions: [Int]
+        if multiUpMode == .single {
+            pagePositions = [currentFilteredPos]
+        } else {
+            pagePositions = await findMultiUpPagePositions(startPos: currentFilteredPos, slotCount: slotCount)
+        }
+        self.displayedMultiUpPositions = pagePositions
+
+        if activeHoverSlot > pagePositions.count {
+            activeHoverSlot = 1
+        }
+        slideView.setHoveredSplitSlot(activeHoverSlot)
+
         var slotImages: [CGImage?] = Array(repeating: nil, count: 4)
         var slotSizes: [CGSize] = Array(repeating: .zero, count: 4)
         var slotInfos: [SplitPaneInfo?] = Array(repeating: nil, count: 4)
@@ -210,8 +224,8 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         var slotItems: [SlideItem?] = Array(repeating: nil, count: 4)
         var slotPaths: [String?] = Array(repeating: nil, count: 4)
 
-        for s in 0..<slotCount {
-            let pos = currentFilteredPos + s
+        for s in 0..<pagePositions.count {
+            let pos = pagePositions[s]
             guard pos < filteredIndices.count else { continue }
             let raw = filteredIndices[pos]
             let itm = allItems[raw]
@@ -266,7 +280,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         }
 
         // Primary item under view / active slot
-        let primaryIdx = min(activeHoverSlot - 1, slotCount - 1)
+        let primaryIdx = min(activeHoverSlot - 1, max(0, pagePositions.count - 1))
         guard let item = slotItems[primaryIdx] ?? slotItems[0],
               let decoded = slotDecoded[primaryIdx] ?? slotDecoded[0] else {
             let info = HudInfo(
@@ -295,7 +309,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
         let cachedAesthetic = AestheticsEngine.shared.cachedScore(for: item.url.path)
 
-        let primaryPos = min(currentFilteredPos + primaryIdx, filteredIndices.count - 1)
+        let primaryPos = (primaryIdx < pagePositions.count) ? pagePositions[primaryIdx] : currentFilteredPos
         var burstBreadcrumb: BurstBreadcrumbInfo? = nil
         if let cached = burstClusterCache[primaryPos] {
             burstBreadcrumb = cached
@@ -304,13 +318,15 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             burstClusterTask = Task { @MainActor [weak self] in
                 guard let self = self else { return }
                 let result = await self.computeBurstCluster(for: primaryPos)
-                let activePos = min(self.currentFilteredPos + min(self.activeHoverSlot - 1, self.multiUpMode.rawValue - 1), self.filteredIndices.count - 1)
+                let activePos = (self.activeHoverSlot <= self.displayedMultiUpPositions.count)
+                    ? self.displayedMultiUpPositions[self.activeHoverSlot - 1]
+                    : self.currentFilteredPos
                 if activePos == primaryPos {
                     self.slideView.updateBurstBreadcrumb(result)
                 }
                 if self.multiUpMode != .single {
-                    for s in 0..<self.multiUpMode.rawValue {
-                        let p = self.currentFilteredPos + s
+                    for s in 0..<self.displayedMultiUpPositions.count {
+                        let p = self.displayedMultiUpPositions[s]
                         if p < self.filteredIndices.count, let b = self.burstClusterCache[p] as? BurstBreadcrumbInfo {
                             let desc = b.isHero ? "👑 BEST IN BURST" : "📸 BURST [\(b.indexInBurst)/\(b.totalInBurst)]"
                             self.slideView.updateSlotScene(slot: s + 1, description: desc, isHero: b.isHero)
@@ -390,7 +406,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         detectedFacesForChallengerSlide = []
         for s in 0..<slotCount {
             guard let p = slotPaths[s], let img = slotImages[s] else { continue }
-            let pos = currentFilteredPos + s
+            let pos = (s < pagePositions.count) ? pagePositions[s] : (currentFilteredPos + s)
             guard pos < filteredIndices.count else { continue }
             let rIdx = filteredIndices[pos]
             Task.detached(priority: .utility) { [weak self] in
@@ -456,18 +472,18 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         stopSlideshowIfRunning()
         guard !filteredIndices.isEmpty else { return }
 
-        let stride = multiUpMode.rawValue
-        let nextPos = currentFilteredPos + stride
-
-        if nextPos < filteredIndices.count {
-            navigate(toFilteredPos: nextPos, direction: .forward)
-        } else if currentFilteredPos + 1 < filteredIndices.count && multiUpMode != .single {
-            // Remainder partial block at end of directory
-            navigate(toFilteredPos: currentFilteredPos + 1, direction: .forward)
-            slideView.showToast("Last Photo in Set", icon: "🛑")
-        } else {
-            if multiUpMode == .single {
+        if multiUpMode == .single {
+            let nextPos = currentFilteredPos + 1
+            if nextPos < filteredIndices.count {
+                navigate(toFilteredPos: nextPos, direction: .forward)
+            } else {
                 navigate(toFilteredPos: 0, direction: .forward)
+            }
+        } else {
+            let advanceCount = max(1, displayedMultiUpPositions.count)
+            let nextPos = currentFilteredPos + advanceCount
+            if nextPos < filteredIndices.count {
+                navigate(toFilteredPos: nextPos, direction: .forward)
             } else {
                 slideView.showToast("End of Set", icon: "🛑")
             }
@@ -478,18 +494,36 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         stopSlideshowIfRunning()
         guard !filteredIndices.isEmpty else { return }
 
-        let stride = multiUpMode.rawValue
-        let prevPos = currentFilteredPos - stride
-
-        if prevPos >= 0 {
-            navigate(toFilteredPos: prevPos, direction: .backward)
-        } else if currentFilteredPos > 0 && multiUpMode != .single {
-            navigate(toFilteredPos: 0, direction: .backward)
-        } else {
-            if multiUpMode == .single {
-                navigate(toFilteredPos: filteredIndices.count - 1, direction: .backward)
+        if multiUpMode == .single {
+            let prevPos = currentFilteredPos - 1
+            if prevPos >= 0 {
+                navigate(toFilteredPos: prevPos, direction: .backward)
             } else {
+                navigate(toFilteredPos: filteredIndices.count - 1, direction: .backward)
+            }
+        } else {
+            guard currentFilteredPos > 0 else {
                 slideView.showToast("First Photo in Set", icon: "🛑")
+                return
+            }
+            let prevTarget = currentFilteredPos - 1
+            if let prevBurst = burstClusterCache[prevTarget] as? BurstBreadcrumbInfo, prevBurst.totalInBurst > 1 {
+                let clusterStart = prevTarget - (prevBurst.indexInBurst - 1)
+                let burstCountSoFar = prevTarget - clusterStart + 1
+                let remainder = burstCountSoFar % multiUpMode.rawValue
+                let stride = (remainder == 0) ? multiUpMode.rawValue : remainder
+                let targetPos = max(0, prevTarget - stride + 1)
+                navigate(toFilteredPos: targetPos, direction: .backward)
+            } else {
+                var targetPos = prevTarget
+                var count = 1
+                while count < multiUpMode.rawValue && targetPos > 0 {
+                    let cand = targetPos - 1
+                    if let cb = burstClusterCache[cand] as? BurstBreadcrumbInfo, cb.totalInBurst > 1 { break }
+                    targetPos = cand
+                    count += 1
+                }
+                navigate(toFilteredPos: targetPos, direction: .backward)
             }
         }
     }
@@ -512,6 +546,61 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     // MARK: - Scene Leap Navigation (Same Scene & Burst Traversal)
 
     private var isSceneLeaping: Bool = false
+
+    /// Determines the exact list of filtered positions to display across multi-up slots,
+    /// ensuring bursts stay unified on a single screen without fracturing across pages.
+    private func findMultiUpPagePositions(startPos: Int, slotCount: Int) async -> [Int] {
+        guard startPos >= 0, startPos < filteredIndices.count else { return [] }
+        guard slotCount > 1 else { return [startPos] }
+
+        var positions: [Int] = [startPos]
+
+        // 1. Check if startPos belongs to a burst cluster
+        let startBurst: BurstBreadcrumbInfo?
+        if let cached = burstClusterCache[startPos] {
+            startBurst = cached
+        } else {
+            startBurst = await computeBurstCluster(for: startPos)
+        }
+
+        if let burst = startBurst, burst.totalInBurst > 1 {
+            // startPos is part of a burst! Keep the burst unified on this page
+            let clusterStart = startPos - (burst.indexInBurst - 1)
+            let clusterEnd = clusterStart + burst.totalInBurst - 1
+            let endBound = min(clusterEnd, filteredIndices.count - 1)
+
+            if startPos < endBound {
+                for p in (startPos + 1)...endBound {
+                    if positions.count < slotCount {
+                        positions.append(p)
+                    } else {
+                        break
+                    }
+                }
+            }
+            return positions
+        }
+
+        // 2. startPos is an isolated shot. Pack subsequent isolated shots until a new burst boundary
+        for offset in 1..<slotCount {
+            let nextPos = startPos + offset
+            guard nextPos < filteredIndices.count else { break }
+
+            let nextBurst: BurstBreadcrumbInfo?
+            if let cached = burstClusterCache[nextPos] {
+                nextBurst = cached
+            } else {
+                nextBurst = await computeBurstCluster(for: nextPos)
+            }
+            if let nb = nextBurst, nb.totalInBurst > 1 {
+                // Next position begins a burst series; stop packing so the burst starts fresh on next page
+                break
+            }
+            positions.append(nextPos)
+        }
+
+        return positions
+    }
 
     /// Checks whether two photos at filtered positions posA and posB belong to the same scene or burst.
     private func areItemsInSameScene(posA: Int, posB: Int) async -> Bool {
@@ -815,7 +904,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
     public func slideViewRequestDelete() {
         stopSlideshowIfRunning()
-        let targetPos = (multiUpMode != .single) ? (currentFilteredPos + activeHoverSlot - 1) : currentFilteredPos
+        let targetPos = (multiUpMode != .single && activeHoverSlot <= displayedMultiUpPositions.count)
+            ? displayedMultiUpPositions[activeHoverSlot - 1]
+            : currentFilteredPos
         guard targetPos < filteredIndices.count, !isDeleting else { return }
         let rawIndex = filteredIndices[targetPos]
         let itemToDelete = allItems[rawIndex]
@@ -925,7 +1016,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 slotOffset = max(0, min(multiUpMode.rawValue - 1, targetSlot - 1))
             }
 
-            let targetFilteredPos = currentFilteredPos + slotOffset
+            let targetFilteredPos = (slotOffset < displayedMultiUpPositions.count)
+                ? displayedMultiUpPositions[slotOffset]
+                : currentFilteredPos
             guard targetFilteredPos < filteredIndices.count else { return }
             let targetRawIndex = filteredIndices[targetFilteredPos]
 
@@ -952,10 +1045,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                     }
                 }
             } else {
-                let slotCount = multiUpMode.rawValue
                 var rawIndicesToFetch: [Int: Int] = [:] // [slot: rawIndex]
-                for s in 0..<slotCount {
-                    let pos = currentFilteredPos + s
+                for s in 0..<displayedMultiUpPositions.count {
+                    let pos = displayedMultiUpPositions[s]
                     if pos < filteredIndices.count {
                         rawIndicesToFetch[s] = filteredIndices[pos]
                     }
@@ -1013,7 +1105,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             slotOffset = max(0, min(multiUpMode.rawValue - 1, targetSlot - 1))
         }
 
-        let targetFilteredPos = currentFilteredPos + slotOffset
+        let targetFilteredPos = (slotOffset < displayedMultiUpPositions.count)
+            ? displayedMultiUpPositions[slotOffset]
+            : currentFilteredPos
         guard targetFilteredPos < filteredIndices.count else { return }
         let targetRawIndex = filteredIndices[targetFilteredPos]
         let item = allItems[targetRawIndex]
@@ -1128,11 +1222,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
     private func updateCullingDisplay() {
         guard let rawIndex = currentRawIndex, rawIndex >= 0 && rawIndex < allItems.count else { return }
-        let slotCount = multiUpMode.rawValue
-
         if multiUpMode != .single {
-            for s in 0..<slotCount {
-                let pos = currentFilteredPos + s
+            for s in 0..<displayedMultiUpPositions.count {
+                let pos = displayedMultiUpPositions[s]
                 guard pos < filteredIndices.count else { continue }
                 let raw = filteredIndices[pos]
                 let itm = allItems[raw]
@@ -1161,9 +1253,12 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 )
                 slideView.updateSplitPaneInfo(slot: s + 1, info: sInfo)
             }
+            for s in displayedMultiUpPositions.count..<4 {
+                slideView.updateSplitPaneInfo(slot: s + 1, info: nil)
+            }
         }
 
-        let primaryIdx = min(activeHoverSlot - 1, slotCount - 1)
+        let primaryIdx = min(activeHoverSlot - 1, max(0, displayedMultiUpPositions.count - 1))
         guard let item = cachedSlotItems[primaryIdx] ?? cachedSlotItems[0] ?? (rawIndex < allItems.count ? allItems[rawIndex] : nil) else { return }
         let decoded = cachedSlotDecoded[primaryIdx] ?? cachedSlotDecoded[0]
 
@@ -1181,7 +1276,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
         let cachedAesthetic = AestheticsEngine.shared.cachedScore(for: item.url.path)
 
-        let primaryPos = min(currentFilteredPos + primaryIdx, filteredIndices.count - 1)
+        let primaryPos = (primaryIdx < displayedMultiUpPositions.count) ? displayedMultiUpPositions[primaryIdx] : currentFilteredPos
         var burstBreadcrumb: BurstBreadcrumbInfo? = nil
         if let cached = burstClusterCache[primaryPos] {
             burstBreadcrumb = cached
@@ -1190,13 +1285,15 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             burstClusterTask = Task { @MainActor [weak self] in
                 guard let self = self else { return }
                 let result = await self.computeBurstCluster(for: primaryPos)
-                let activePos = min(self.currentFilteredPos + min(self.activeHoverSlot - 1, self.multiUpMode.rawValue - 1), self.filteredIndices.count - 1)
+                let activePos = (self.activeHoverSlot <= self.displayedMultiUpPositions.count)
+                    ? self.displayedMultiUpPositions[self.activeHoverSlot - 1]
+                    : self.currentFilteredPos
                 if activePos == primaryPos {
                     self.slideView.updateBurstBreadcrumb(result)
                 }
                 if self.multiUpMode != .single {
-                    for s in 0..<self.multiUpMode.rawValue {
-                        let p = self.currentFilteredPos + s
+                    for s in 0..<self.displayedMultiUpPositions.count {
+                        let p = self.displayedMultiUpPositions[s]
                         if p < self.filteredIndices.count, let b = self.burstClusterCache[p] as? BurstBreadcrumbInfo {
                             let desc = b.isHero ? "👑 BEST IN BURST" : "📸 BURST [\(b.indexInBurst)/\(b.totalInBurst)]"
                             self.slideView.updateSlotScene(slot: s + 1, description: desc, isHero: b.isHero)
@@ -1231,6 +1328,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
     public func slideViewHoverPaneChanged(to slot: Int) {
         guard multiUpMode != .single else { return }
+        guard slot >= 1, slot <= displayedMultiUpPositions.count else { return }
         guard activeHoverSlot != slot else { return }
         activeHoverSlot = slot
         updateCullingDisplay()
@@ -1339,7 +1437,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     // MARK: - Independent Multi-Up Culling Actions
 
     public func slideViewSetRating(_ rating: Int) {
-        let targetPos = (multiUpMode != .single) ? (currentFilteredPos + activeHoverSlot - 1) : currentFilteredPos
+        let targetPos = (multiUpMode != .single && activeHoverSlot <= displayedMultiUpPositions.count) ? displayedMultiUpPositions[activeHoverSlot - 1] : currentFilteredPos
         guard targetPos < filteredIndices.count else { return }
         let targetRawIndex = filteredIndices[targetPos]
 
@@ -1365,7 +1463,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     }
 
     public func slideViewSetPick(_ pick: PickStatus) {
-        let targetPos = (multiUpMode != .single) ? (currentFilteredPos + activeHoverSlot - 1) : currentFilteredPos
+        let targetPos = (multiUpMode != .single && activeHoverSlot <= displayedMultiUpPositions.count) ? displayedMultiUpPositions[activeHoverSlot - 1] : currentFilteredPos
         guard targetPos < filteredIndices.count else { return }
         let targetRawIndex = filteredIndices[targetPos]
 
@@ -1394,8 +1492,85 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         // King of the Hill elimination removed; no-op preserved for protocol compatibility
     }
 
+    /// Proposal 4: Burst Knockout Culling (⇧P)
+    /// Flags the winner frame as Pick, automatically marks all other frames in the burst as Reject,
+    /// groups into a compound undo step, and leaps seamlessly to the start of the next scene.
+    public func slideViewBurstKnockout() {
+        stopSlideshowIfRunning()
+        guard !filteredIndices.isEmpty else { return }
+
+        let winnerPos = (multiUpMode != .single && activeHoverSlot <= displayedMultiUpPositions.count)
+            ? displayedMultiUpPositions[activeHoverSlot - 1]
+            : currentFilteredPos
+        guard winnerPos >= 0, winnerPos < filteredIndices.count else { return }
+
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+
+            let burst: BurstBreadcrumbInfo?
+            if let cached = self.burstClusterCache[winnerPos] {
+                burst = cached
+            } else {
+                burst = await self.computeBurstCluster(for: winnerPos)
+            }
+
+            guard let b = burst, b.totalInBurst > 1 else {
+                self.slideViewSetPick(.pick)
+                self.slideView.showToast("✓ Picked (Single Photo)", icon: "✓", shortcut: "⇧P", tint: .systemGreen)
+                return
+            }
+
+            let clusterStart = winnerPos - (b.indexInBurst - 1)
+            let clusterEnd = clusterStart + b.totalInBurst - 1
+            guard clusterStart >= 0, clusterEnd < self.filteredIndices.count else { return }
+
+            var compoundActions: [CullingAction] = []
+
+            // Winner photo
+            let rawWinner = self.filteredIndices[winnerPos]
+            let itemWinner = self.allItems[rawWinner]
+            var metaWinner = self.cullingData[itemWinner.id] ?? CullingMetadata()
+            let prevWinnerPick = metaWinner.pick
+            if prevWinnerPick != .pick {
+                compoundActions.append(.pick(itemID: itemWinner.id, rawIndex: rawWinner, previous: prevWinnerPick, new: .pick))
+                metaWinner.pick = .pick
+                self.cullingData[itemWinner.id] = metaWinner
+                self.saveMetadataAsync(meta: metaWinner, for: itemWinner)
+            }
+
+            // Reject all siblings in the burst
+            var rejectedCount = 0
+            for p in clusterStart...clusterEnd {
+                guard p != winnerPos, p < self.filteredIndices.count else { continue }
+                let rawSibling = self.filteredIndices[p]
+                let itemSibling = self.allItems[rawSibling]
+                var metaSibling = self.cullingData[itemSibling.id] ?? CullingMetadata()
+                let prevSiblingPick = metaSibling.pick
+                if prevSiblingPick != .reject {
+                    compoundActions.append(.pick(itemID: itemSibling.id, rawIndex: rawSibling, previous: prevSiblingPick, new: .reject))
+                    metaSibling.pick = .reject
+                    self.cullingData[itemSibling.id] = metaSibling
+                    self.saveMetadataAsync(meta: metaSibling, for: itemSibling)
+                }
+                rejectedCount += 1
+            }
+
+            if !compoundActions.isEmpty {
+                self.cullingUndoManager.record(.compound(compoundActions))
+            }
+
+            NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+            self.slideView.showToast("✓ Picked #\(b.indexInBurst) • Rejected \(rejectedCount) in burst", icon: "⚡", shortcut: "⇧P", tint: .systemGreen)
+
+            self.updateCullingDisplay()
+
+            // Auto-advance directly to the next scene
+            self.slideViewRequestNextScene()
+        }
+    }
+
     public func slideViewSetColor(_ color: ColorLabel) {
-        let targetPos = (multiUpMode != .single) ? (currentFilteredPos + activeHoverSlot - 1) : currentFilteredPos
+        let targetPos = (multiUpMode != .single && activeHoverSlot <= displayedMultiUpPositions.count) ? displayedMultiUpPositions[activeHoverSlot - 1] : currentFilteredPos
         guard targetPos < filteredIndices.count else { return }
         let targetRawIndex = filteredIndices[targetPos]
 
@@ -1604,8 +1779,8 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         // In multi-up mode, rotate all currently displayed photos concurrently
         if multiUpMode != .single {
             var itemsToRotate: [(SlideItem, Int)] = []
-            for s in 0..<multiUpMode.rawValue {
-                let pos = currentFilteredPos + s
+            for s in 0..<displayedMultiUpPositions.count {
+                let pos = displayedMultiUpPositions[s]
                 if pos < filteredIndices.count {
                     let rIdx = filteredIndices[pos]
                     itemsToRotate.append((allItems[rIdx], rIdx))

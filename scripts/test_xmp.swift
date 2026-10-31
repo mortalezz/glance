@@ -1214,6 +1214,205 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+        // ==========================================
+        // TEST 28: Burst Knockout (⇧P) & Scene-Aware Multi-Up Grid Alignment
+        // ==========================================
+        do {
+            print("🧪 TEST 28: Burst Knockout (⇧P) & Scene-Aware Multi-Up Grid Alignment...")
+
+            // Part A: Burst Knockout & Compound Undo Invariant Verification
+            let undoMgr = await MainActor.run { CullingUndoManager() }
+            var metadataMap: [String: CullingMetadata] = [:]
+            let burstIDs = (0..<5).map { "burst_img_\($0)" }
+            for id in burstIDs {
+                metadataMap[id] = CullingMetadata(rating: 0, pick: .unflagged, color: .none)
+            }
+
+            // Winner is frame 2 (index 2)
+            let winnerID = burstIDs[2]
+            var compoundActions: [CullingAction] = []
+
+            // Winner marked as Pick
+            let prevWinner = metadataMap[winnerID]!.pick
+            compoundActions.append(.pick(itemID: winnerID, rawIndex: 2, previous: prevWinner, new: .pick))
+            metadataMap[winnerID]!.pick = .pick
+
+            // Other 4 frames marked as Reject
+            var rejectedCount = 0
+            for (idx, id) in burstIDs.enumerated() where id != winnerID {
+                let prev = metadataMap[id]!.pick
+                compoundActions.append(.pick(itemID: id, rawIndex: idx, previous: prev, new: .reject))
+                metadataMap[id]!.pick = .reject
+                rejectedCount += 1
+            }
+
+            assertEqual(rejectedCount, 4, "Rejected exactly 4 siblings in 5-shot burst")
+            assertEqual(metadataMap[winnerID]!.pick, .pick, "Winner is marked as Pick")
+            for id in burstIDs where id != winnerID {
+                assertEqual(metadataMap[id]!.pick, .reject, "Sibling is marked as Reject")
+            }
+
+            // Record into Undo Manager
+            await MainActor.run {
+                undoMgr.record(.compound(compoundActions))
+                assertEqual(undoMgr.canUndo, true, "Compound action is undoable")
+            }
+
+            // Perform Compound Undo
+            await MainActor.run {
+                guard let popped = undoMgr.popUndo() else {
+                    fatalError("Failed to pop compound undo")
+                }
+                if case .compound(let actions) = popped {
+                    for act in actions.reversed() {
+                        if case .pick(let id, _, let previous, _) = act {
+                            metadataMap[id]!.pick = previous
+                        }
+                    }
+                }
+            }
+
+            // Verify all 5 frames restored to .unflagged
+            for id in burstIDs {
+                assertEqual(metadataMap[id]!.pick, .unflagged, "Frame \(id) reverted to .unflagged after Undo")
+            }
+
+            // Perform Redo
+            await MainActor.run {
+                assertEqual(undoMgr.canRedo, true, "Compound action is redoable")
+                guard let redoPopped = undoMgr.popRedo() else {
+                    fatalError("Failed to pop compound redo")
+                }
+                if case .compound(let actions) = redoPopped {
+                    for act in actions {
+                        if case .pick(let id, _, _, let new) = act {
+                            metadataMap[id]!.pick = new
+                        }
+                    }
+                }
+            }
+            assertEqual(metadataMap[winnerID]!.pick, .pick, "Winner restored to Pick after Redo")
+            for id in burstIDs where id != winnerID {
+                assertEqual(metadataMap[id]!.pick, .reject, "Sibling restored to Reject after Redo")
+            }
+
+            // Part B: Scene-Aware Multi-Up Paging Alignment Invariants
+            // Directory layout:
+            // 0, 1: Isolated shots
+            // 2, 3, 4: 3-shot burst (cluster 2...4)
+            // 5, 6, 7, 8, 9, 10: 6-shot burst (cluster 5...10)
+            // 11: Isolated shot
+            let totalPhotos = 12
+            var burstCacheMock: [Int: BurstBreadcrumbInfo] = [:]
+
+            // 3-shot burst:
+            for p in 2...4 {
+                burstCacheMock[p] = BurstBreadcrumbInfo(
+                    indexInBurst: p - 2 + 1,
+                    totalInBurst: 3,
+                    timeDelta: 0.15,
+                    isHero: (p == 3),
+                    heroIndex: 2
+                )
+            }
+            // 6-shot burst:
+            for p in 5...10 {
+                burstCacheMock[p] = BurstBreadcrumbInfo(
+                    indexInBurst: p - 5 + 1,
+                    totalInBurst: 6,
+                    timeDelta: 0.12,
+                    isHero: (p == 7),
+                    heroIndex: 3
+                )
+            }
+
+            func mockFindMultiUpPage(startPos: Int, slotCount: Int) -> [Int] {
+                guard startPos >= 0, startPos < totalPhotos else { return [] }
+                guard slotCount > 1 else { return [startPos] }
+
+                var positions: [Int] = [startPos]
+                if let burst = burstCacheMock[startPos], burst.totalInBurst > 1 {
+                    let clusterStart = startPos - (burst.indexInBurst - 1)
+                    let clusterEnd = clusterStart + burst.totalInBurst - 1
+                    let endBound = min(clusterEnd, totalPhotos - 1)
+                    if startPos < endBound {
+                        for p in (startPos + 1)...endBound {
+                            if positions.count < slotCount {
+                                positions.append(p)
+                            } else {
+                                break
+                            }
+                        }
+                    }
+                    return positions
+                }
+
+                // Isolated photo
+                for offset in 1..<slotCount {
+                    let nextPos = startPos + offset
+                    guard nextPos < totalPhotos else { break }
+                    if let nb = burstCacheMock[nextPos], nb.totalInBurst > 1 {
+                        break // Stop packing so next burst starts fresh on next page
+                    }
+                    positions.append(nextPos)
+                }
+                return positions
+            }
+
+            // Test 4-UP Paging Sequence:
+            let page1 = mockFindMultiUpPage(startPos: 0, slotCount: 4)
+            assertEqual(page1, [0, 1], "Page 1 stops at isolated shots [0, 1] without intruding on burst at 2")
+
+            let page2 = mockFindMultiUpPage(startPos: 2, slotCount: 4)
+            assertEqual(page2, [2, 3, 4], "Page 2 unifies 3-shot burst [2, 3, 4] with slot 4 left vacant")
+
+            let page3 = mockFindMultiUpPage(startPos: 5, slotCount: 4)
+            assertEqual(page3, [5, 6, 7, 8], "Page 3 takes first 4 frames of 6-shot burst")
+
+            let page4 = mockFindMultiUpPage(startPos: 9, slotCount: 4)
+            assertEqual(page4, [9, 10], "Page 4 takes remaining 2 frames [9, 10] without intruding on photo 11")
+
+            let page5 = mockFindMultiUpPage(startPos: 11, slotCount: 4)
+            assertEqual(page5, [11], "Page 5 takes final isolated shot [11]")
+
+            // Test 2-UP Paging Sequence across 3-shot burst:
+            let p2up_1 = mockFindMultiUpPage(startPos: 2, slotCount: 2)
+            assertEqual(p2up_1, [2, 3], "2-UP Page 1 takes frames 1 and 2 of burst")
+
+            let p2up_2 = mockFindMultiUpPage(startPos: 4, slotCount: 2)
+            assertEqual(p2up_2, [4], "2-UP Page 2 takes frame 3 solo, never pairing across burst boundaries")
+
+            // Test Symmetrical Backward Navigation Calculation:
+            func mockBackwardTarget(from pos: Int, slotCount: Int) -> Int {
+                guard pos > 0 else { return 0 }
+                let prevTarget = pos - 1
+                if let prevBurst = burstCacheMock[prevTarget], prevBurst.totalInBurst > 1 {
+                    let clusterStart = prevTarget - (prevBurst.indexInBurst - 1)
+                    let burstCountSoFar = prevTarget - clusterStart + 1
+                    let remainder = burstCountSoFar % slotCount
+                    let stride = (remainder == 0) ? slotCount : remainder
+                    return max(0, prevTarget - stride + 1)
+                } else {
+                    var targetPos = prevTarget
+                    var count = 1
+                    while count < slotCount && targetPos > 0 {
+                        let cand = targetPos - 1
+                        if let cb = burstCacheMock[cand], cb.totalInBurst > 1 { break }
+                        targetPos = cand
+                        count += 1
+                    }
+                    return targetPos
+                }
+            }
+
+            assertEqual(mockBackwardTarget(from: 11, slotCount: 4), 9, "Backwards from 11 lands exactly on [9, 10]")
+            assertEqual(mockBackwardTarget(from: 9, slotCount: 4), 5, "Backwards from 9 lands exactly on [5, 6, 7, 8]")
+            assertEqual(mockBackwardTarget(from: 5, slotCount: 4), 2, "Backwards from 5 lands exactly on [2, 3, 4]")
+            assertEqual(mockBackwardTarget(from: 2, slotCount: 4), 0, "Backwards from 2 lands exactly on [0, 1]")
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

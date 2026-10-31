@@ -17,6 +17,7 @@ public protocol SlideViewDelegate: AnyObject {
     // Culling Actions
     func slideViewSetRating(_ rating: Int)
     func slideViewSetPick(_ pick: PickStatus)
+    func slideViewBurstKnockout()
     func slideViewSetColor(_ color: ColorLabel)
     func slideViewToggleAutoAdvance()
     func slideViewCycleFilter()
@@ -672,6 +673,15 @@ public final class SlideView: NSView {
         CATransaction.commit()
     }
 
+    public func setHoveredSplitSlot(_ slot: Int) {
+        guard slot >= 1 && slot <= 4 else { return }
+        hoveredSplitSlot = slot
+        for i in 0..<4 {
+            splitBadges[i].isActiveSlot = (slot == i + 1)
+        }
+        updatePaneBorders(animated: false)
+    }
+
     public func setMultiUpMode(_ mode: MultiUpMode) {
         multiUpMode = mode
         hoveredSplitSlot = 1
@@ -765,7 +775,7 @@ public final class SlideView: NSView {
         }
     }
 
-    public func updateSplitPaneInfo(slot: Int, info: SplitPaneInfo) {
+    public func updateSplitPaneInfo(slot: Int, info: SplitPaneInfo?) {
         guard slot >= 1 && slot <= 4 else { return }
         splitBadges[slot - 1].update(with: info)
         if isHelpPresented {
@@ -1124,6 +1134,11 @@ public final class SlideView: NSView {
                 else { clickedSlot = 4 }
             }
 
+            // Ignore clicks on empty slots in scene-aligned multi-up mode
+            if paneImageLayers[clickedSlot - 1].contents == nil {
+                return
+            }
+
             if clickedSlot != hoveredSplitSlot {
                 hoveredSplitSlot = clickedSlot
                 for i in 0..<4 {
@@ -1419,10 +1434,14 @@ public final class SlideView: NSView {
             }
         }
 
-        // Layout-Independent Culling Hotkeys: P, X, U
+        // Layout-Independent Culling Hotkeys: P, X, U (⇧P = Burst Knockout)
         if !isCmd {
             if lower == "p" || event.keyCode == 35 {
-                delegate?.slideViewSetPick(.pick)
+                if isShift {
+                    delegate?.slideViewBurstKnockout()
+                } else {
+                    delegate?.slideViewSetPick(.pick)
+                }
                 return
             }
             if lower == "x" || event.keyCode == 7 {
@@ -1592,6 +1611,11 @@ public final class SlideView: NSView {
             else if isTop && isRight { slot = 2 }
             else if !isTop && !isRight { slot = 3 }
             else { slot = 4 }
+        }
+
+        // Ignore hover on empty slots in scene-aligned multi-up mode
+        if paneImageLayers[slot - 1].contents == nil {
+            return
         }
 
         if slot != hoveredSplitSlot {
