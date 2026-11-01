@@ -194,12 +194,12 @@ public final class CursorLoupeView: NSView {
         drawPrecisionReticle()
         glassContainer.layer?.addSublayer(reticleLayer)
 
-        // 4. Detached Floating Multiplier Badge Pill (8pt below barrel ring, never touching)
+        // 4. Detached Floating Multiplier Badge Pill (8pt below barrel ring, perfectly rounded capsule)
         badgeView.material = .hudWindow
         badgeView.blendingMode = .withinWindow
         badgeView.state = .active
         badgeView.wantsLayer = true
-        badgeView.layer?.cornerRadius = 10.0
+        badgeView.layer?.cornerRadius = badgeHeight / 2.0 // 10.0pt capsule
         badgeView.layer?.cornerCurve = .continuous
         badgeView.layer?.borderWidth = 0.5
         badgeView.layer?.masksToBounds = true
@@ -346,6 +346,11 @@ public final class CursorLoupeView: NSView {
         shadow.shadowOffset = NSSize(width: 0, height: -5)
         self.shadow = shadow
 
+        // Ensure badgeView maintains its pill shape and layer masks
+        badgeView.layer?.cornerRadius = badgeHeight / 2.0 // 10.0pt capsule
+        badgeView.layer?.cornerCurve = .continuous
+        badgeView.layer?.masksToBounds = true
+
         // 2. Translucent Frosted Glass Barrel: matches Glance Frosted Glass design language
         if isDark {
             barrelContainer.backgroundColor = NSColor(deviceWhite: 0.08, alpha: 0.85).cgColor
@@ -376,13 +381,6 @@ public final class CursorLoupeView: NSView {
             badgeLabel.textColor = theme.primaryTextColor
             badgeLabel.shadow = nil
         }
-
-        // 3. Multiplier Badge Drop Shadow for clean float
-        let pillShadow = NSShadow()
-        pillShadow.shadowColor = NSColor.black.withAlphaComponent(isDark ? 0.45 : 0.22)
-        pillShadow.shadowBlurRadius = 8
-        pillShadow.shadowOffset = NSSize(width: 0, height: -2)
-        badgeView.shadow = pillShadow
 
         updateBadgeVisuals()
     }
