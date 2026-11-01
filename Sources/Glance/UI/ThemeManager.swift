@@ -66,55 +66,69 @@ public final class ThemeManager {
         return NSAppearance(named: isDark ? .vibrantDark : .vibrantLight)
     }
 
+    /// Genuine optical frosted glass scrim: balances translucent ambient bleed with solid contrast.
     public var scrimColor: NSColor {
         return isDark
-            ? NSColor(deviceWhite: 0.05, alpha: 0.65)
-            : NSColor(deviceWhite: 0.98, alpha: 0.72)
+            ? NSColor(deviceWhite: 0.05, alpha: 0.42)
+            : NSColor(deviceWhite: 0.98, alpha: 0.48)
     }
 
     public var helpScrimColor: NSColor {
         return isDark
-            ? NSColor(deviceWhite: 0.05, alpha: 0.75)
-            : NSColor(deviceWhite: 0.98, alpha: 0.78)
+            ? NSColor(deviceWhite: 0.05, alpha: 0.72)
+            : NSColor(deviceWhite: 0.98, alpha: 0.75)
     }
 
     public var glassBorderColor: CGColor {
         return isDark
-            ? NSColor.white.withAlphaComponent(0.20).cgColor
-            : NSColor.black.withAlphaComponent(0.12).cgColor
+            ? NSColor.white.withAlphaComponent(0.22).cgColor
+            : NSColor.black.withAlphaComponent(0.14).cgColor
     }
 
     public var shadowColor: NSColor {
         return isDark
-            ? NSColor.black.withAlphaComponent(0.50)
-            : NSColor.black.withAlphaComponent(0.22)
+            ? NSColor.black.withAlphaComponent(0.55)
+            : NSColor.black.withAlphaComponent(0.24)
     }
 
-    // Apple Primary Hierarchy (labelColor)
+    // Apple Primary Hierarchy (labelColor) - high-contrast over translucent glass
     public var primaryTextColor: NSColor {
         return isDark
-            ? NSColor(white: 0.95, alpha: 1.0)
-            : NSColor(white: 0.10, alpha: 1.0)
+            ? NSColor(white: 0.98, alpha: 1.0)
+            : NSColor(white: 0.06, alpha: 1.0)
     }
 
-    // Apple Secondary Hierarchy (secondaryLabelColor)
+    // Apple Secondary Hierarchy (secondaryLabelColor) - high-contrast legible tone
     public var secondaryTextColor: NSColor {
         return isDark
-            ? NSColor(white: 0.65, alpha: 1.0)
-            : NSColor(white: 0.38, alpha: 1.0)
+            ? NSColor(white: 0.82, alpha: 1.0)
+            : NSColor(white: 0.22, alpha: 1.0)
     }
 
     // Apple Tertiary Hierarchy (tertiaryLabelColor)
     public var tertiaryTextColor: NSColor {
         return isDark
-            ? NSColor(white: 0.45, alpha: 1.0)
-            : NSColor(white: 0.55, alpha: 1.0)
+            ? NSColor(white: 0.60, alpha: 1.0)
+            : NSColor(white: 0.40, alpha: 1.0)
     }
 
     public var subHeaderColor: NSColor {
         return isDark
-            ? NSColor(white: 0.55, alpha: 1.0)
-            : NSColor(white: 0.42, alpha: 1.0)
+            ? NSColor(white: 0.68, alpha: 1.0)
+            : NSColor(white: 0.32, alpha: 1.0)
+    }
+
+    /// Standard elevation drop shadow for text in Dark mode (halo to protect against bright bleed)
+    public var standardTextShadow: NSShadow? {
+        if isDark {
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor.black.withAlphaComponent(0.85)
+            shadow.shadowOffset = NSSize(width: 0, height: -1)
+            shadow.shadowBlurRadius = 2.0
+            return shadow
+        } else {
+            return nil
+        }
     }
 
     // Keycaps & Pills

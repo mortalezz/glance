@@ -144,26 +144,18 @@ public final class FalseColorLegendHudView: ThemedGlassCardView {
         // 2. Divider
         divider.layer?.backgroundColor = theme.dividerColor
 
-        // 3. Text Shadows
-        let shadow: NSShadow?
-        if theme.isDark {
-            let s = NSShadow()
-            s.shadowColor = NSColor.black.withAlphaComponent(0.80)
-            s.shadowOffset = NSSize(width: 0, height: -1)
-            s.shadowBlurRadius = 2
-            shadow = s
-        } else {
-            shadow = nil
-        }
+        // 3. High-Contrast Typography & Dynamic Shadows
+        let shadow = theme.standardTextShadow
         titleLabel.shadow = shadow
 
-        // 4. Update all rows dynamically
+        // 4. Update all rows dynamically with contrast outlines
         let chipBorder = theme.isDark
-            ? NSColor.white.withAlphaComponent(0.25).cgColor
-            : NSColor.black.withAlphaComponent(0.20).cgColor
+            ? NSColor.white.withAlphaComponent(0.35).cgColor
+            : NSColor.black.withAlphaComponent(0.25).cgColor
 
         for row in rowViews {
             row.chip.layer?.borderColor = chipBorder
+            row.chip.layer?.borderWidth = 0.75
             row.ireLabel.textColor = theme.primaryTextColor
             row.ireLabel.shadow = shadow
             row.zoneLabel.textColor = theme.secondaryTextColor
