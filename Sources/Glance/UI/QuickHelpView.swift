@@ -113,25 +113,25 @@ public final class QuickHelpView: NSView {
         let header = makeSectionHeader(title: "KEYBOARD SHORTCUTS")
         stack.addArrangedSubview(header)
 
-        // Balanced 2-column table grid (12 rows each, perfectly aligned horizontally)
+        // Balanced 2-column table grid (13 rows each, perfectly aligned horizontally)
         let grid = NSGridView()
         grid.translatesAutoresizingMaskIntoConstraints = false
-        grid.columnSpacing = 36
+        grid.columnSpacing = 32
         grid.rowSpacing = 8
 
         let compactPairs: [(col1: (key: String, desc: String), col2: (key: String, desc: String))] = [
-            (("P / ⇧P", "Pick / Knockout"), ("Z / ⇧Z", "100% / Eye Jump")),
-            (("X", "Reject"), ("A / S", "Faces / Multi-Up")),
-            (("U", "Unflag"), ("M", "Magnifier Loupe")),
-            (("1 – 5", "Rating"), ("H / O", "Histogram / Blinkies")),
-            (("0", "Clear rating"), ("I", "EXIF Info")),
-            (("6 – 9", "Color label"), ("V / T", "Profile / Theme")),
-            (("C", "Auto-advance"), ("Return", "Slideshow")),
-            (("E / ⇧E", "Export / Batch"), ("+ / -", "Slideshow speed")),
+            (("P / ⇧P", "Pick / Knockout"), ("Space / Z", "100% Loupe")),
+            (("X", "Reject (Rating -1)"), ("⇧Z", "Eye Focus Jump")),
+            (("U", "Unflag"), ("A", "Faces (Narrative)")),
+            (("1 – 5", "Rating (0 clears)"), ("S", "Multi-Up Compare")),
+            (("6 – 9", "Color labels"), ("M", "Magnifier Loupe")),
+            (("C", "Auto-advance (ON)"), ("H", "RGB Histogram")),
+            (("[ / ]", "Scene leap"), ("O / ⇧O", "Blinkies / False Color")),
+            (("B", "Best in burst"), ("⇧F", "Focus Peaking")),
+            (("E / ⇧E", "Export / Batch"), ("I", "EXIF (Hover expand)")),
             (("R / L", "Rotate 90°"), ("\\ / ⇧\\", "Filter / Picks")),
-            (("⌫", "Trash photo"), ("⇧ ⌫", "Purge rejects")),
-            (("F / ⇧F", "Screen / Peaking"), ("Space", "Next / Expand")),
-            (("⌘Z", "Undo / Redo"), ("⌘↵", "Open in Editor")),
+            (("⌫ / ⇧⌫", "Trash / Purge"), ("V / T", "Profile / Theme")),
+            (("⌘Z / ⇧⌘Z", "Undo / Redo"), ("Return", "Slideshow (+ / -)")),
             (("?", "Cheatsheet"), ("Esc / Q", "Quit to Finder"))
         ]
 
@@ -141,8 +141,8 @@ public final class QuickHelpView: NSView {
             grid.addRow(with: [rowCell1, rowCell2])
         }
 
-        grid.column(at: 0).width = 175
-        grid.column(at: 1).width = 185
+        grid.column(at: 0).width = 185
+        grid.column(at: 1).width = 205
 
         stack.addArrangedSubview(grid)
         compactContainer.addSubview(stack)
@@ -164,7 +164,7 @@ public final class QuickHelpView: NSView {
         row.spacing = 10
         row.translatesAutoresizingMaskIntoConstraints = false
 
-        let keycap = makeKeycap(text: key, fixedWidth: 50)
+        let keycap = makeKeycap(text: key, fixedWidth: 52)
         row.addArrangedSubview(keycap)
 
         let descLabel = NSTextField(labelWithString: desc)
@@ -197,7 +197,7 @@ public final class QuickHelpView: NSView {
         // Native 3-column table grid: guarantees identical row heights & baseline alignment across all columns
         let grid = NSGridView()
         grid.translatesAutoresizingMaskIntoConstraints = false
-        grid.columnSpacing = 34
+        grid.columnSpacing = 32
         grid.rowSpacing = 14
 
         // Section Sub-headers Row
@@ -206,7 +206,7 @@ public final class QuickHelpView: NSView {
         let h3 = makeSectionSubHeader(title: "WORKFLOW & OUTPUT")
         grid.addRow(with: [h1, h2, h3])
 
-        // 7 Matched Table Rows across all 3 functional domains
+        // 8 Matched Table Rows across all 3 functional domains
         let rowsData: [(
             c1: (key: String, title: String, desc: String),
             c2: (key: String, title: String, desc: String),
@@ -214,7 +214,7 @@ public final class QuickHelpView: NSView {
         )] = [
             (
                 ("P / ⇧P", "Pick / Knockout", "P: Flag keeper. ⇧P: Burst Knockout (pick best, auto-reject all burst siblings)."),
-                ("A / ⇧Z", "Faces / Eye Jump", "A: Toggle Narrative-style Face & Eye Inspection dock. ⇧Z: 100% Loupe eye jump."),
+                ("A / ⇧Z", "Faces / Eye Jump", "A: Narrative face dock (ON by default, auto-hides if 0 faces). ⇧Z: 100% Loupe eye jump."),
                 ("Return", "Slideshow", "Automated timed presentation. Any key or click stops it.")
             ),
             (
@@ -234,23 +234,23 @@ public final class QuickHelpView: NSView {
             ),
             (
                 ("6 – 9", "Color Labels", "6: Red, 7: Yellow, 8: Green, 9: Blue in Adobe XMP."),
-                ("I", "EXIF Info HUD", "Camera body, lens, shutter, aperture, ISO, and focal length."),
+                ("I", "EXIF Info HUD", "Camera, lens, exposure. Hover to unfold full shooting dossier (metering, WB, 35mm eq, shutter count, sensor MP). Click to copy!"),
                 ("V / T", "Profile / Theme", "V: Cycle Camera Picture Controls / Film Sims. T: Frosted dark/light theme.")
             ),
             (
-                ("C", "Auto-Advance", "Speed culling: automatically advances after rating or flag."),
+                ("C", "Auto-Advance", "Speed culling: automatically advances after rating, flag, or color label (ON by default)."),
                 ("\\ / ⇧\\", "Filters / Picks Review", "\\: Cycle populated filters (skips unassigned stars/flags). ⇧\\: Quick toggle between Picks Only and All Files."),
                 ("⌫ / ⇧⌫", "Trash / Purge", "⌫ trashes active shot. ⇧⌫ batch-purges all rejected photos.")
             ),
             (
                 ("[ / ] / B", "Scene & Hero Leap", "[ / ]: Leap across scenes. B: Leap directly to 👑 Hero / Best in Burst."),
                 ("F / ⇧F", "Full Screen / Peaking", "F: edge-to-edge presentation mode. ⇧F: live EVF focus peaking overlay."),
-                ("?", "Cheatsheet", "Toggles this keyboard shortcut help overlay.")
+                ("Space / Z", "100% Pixel Peep", "Toggle instant 1:1 Loupe peep centered on cursor or detected subject.")
             ),
             (
-                ("⌘Z / ⌘↵", "Undo / Open Editor", "⌘Z reverts edits. ⌘↵ / ⌘O opens active photo in default editor (Lightroom, Photoshop)."),
+                ("⌘Z / ⇧⌘Z", "Multi-Step Undo / Redo", "Full undo/redo stack including compound burst knockout actions."),
                 ("M", "Magnifier Loupe", "2× / 4× circular optical reticle loupe. Press M or click to cycle 2× ➔ 4× ➔ Off."),
-                ("Esc / Q", "Quit to Finder", "Unequivocally quits Glance to reveal Finder immediately.")
+                ("⌘↵ / Esc", "Editor / Finder", "⌘↵ / ⌘O opens in Lightroom/Photoshop. Esc or Q quits Glance to Finder.")
             )
         ]
 
@@ -262,9 +262,9 @@ public final class QuickHelpView: NSView {
         }
 
         grid.rowSpacing = 12
-        grid.column(at: 0).width = 275
-        grid.column(at: 1).width = 275
-        grid.column(at: 2).width = 275
+        grid.column(at: 0).width = 280
+        grid.column(at: 1).width = 280
+        grid.column(at: 2).width = 280
 
         stack.addArrangedSubview(grid)
         expandedContainer.addSubview(stack)
@@ -338,7 +338,8 @@ public final class QuickHelpView: NSView {
         if let width = fixedWidth {
             NSLayoutConstraint.activate([
                 keycap.heightAnchor.constraint(equalToConstant: 20),
-                keycap.widthAnchor.constraint(equalToConstant: width),
+                keycap.widthAnchor.constraint(greaterThanOrEqualToConstant: width),
+                keycap.widthAnchor.constraint(greaterThanOrEqualTo: keyLabel.widthAnchor, constant: 10),
                 keyLabel.centerXAnchor.constraint(equalTo: keycap.centerXAnchor),
                 keyLabel.centerYAnchor.constraint(equalTo: keycap.centerYAnchor)
             ])
@@ -417,30 +418,15 @@ public final class QuickHelpView: NSView {
     }
 
     private func updateClueLabel() {
-        let isDark = ThemeManager.shared.isDark
+        let theme = ThemeManager.shared
         if isExpanded {
-            clueLabel.stringValue = "⎋ Esc or ␣ Space to collapse ▴"
-            if isDark {
-                cluePill.layer?.backgroundColor = NSColor(white: 1.0, alpha: 0.12).cgColor
-                cluePill.layer?.borderColor = NSColor.white.withAlphaComponent(0.22).cgColor
-                clueLabel.textColor = NSColor(white: 0.85, alpha: 1.0)
-            } else {
-                cluePill.layer?.backgroundColor = NSColor(white: 0.0, alpha: 0.08).cgColor
-                cluePill.layer?.borderColor = NSColor.black.withAlphaComponent(0.18).cgColor
-                clueLabel.textColor = NSColor(white: 0.20, alpha: 1.0)
-            }
+            clueLabel.stringValue = "␣ Space to collapse ▴  •  ⎋ Esc to close"
         } else {
             clueLabel.stringValue = "␣ Space to expand details ▾  •  ⎋ Esc to close"
-            if isDark {
-                cluePill.layer?.backgroundColor = NSColor(white: 1.0, alpha: 0.08).cgColor
-                cluePill.layer?.borderColor = NSColor.white.withAlphaComponent(0.14).cgColor
-                clueLabel.textColor = NSColor(white: 0.70, alpha: 1.0)
-            } else {
-                cluePill.layer?.backgroundColor = NSColor(white: 0.0, alpha: 0.05).cgColor
-                cluePill.layer?.borderColor = NSColor.black.withAlphaComponent(0.12).cgColor
-                clueLabel.textColor = NSColor(white: 0.35, alpha: 1.0)
-            }
         }
+        cluePill.layer?.backgroundColor = theme.pillBackgroundColor
+        cluePill.layer?.borderColor = theme.pillBorderColor
+        clueLabel.textColor = theme.secondaryTextColor
     }
 
     // MARK: - Theme Management
@@ -528,25 +514,7 @@ public final class QuickHelpView: NSView {
         }
     }
 
-    public override func mouseDown(with event: NSEvent) {
-        toggleExpansion()
-    }
-
-    public override func layout() {
-        super.layout()
-        guard bounds.width > 0 && bounds.height > 0 else { return }
-        let maskImage = NSImage(size: bounds.size, flipped: false) { rect in
-            let path = NSBezierPath(roundedRect: rect, xRadius: 18, yRadius: 18)
-            NSColor.black.setFill()
-            path.fill()
-            return true
-        }
-        maskImage.capInsets = NSEdgeInsets(top: 18, left: 18, bottom: 18, right: 18)
-        maskImage.resizingMode = .stretch
-        visualEffectView.maskImage = maskImage
-    }
-
-    // MARK: - Presentation & Lifecycle
+    // MARK: - Presentation & Auto-Dismiss Timer
 
     public func toggle() {
         if alphaValue > 0.0 {
@@ -558,43 +526,39 @@ public final class QuickHelpView: NSView {
 
     public func present() {
         onWillPresent?()
-        dismissTimer?.invalidate()
-        if isExpanded {
-            isExpanded = false
-            compactContainer.isHidden = false
-            expandedContainer.isHidden = true
-            updateClueLabel()
-        }
-
         applyTheme()
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.16
+            context.duration = 0.20
             self.animator().alphaValue = 1.0
         }
-        resetDismissTimer(timeout: 5.0)
+
+        if !isExpanded {
+            resetDismissTimer(timeout: 5.0)
+        }
     }
 
     public func dismiss() {
-        onWillDismiss?()
         dismissTimer?.invalidate()
         dismissTimer = nil
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.14
+
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.16
             self.animator().alphaValue = 0.0
-        }
+        }, completionHandler: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.onWillDismiss?()
+            }
+        })
     }
 
-    private func resetDismissTimer(timeout: TimeInterval) {
+    public func resetDismissTimer(timeout: TimeInterval = 5.0) {
         dismissTimer?.invalidate()
         dismissTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                self?.dismiss()
+            Task { @MainActor [weak self] in
+                guard let self = self, !self.isExpanded else { return }
+                self.dismiss()
             }
         }
-    }
-
-    deinit {
-        dismissTimer?.invalidate()
     }
 }
