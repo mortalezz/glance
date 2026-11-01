@@ -1,130 +1,115 @@
 import AppKit
 
 /// Floating frosted-glass ARRI False Color IRE exposure scale legend HUD.
-/// Appears alongside the viewport when False Color mode is toggled (`⇧O`).
+/// Inherits from `ThemedGlassCardView` to guarantee identical HIG appearance,
+/// scrim bleed-through prevention, corner radii, and dynamic theme reactivity.
 @MainActor
-public final class FalseColorLegendHudView: NSView {
-    private let visualEffectView = NSVisualEffectView()
+public final class FalseColorLegendHudView: ThemedGlassCardView {
     private let titleLabel = NSTextField(labelWithString: "ARRI FALSE COLOR")
+    private let divider = NSView()
     private let stackView = NSStackView()
 
-    private struct LegendItem {
+    private struct LegendEntry {
         let ire: String
         let label: String
         let color: NSColor
     }
 
-    private let items: [LegendItem] = [
-        LegendItem(ire: "100", label: "CLIP", color: NSColor(srgbRed: 1.0, green: 0.0, blue: 0.17, alpha: 1.0)),
-        LegendItem(ire: " 98", label: "ROLL", color: NSColor(srgbRed: 1.0, green: 0.90, blue: 0.0, alpha: 1.0)),
-        LegendItem(ire: " 80", label: "HIGH", color: NSColor(srgbRed: 1.0, green: 0.48, blue: 0.0, alpha: 1.0)),
-        LegendItem(ire: " 54", label: "SKIN", color: NSColor(srgbRed: 1.0, green: 0.40, blue: 0.70, alpha: 1.0)),
-        LegendItem(ire: " 40", label: "18% GRAY", color: NSColor(srgbRed: 0.0, green: 0.90, blue: 0.30, alpha: 1.0)),
-        LegendItem(ire: "  3", label: "SHADOW", color: NSColor(srgbRed: 0.0, green: 0.48, blue: 1.0, alpha: 1.0)),
-        LegendItem(ire: "  0", label: "CRUSH", color: NSColor(srgbRed: 0.55, green: 0.12, blue: 0.64, alpha: 1.0))
+    private let entries: [LegendEntry] = [
+        LegendEntry(ire: "100", label: "CLIP", color: NSColor(srgbRed: 1.0, green: 0.0, blue: 0.17, alpha: 1.0)),
+        LegendEntry(ire: " 98", label: "ROLL", color: NSColor(srgbRed: 1.0, green: 0.90, blue: 0.0, alpha: 1.0)),
+        LegendEntry(ire: " 80", label: "HIGH", color: NSColor(srgbRed: 1.0, green: 0.48, blue: 0.0, alpha: 1.0)),
+        LegendEntry(ire: " 54", label: "SKIN", color: NSColor(srgbRed: 1.0, green: 0.40, blue: 0.70, alpha: 1.0)),
+        LegendEntry(ire: " 40", label: "18% GRAY", color: NSColor(srgbRed: 0.0, green: 0.90, blue: 0.30, alpha: 1.0)),
+        LegendEntry(ire: "  3", label: "SHADOW", color: NSColor(srgbRed: 0.0, green: 0.48, blue: 1.0, alpha: 1.0)),
+        LegendEntry(ire: "  0", label: "CRUSH", color: NSColor(srgbRed: 0.55, green: 0.12, blue: 0.64, alpha: 1.0))
     ]
 
-    public override init(frame frameRect: NSRect) {
-        super.init(frame: NSRect(x: 0, y: 0, width: 140, height: 230))
-        setupUI()
-        setupThemeObserver()
+    private var rowViews: [(chip: NSView, ireLabel: NSTextField, zoneLabel: NSTextField)] = []
+
+    public init() {
+        super.init(cornerRadius: 14.0)
+        setupContent()
         applyTheme()
     }
 
     public required init?(coder: NSCoder) {
-        nil
+        super.init(coder: coder)
+        setupContent()
+        applyTheme()
     }
 
-    private func setupUI() {
-        wantsLayer = true
+    private func setupContent() {
         isHidden = true
         alphaValue = 0.0
 
-        // Floating drop shadow
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.40)
-        shadow.shadowBlurRadius = 14
-        shadow.shadowOffset = NSSize(width: 0, height: -4)
-        self.shadow = shadow
-
-        // Frosted glass background
-        visualEffectView.material = .hudWindow
-        visualEffectView.blendingMode = .withinWindow
-        visualEffectView.state = .active
-        visualEffectView.wantsLayer = true
-        visualEffectView.layer?.cornerRadius = 12
-        visualEffectView.layer?.cornerCurve = .continuous
-        visualEffectView.layer?.borderWidth = 0.75
-        visualEffectView.layer?.masksToBounds = true
-        visualEffectView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(visualEffectView)
-
-        NSLayoutConstraint.activate([
-            visualEffectView.topAnchor.constraint(equalTo: topAnchor),
-            visualEffectView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            visualEffectView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            visualEffectView.trailingAnchor.constraint(equalTo: trailingAnchor)
-        ])
-
-        // Title Header
+        // 1. Header Title
         titleLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 9.5, weight: .bold)
         titleLabel.alignment = .center
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        visualEffectView.addSubview(titleLabel)
+        contentView.addSubview(titleLabel)
 
-        // Vertical Rows Stack
+        // 2. Subtle Divider
+        divider.wantsLayer = true
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(divider)
+
+        // 3. Vertical Rows Stack
         stackView.orientation = .vertical
         stackView.alignment = .leading
-        stackView.spacing = 6
+        stackView.spacing = 7
         stackView.distribution = .fillEqually
         stackView.translatesAutoresizingMaskIntoConstraints = false
-        visualEffectView.addSubview(stackView)
+        contentView.addSubview(stackView)
 
         NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: visualEffectView.topAnchor, constant: 10),
-            titleLabel.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor, constant: 8),
-            titleLabel.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor, constant: -8),
+            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
+            titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 10),
+            titleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -10),
 
-            stackView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
-            stackView.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor, constant: 12),
-            stackView.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor, constant: -12),
-            stackView.bottomAnchor.constraint(equalTo: visualEffectView.bottomAnchor, constant: -10)
+            divider.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 7),
+            divider.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 10),
+            divider.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -10),
+            divider.heightAnchor.constraint(equalToConstant: 0.5),
+
+            stackView.topAnchor.constraint(equalTo: divider.bottomAnchor, constant: 8),
+            stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            stackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+            stackView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -11)
         ])
 
-        for item in items {
-            let row = makeRowView(item: item)
-            stackView.addArrangedSubview(row)
+        for entry in entries {
+            let row = makeRowView(entry: entry)
+            stackView.addArrangedSubview(row.container)
+            rowViews.append((chip: row.chip, ireLabel: row.ire, zoneLabel: row.zone))
         }
     }
 
-    private func makeRowView(item: LegendItem) -> NSView {
+    private func makeRowView(entry: LegendEntry) -> (container: NSView, chip: NSView, ire: NSTextField, zone: NSTextField) {
         let rowView = NSView()
         rowView.translatesAutoresizingMaskIntoConstraints = false
 
-        // Color Swatch Chip
+        // Color Chip
         let chip = NSView()
         chip.wantsLayer = true
-        chip.layer?.backgroundColor = item.color.cgColor
+        chip.layer?.backgroundColor = entry.color.cgColor
         chip.layer?.cornerRadius = 3.0
         chip.layer?.cornerCurve = .continuous
-        chip.layer?.borderColor = NSColor.white.withAlphaComponent(0.20).cgColor
         chip.layer?.borderWidth = 0.5
         chip.translatesAutoresizingMaskIntoConstraints = false
         rowView.addSubview(chip)
 
         // IRE Numerical Value Label
-        let ireLabel = NSTextField(labelWithString: item.ire)
-        ireLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold)
-        ireLabel.textColor = ThemeManager.shared.primaryTextColor
+        let ireLabel = NSTextField(labelWithString: entry.ire)
+        ireLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .bold)
         ireLabel.translatesAutoresizingMaskIntoConstraints = false
         rowView.addSubview(ireLabel)
 
         // Descriptive Zone Label
-        let nameLabel = NSTextField(labelWithString: item.label)
-        nameLabel.font = NSFont.systemFont(ofSize: 9.5, weight: .semibold)
-        nameLabel.textColor = ThemeManager.shared.secondaryTextColor
-        nameLabel.translatesAutoresizingMaskIntoConstraints = false
-        rowView.addSubview(nameLabel)
+        let zoneLabel = NSTextField(labelWithString: entry.label)
+        zoneLabel.font = NSFont.systemFont(ofSize: 9.5, weight: .bold)
+        zoneLabel.translatesAutoresizingMaskIntoConstraints = false
+        rowView.addSubview(zoneLabel)
 
         NSLayoutConstraint.activate([
             chip.leadingAnchor.constraint(equalTo: rowView.leadingAnchor),
@@ -136,37 +121,54 @@ public final class FalseColorLegendHudView: NSView {
             ireLabel.centerYAnchor.constraint(equalTo: rowView.centerYAnchor),
             ireLabel.widthAnchor.constraint(equalToConstant: 24),
 
-            nameLabel.leadingAnchor.constraint(equalTo: ireLabel.trailingAnchor, constant: 4),
-            nameLabel.centerYAnchor.constraint(equalTo: rowView.centerYAnchor),
-            nameLabel.trailingAnchor.constraint(equalTo: rowView.trailingAnchor)
+            zoneLabel.leadingAnchor.constraint(equalTo: ireLabel.trailingAnchor, constant: 4),
+            zoneLabel.centerYAnchor.constraint(equalTo: rowView.centerYAnchor),
+            zoneLabel.trailingAnchor.constraint(equalTo: rowView.trailingAnchor)
         ])
 
-        return rowView
+        return (container: rowView, chip: chip, ire: ireLabel, zone: zoneLabel)
     }
 
-    private func setupThemeObserver() {
-        NotificationCenter.default.addObserver(
-            forName: ThemeManager.themeDidChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.applyTheme()
-            }
+    public override func updateCustomTheme(theme: ThemeManager) {
+        // 1. Header Typography with kern tracking
+        let attrTitle = NSMutableAttributedString(
+            string: "ARRI FALSE COLOR",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 9.5, weight: .bold),
+                .foregroundColor: theme.primaryTextColor,
+                .kern: 0.8
+            ]
+        )
+        titleLabel.attributedStringValue = attrTitle
+
+        // 2. Divider
+        divider.layer?.backgroundColor = theme.dividerColor
+
+        // 3. Text Shadows
+        let shadow: NSShadow?
+        if theme.isDark {
+            let s = NSShadow()
+            s.shadowColor = NSColor.black.withAlphaComponent(0.80)
+            s.shadowOffset = NSSize(width: 0, height: -1)
+            s.shadowBlurRadius = 2
+            shadow = s
+        } else {
+            shadow = nil
         }
-    }
+        titleLabel.shadow = shadow
 
-    public func applyTheme() {
-        let theme = ThemeManager.shared
-        visualEffectView.appearance = theme.glassAppearance
-        visualEffectView.layer?.borderColor = theme.glassBorderColor
-        titleLabel.textColor = theme.secondaryTextColor
+        // 4. Update all rows dynamically
+        let chipBorder = theme.isDark
+            ? NSColor.white.withAlphaComponent(0.25).cgColor
+            : NSColor.black.withAlphaComponent(0.20).cgColor
 
-        let shadow = NSShadow()
-        shadow.shadowColor = theme.shadowColor
-        shadow.shadowBlurRadius = theme.isDark ? 16 : 12
-        shadow.shadowOffset = NSSize(width: 0, height: -4)
-        self.shadow = shadow
+        for row in rowViews {
+            row.chip.layer?.borderColor = chipBorder
+            row.ireLabel.textColor = theme.primaryTextColor
+            row.ireLabel.shadow = shadow
+            row.zoneLabel.textColor = theme.secondaryTextColor
+            row.zoneLabel.shadow = shadow
+        }
     }
 
     public func showLegend() {

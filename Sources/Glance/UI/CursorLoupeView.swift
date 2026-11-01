@@ -34,7 +34,7 @@ public final class CursorLoupeView: NSView {
     private var barrelOffsetY: CGFloat { badgeGap + badgeHeight } // 28.0pt
     private var totalHeight: CGFloat { totalDiameter + barrelOffsetY } // 254.0pt
 
-    // Layer Tree
+    // Tier A: Domain Visualizer Layers (Custom optical simulation)
     private let barrelContainer = CALayer()
     private let outerChamferLayer = CALayer()
     private let innerChamferLayer = CALayer()
@@ -46,10 +46,8 @@ public final class CursorLoupeView: NSView {
     private let lensCoatingRingLayer = CAShapeLayer()
     private let reticleLayer = CAShapeLayer()
 
-    // Integrated Lens Barrel Dial Pill (Detached satellite badge)
-    private let badgeView = NSVisualEffectView()
-    private let badgeDot = CALayer()
-    private let badgeLabel = NSTextField(labelWithString: "2×")
+    // Tier B: Semantic UI Housing (Standard ThemedPillView)
+    private let badgePill = ThemedPillView(text: "2×", hasDot: true)
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: NSRect(x: 0, y: 0, width: 226.0, height: 254.0))
@@ -69,7 +67,7 @@ public final class CursorLoupeView: NSView {
             return self
         }
         // 2. Check detached badge pill
-        if badgeView.frame.insetBy(dx: -4, dy: -4).contains(point) {
+        if badgePill.frame.insetBy(dx: -4, dy: -4).contains(point) {
             return self
         }
         return nil
@@ -194,40 +192,12 @@ public final class CursorLoupeView: NSView {
         drawPrecisionReticle()
         glassContainer.layer?.addSublayer(reticleLayer)
 
-        // 4. Detached Floating Multiplier Badge Pill (8pt below barrel ring, perfectly rounded capsule)
-        badgeView.material = .hudWindow
-        badgeView.blendingMode = .withinWindow
-        badgeView.state = .active
-        badgeView.wantsLayer = true
-        badgeView.layer?.cornerRadius = badgeHeight / 2.0 // 10.0pt capsule
-        badgeView.layer?.cornerCurve = .continuous
-        badgeView.layer?.borderWidth = 0.5
-        badgeView.layer?.masksToBounds = true
-        badgeView.translatesAutoresizingMaskIntoConstraints = false
-
-        badgeDot.frame = CGRect(x: 8.5, y: 7.0, width: 6, height: 6)
-        badgeDot.cornerRadius = 3.0
-        badgeDot.backgroundColor = NSColor(white: 0.85, alpha: 0.95).cgColor
-        badgeView.layer?.addSublayer(badgeDot)
-
-        badgeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .bold)
-        badgeLabel.alignment = .center
-        badgeLabel.textColor = .white
-        badgeLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        badgeView.addSubview(badgeLabel)
+        // 4. Detached Floating Multiplier Badge Pill (Tier B: Standard ThemedPillView)
+        addSubview(badgePill)
         NSLayoutConstraint.activate([
-            badgeLabel.topAnchor.constraint(equalTo: badgeView.topAnchor, constant: 2.5),
-            badgeLabel.bottomAnchor.constraint(equalTo: badgeView.bottomAnchor, constant: -2.5),
-            badgeLabel.leadingAnchor.constraint(equalTo: badgeView.leadingAnchor, constant: 19),
-            badgeLabel.trailingAnchor.constraint(equalTo: badgeView.trailingAnchor, constant: -8)
-        ])
-
-        addSubview(badgeView)
-        NSLayoutConstraint.activate([
-            badgeView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            badgeView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: 0),
-            badgeView.heightAnchor.constraint(equalToConstant: badgeHeight)
+            badgePill.centerXAnchor.constraint(equalTo: centerXAnchor),
+            badgePill.bottomAnchor.constraint(equalTo: bottomAnchor, constant: 0),
+            badgePill.heightAnchor.constraint(equalToConstant: badgeHeight)
         ])
 
         updateTheme()
@@ -346,42 +316,21 @@ public final class CursorLoupeView: NSView {
         shadow.shadowOffset = NSSize(width: 0, height: -5)
         self.shadow = shadow
 
-        // Ensure badgeView maintains its pill shape and layer masks
-        badgeView.layer?.cornerRadius = badgeHeight / 2.0 // 10.0pt capsule
-        badgeView.layer?.cornerCurve = .continuous
-        badgeView.layer?.masksToBounds = true
-
         // 2. Translucent Frosted Glass Barrel: matches Glance Frosted Glass design language
         if isDark {
             barrelContainer.backgroundColor = NSColor(deviceWhite: 0.08, alpha: 0.85).cgColor
             outerChamferLayer.borderColor = theme.glassBorderColor
             innerChamferLayer.borderColor = NSColor.white.withAlphaComponent(0.35).cgColor
             bezelEngravingsLayer.strokeColor = NSColor.white.withAlphaComponent(0.40).cgColor
-
-            badgeView.appearance = theme.glassAppearance
-            badgeView.layer?.backgroundColor = theme.wellBackgroundColor
-            badgeView.layer?.borderColor = theme.pillBorderColor
-            badgeLabel.textColor = theme.primaryTextColor
-
-            let textShadow = NSShadow()
-            textShadow.shadowColor = NSColor.black.withAlphaComponent(0.80)
-            textShadow.shadowOffset = NSSize(width: 0, height: -1)
-            textShadow.shadowBlurRadius = 2
-            badgeLabel.shadow = textShadow
         } else {
             // Light Frosted Platinum Glass (semi-translucent, matches Glance Light HUD)
             barrelContainer.backgroundColor = NSColor(deviceWhite: 0.93, alpha: 0.82).cgColor
             outerChamferLayer.borderColor = theme.glassBorderColor
             innerChamferLayer.borderColor = NSColor.black.withAlphaComponent(0.18).cgColor
             bezelEngravingsLayer.strokeColor = NSColor.black.withAlphaComponent(0.50).cgColor
-
-            badgeView.appearance = theme.glassAppearance
-            badgeView.layer?.backgroundColor = theme.wellBackgroundColor
-            badgeView.layer?.borderColor = theme.pillBorderColor
-            badgeLabel.textColor = theme.primaryTextColor
-            badgeLabel.shadow = nil
         }
 
+        badgePill.applyTheme()
         updateBadgeVisuals()
     }
 
@@ -390,18 +339,18 @@ public final class CursorLoupeView: NSView {
         let isDark = theme.isDark
 
         if magnification == 4.0 {
-            badgeLabel.stringValue = "4×"
-            badgeDot.backgroundColor = NSColor(srgbRed: 1.0, green: 0.62, blue: 0.05, alpha: 1.0).cgColor // Vibrant amber
-            badgeDot.borderColor = NSColor.black.withAlphaComponent(isDark ? 0.4 : 0.25).cgColor
-            badgeDot.borderWidth = 0.5
+            badgePill.label.stringValue = "4×"
+            badgePill.indicatorDot.backgroundColor = NSColor(srgbRed: 1.0, green: 0.62, blue: 0.05, alpha: 1.0).cgColor // Vibrant amber
+            badgePill.indicatorDot.borderColor = NSColor.black.withAlphaComponent(isDark ? 0.4 : 0.25).cgColor
+            badgePill.indicatorDot.borderWidth = 0.5
         } else {
-            badgeLabel.stringValue = "2×"
+            badgePill.label.stringValue = "2×"
             // High-contrast dot: crisp white in dark mode, dark slate in light mode
-            badgeDot.backgroundColor = isDark
+            badgePill.indicatorDot.backgroundColor = isDark
                 ? NSColor(white: 0.92, alpha: 1.0).cgColor
                 : NSColor(white: 0.20, alpha: 1.0).cgColor
-            badgeDot.borderColor = isDark ? nil : NSColor.white.withAlphaComponent(0.5).cgColor
-            badgeDot.borderWidth = isDark ? 0.0 : 0.5
+            badgePill.indicatorDot.borderColor = isDark ? nil : NSColor.white.withAlphaComponent(0.5).cgColor
+            badgePill.indicatorDot.borderWidth = isDark ? 0.0 : 0.5
         }
     }
 

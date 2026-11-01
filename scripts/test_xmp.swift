@@ -1803,6 +1803,68 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+        // ==========================================
+        // TEST 33: Semantic Design System Invariants
+        // ==========================================
+        do {
+            print("🧪 TEST 33: Semantic Design System Invariants...")
+
+            await MainActor.run {
+                let theme = ThemeManager.shared
+                let origTheme = theme.currentTheme
+
+                // 1. ThemedGlassCardView Invariants
+                let card = ThemedGlassCardView(cornerRadius: 14.0)
+                assertEqual(card.visualEffectView.layer?.cornerRadius, 14.0, "Card corner radius is 14pt")
+                assertEqual(card.visualEffectView.layer?.masksToBounds, true, "Card layer masksToBounds is true")
+                assertEqual(card.scrimView.superview === card.visualEffectView, true, "Scrim is child of visualEffectView")
+
+                // Test Dark theme scrim and appearance
+                theme.setTheme(.dark, userInitiated: false)
+                card.applyTheme()
+                assertEqual(card.scrimView.layer?.backgroundColor == theme.scrimColor.cgColor, true, "Dark scrim matches theme.scrimColor")
+                assertEqual(card.visualEffectView.layer?.borderColor == theme.glassBorderColor, true, "Dark border matches theme.glassBorderColor")
+
+                // Test Light theme scrim and appearance
+                theme.setTheme(.light, userInitiated: false)
+                card.applyTheme()
+                assertEqual(card.scrimView.layer?.backgroundColor == theme.scrimColor.cgColor, true, "Light scrim matches theme.scrimColor")
+                assertEqual(card.visualEffectView.layer?.borderColor == theme.glassBorderColor, true, "Light border matches theme.glassBorderColor")
+
+                // 2. ThemedPillView Capsule Invariants
+                let pill = ThemedPillView(text: "2×", hasDot: true)
+                pill.frame = NSRect(x: 0, y: 0, width: 44, height: 20)
+                pill.layout()
+                assertEqual(pill.visualEffectView.layer?.cornerRadius, 10.0, "Pill capsule cornerRadius is height / 2.0")
+
+                theme.setTheme(.dark, userInitiated: false)
+                pill.applyTheme()
+                assertEqual(pill.label.textColor, theme.primaryTextColor, "Pill label is primaryTextColor in Dark mode")
+                assertEqual(pill.label.shadow != nil, true, "Pill has elevation text shadow in Dark mode")
+
+                theme.setTheme(.light, userInitiated: false)
+                pill.applyTheme()
+                assertEqual(pill.label.textColor, theme.primaryTextColor, "Pill label is primaryTextColor in Light mode")
+                assertEqual(pill.label.shadow == nil, true, "Pill text shadow is nil in Light mode for clean type")
+
+                // 3. FalseColorLegendHudView Bleed-Through & Dynamic Label Rebinding
+                let falseColorHud = FalseColorLegendHudView()
+
+                theme.setTheme(.dark, userInitiated: false)
+                falseColorHud.applyTheme()
+                assertEqual(falseColorHud.scrimView.layer?.backgroundColor == theme.scrimColor.cgColor, true, "False Color HUD uses dark scrim to block purple bleed-through")
+
+                theme.setTheme(.light, userInitiated: false)
+                falseColorHud.applyTheme()
+                assertEqual(falseColorHud.scrimView.layer?.backgroundColor == theme.scrimColor.cgColor, true, "False Color HUD uses frosted white scrim in light mode")
+
+                // Restore original theme
+                theme.setTheme(origTheme, userInitiated: false)
+            }
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }
