@@ -75,17 +75,32 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.message = "Choose an image file or a folder to view"
-        panel.prompt = "Open Slides"
+        panel.title = "Open — Glance"
+        panel.message = "Choose an image file or a folder to view in Glance"
+        panel.prompt = "Open"
 
         panel.begin { [weak self] response in
-            if response == .OK, let url = panel.url {
-                self?.openTarget(url: url)
-            } else if self?.windowController?.window?.isVisible != true {
+            if response == .OK {
+                let targetURL = panel.url ?? panel.urls.first ?? panel.directoryURL
+                if let targetURL = targetURL {
+                    self?.openTarget(url: targetURL)
+                    return
+                }
+            }
+            if self?.windowController?.window?.isVisible != true {
                 // If user cancelled and no window is open, exit
                 NSApp.terminate(nil)
             }
         }
+    }
+
+    public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag || windowController?.window?.isVisible != true {
+            promptOpenPanel()
+        } else {
+            windowController?.window?.makeKeyAndOrderFront(nil)
+        }
+        return true
     }
 
     // MARK: - Liquid Glass & Appearance-Adaptive Dock Icon
