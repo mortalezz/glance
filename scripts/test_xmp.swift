@@ -1527,7 +1527,7 @@ struct TestRunner {
                 let loupe = CursorLoupeView()
                 assertEqual(loupe.isPresented, false, "Loupe starts unpresented")
                 assertEqual(loupe.magnification, 2.0, "Default magnification is 2.0x")
-                assertEqual(loupe.hitTest(NSPoint(x: 105, y: 105)) != nil, true, "Center point is inside circular loupe and clickable")
+                assertEqual(loupe.hitTest(NSPoint(x: 113, y: 113)) != nil, true, "Center point is inside circular loupe and clickable")
                 assertEqual(loupe.hitTest(NSPoint(x: 220, y: 220)), nil, "Point outside circular loupe is transparent")
 
                 // 2. Lifecycle Transitions: Present, Dismiss, Toggle
@@ -1593,8 +1593,8 @@ struct TestRunner {
                 assertEqual(slideView.cursorLoupeView.magnification, 2.0, "1st M press sets 2x")
 
                 slideView.cursorLoupeView.updatePosition(mousePt: CGPoint(x: 500, y: 500), in: slideView)
-                assertEqual(slideView.cursorLoupeView.frame.origin.x, 500 - 105, "Loupe centered horizontally on cursor")
-                assertEqual(slideView.cursorLoupeView.frame.origin.y, 500 - 105, "Loupe centered vertically on cursor")
+                assertEqual(slideView.cursorLoupeView.frame.origin.x, 500 - 113, "Loupe centered horizontally on cursor")
+                assertEqual(slideView.cursorLoupeView.frame.origin.y, 500 - 113, "Loupe centered vertically on cursor")
 
                 slideView.toggleCursorLoupe()
                 assertEqual(slideView.cursorLoupeView.isPresented, true, "SlideView loupe remains active on 2nd press")
