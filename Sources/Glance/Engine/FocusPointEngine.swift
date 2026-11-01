@@ -17,12 +17,16 @@ public final class FocusPointEngine: Sendable {
     ///   - properties: ImageIO dictionary from `CGImageSourceCopyPropertiesAtIndex`.
     ///   - imageWidth: Pixel width of the image.
     ///   - imageHeight: Pixel height of the image.
+    ///   - url: Optional file URL for reading binary camera MakerNotes (e.g. Nikon NEF).
+    ///   - headerData: Optional raw header bytes for direct MakerNote inspection (unit tests).
     ///   - detectedFaces: Optional detected portrait faces for Eye/Face tracking box alignment.
     /// - Returns: An array of `AFPointData` reticles positioned in normalized `[0.0, 1.0]` image space.
     public func extractAFPoints(
         from properties: [CFString: Any],
         imageWidth: Int,
         imageHeight: Int,
+        url: URL? = nil,
+        headerData: Data? = nil,
         detectedFaces: [DetectedFace] = []
     ) -> [AFPointData] {
         var points: [AFPointData] = []
@@ -45,9 +49,32 @@ public final class FocusPointEngine: Sendable {
             }
         }
 
-        // 2. Nikon MakerNotes (AFInfo2 tag 0x00B7 / AFPoints)
+        // 2. Nikon MakerNotes in properties (AFInfo2 tag 0x00B7 / AFPoints)
         if points.isEmpty, let nikon = properties[kCGImagePropertyMakerNikonDictionary] as? [CFString: Any] {
             if let nikonPoints = parseNikonAF(nikon: nikon, width: W, height: H) {
+                points.append(contentsOf: nikonPoints)
+            }
+        }
+
+        // 2b. Direct Nikon MakerNote Binary Inspection (for RAW files where ImageIO omits binary AFInfo2)
+        if points.isEmpty {
+            let rawData: Data?
+            if let headerData = headerData {
+                rawData = headerData
+            } else if let url = url,
+                      ["nef", "nrw"].contains(url.pathExtension.lowercased()) ||
+                      properties[kCGImagePropertyMakerNikonDictionary] != nil {
+                if let handle = try? FileHandle(forReadingFrom: url) {
+                    rawData = try? handle.read(upToCount: 131072)
+                    try? handle.close()
+                } else {
+                    rawData = nil
+                }
+            } else {
+                rawData = nil
+            }
+
+            if let data = rawData, let nikonPoints = parseNikonMakerNoteData(data: data, width: W, height: H) {
                 points.append(contentsOf: nikonPoints)
             }
         }
@@ -222,7 +249,6 @@ public final class FocusPointEngine: Sendable {
 
     /// Parses Sony `FocusLocation` (tag `0x2027`) and AF area coordinates.
     private func parseSonyAF(sony: [CFString: Any], width: CGFloat, height: CGFloat) -> [AFPointData]? {
-        // Tag 0x2027 or "FocusLocation"
         if let loc = (sony["FocusLocation" as CFString] as? [NSNumber]) ??
                      (sony["0x2027" as CFString] as? [NSNumber]) {
             if loc.count >= 4 {
@@ -243,7 +269,7 @@ public final class FocusPointEngine: Sendable {
         return nil
     }
 
-    /// Parses Nikon `AFInfo2` (tag `0x00B7`) phase-detect & tracking box coordinates.
+    /// Parses Nikon `AFInfo2` (tag `0x00B7`) from dictionary if available.
     private func parseNikonAF(nikon: [CFString: Any], width: CGFloat, height: CGFloat) -> [AFPointData]? {
         if let af2 = nikon["AFInfo2" as CFString] as? [CFString: Any] {
             if let coords = (af2["AFArea" as CFString] as? [NSNumber]) ??
@@ -254,7 +280,7 @@ public final class FocusPointEngine: Sendable {
                     let w = CGFloat(coords[2].doubleValue) / width
                     let h = CGFloat(coords[3].doubleValue) / height
                     let r = clamp(rect: CGRect(x: x, y: y, width: max(0.04, w), height: max(0.04, h)))
-                    return [AFPointData(rectNormalized: r, status: .locked, label: "Nikon 3D Tracking")]
+                    return [AFPointData(rectNormalized: r, status: .locked, label: "Nikon AF Lock")]
                 }
             }
         } else if let coords = (nikon["AFPosition" as CFString] as? [NSNumber]) ??
@@ -268,6 +294,113 @@ public final class FocusPointEngine: Sendable {
             }
         }
         return nil
+    }
+
+    /// Direct binary parser for Nikon MakerNote `AFInfo2` (tag `0x00B7`) from file header bytes.
+    public func parseNikonMakerNoteData(data: Data, width: CGFloat, height: CGFloat) -> [AFPointData]? {
+        let nikonMagic = "Nikon".data(using: .ascii)!
+        guard let r = data.range(of: nikonMagic) else { return nil }
+        let tiffBase = r.lowerBound + 10
+        guard tiffBase + 8 <= data.count else { return nil }
+
+        let isLittleEndian = (data[tiffBase] == 0x49) // "II" vs "MM"
+        func readU16(_ off: Int) -> UInt16? {
+            let absOff = tiffBase + off
+            guard absOff + 2 <= data.count else { return nil }
+            let b0 = UInt16(data[absOff])
+            let b1 = UInt16(data[absOff + 1])
+            return isLittleEndian ? (b0 | (b1 << 8)) : ((b0 << 8) | b1)
+        }
+        func readU32(_ off: Int) -> UInt32? {
+            let absOff = tiffBase + off
+            guard absOff + 4 <= data.count else { return nil }
+            let b0 = UInt32(data[absOff])
+            let b1 = UInt32(data[absOff + 1])
+            let b2 = UInt32(data[absOff + 2])
+            let b3 = UInt32(data[absOff + 3])
+            return isLittleEndian ? (b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)) : ((b0 << 24) | (b1 << 16) | (b2 << 8) | b3)
+        }
+
+        guard let ifdOff = readU32(4).map(Int.init),
+              let numEntries = readU16(ifdOff).map(Int.init) else { return nil }
+
+        var b7Offset: Int? = nil
+        for i in 0..<min(numEntries, 120) {
+            let entry = ifdOff + 2 + i * 12
+            guard let tag = readU16(entry) else { break }
+            if tag == 0x00B7 { // AFInfo2
+                b7Offset = readU32(entry + 8).map(Int.init)
+                break
+            }
+        }
+
+        guard let b7 = b7Offset, tiffBase + b7 + 60 <= data.count else { return nil }
+        let tagStart = tiffBase + b7
+
+        func tagU16(_ off: Int) -> UInt16? {
+            let absOff = tagStart + off
+            guard absOff + 2 <= data.count else { return nil }
+            let b0 = UInt16(data[absOff])
+            let b1 = UInt16(data[absOff + 1])
+            return isLittleEndian ? (b0 | (b1 << 8)) : ((b0 << 8) | b1)
+        }
+
+        let versionStr = String(data: data.subdata(in: tagStart..<min(tagStart + 4, data.count)), encoding: .ascii) ?? ""
+
+        var imgW: CGFloat = width
+        var imgH: CGFloat = height
+        var centerX: CGFloat = 0
+        var centerY: CGFloat = 0
+        var boxW: CGFloat = 0
+        var boxH: CGFloat = 0
+        var inFocus = true
+
+        if versionStr.hasPrefix("03") {
+            // Expeed 6 (Z5, Z6, Z7, Z50, Zfc, D780)
+            if let w = tagU16(0x2A), w > 0 { imgW = CGFloat(w) }
+            if let h = tagU16(0x2C), h > 0 { imgH = CGFloat(h) }
+            if let cx = tagU16(0x2E) { centerX = CGFloat(cx) }
+            if let cy = tagU16(0x30) { centerY = CGFloat(cy) }
+            if let bw = tagU16(0x32), bw > 0 { boxW = CGFloat(bw) }
+            if let bh = tagU16(0x34), bh > 0 { boxH = CGFloat(bh) }
+            if let foc = tagU16(0x36) { inFocus = (foc == 1) }
+        } else if versionStr.hasPrefix("04") {
+            // Expeed 7 (Z8, Z9, Z6 III, Zf)
+            if let w = tagU16(0x3E), w > 0 { imgW = CGFloat(w) }
+            if let h = tagU16(0x40), h > 0 { imgH = CGFloat(h) }
+            if let cx = tagU16(0x42) { centerX = CGFloat(cx) }
+            if let cy = tagU16(0x44) { centerY = CGFloat(cy) }
+            if let bw = tagU16(0x46), bw > 0 { boxW = CGFloat(bw) }
+            if let bh = tagU16(0x48), bh > 0 { boxH = CGFloat(bh) }
+            if let foc = tagU16(0x4A) { inFocus = (foc == 1) }
+        } else if versionStr.hasPrefix("01") {
+            // Older DSLRs (D3, D4, D800, D810, D750, etc.)
+            if let w = tagU16(0x10), w > 0 { imgW = CGFloat(w) }
+            if let h = tagU16(0x12), h > 0 { imgH = CGFloat(h) }
+            if let cx = tagU16(0x14) { centerX = CGFloat(cx) }
+            if let cy = tagU16(0x16) { centerY = CGFloat(cy) }
+            if let bw = tagU16(0x18), bw > 0 { boxW = CGFloat(bw) }
+            if let bh = tagU16(0x1A), bh > 0 { boxH = CGFloat(bh) }
+            if let foc = tagU16(0x1C) { inFocus = (foc == 1) }
+        }
+
+        guard centerX > 0, centerY > 0, imgW > 0, imgH > 0 else { return nil }
+
+        let normW = (boxW > 0) ? (boxW / imgW) : 0.05
+        let normH = (boxH > 0) ? (boxH / imgH) : 0.05
+        let normCX = centerX / imgW
+        let normCY = centerY / imgH
+
+        let originX = max(0.0, min(1.0 - normW, normCX - normW / 2.0))
+        let originY = max(0.0, min(1.0 - normH, normCY - normH / 2.0))
+
+        let rect = clamp(rect: CGRect(x: originX, y: originY, width: normW, height: normH))
+        return [AFPointData(
+            rectNormalized: rect,
+            status: inFocus ? .locked : .unconfirmed,
+            label: inFocus ? "Nikon AF Lock" : "Nikon AF",
+            isPrimary: true
+        )]
     }
 
     /// Parses Fujifilm `FocusPixel` (tag `0x1023`) and AF area coordinates.

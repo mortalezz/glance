@@ -97,7 +97,7 @@ public final class ImageDecoder: Sendable {
                 originalHeight = height
             }
 
-            parsedExif = ExifMetadata(from: properties)
+            parsedExif = ExifMetadata(from: properties, url: url)
         }
 
         // Camera Profile extraction on background worker thread (avoids main-thread disk read / stalling)

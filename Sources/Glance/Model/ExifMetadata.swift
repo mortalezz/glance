@@ -153,7 +153,7 @@ public struct ExifMetadata: Sendable {
     }
 
         /// Parses EXIF, TIFF, and MakerNotes dictionaries from ImageIO properties dictionary.
-    public init(from properties: [CFString: Any]) {
+    public init(from properties: [CFString: Any], url: URL? = nil) {
         let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any]
         let tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any]
 
@@ -319,7 +319,7 @@ public struct ExifMetadata: Sendable {
         // 19. Camera Autofocus Points & Subject Tracking Reticles
         let w = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue ?? 1
         let h = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue ?? 1
-        self.afPoints = FocusPointEngine.shared.extractAFPoints(from: properties, imageWidth: w, imageHeight: h)
+        self.afPoints = FocusPointEngine.shared.extractAFPoints(from: properties, imageWidth: w, imageHeight: h, url: url)
     }
 
     // MARK: - Formatted Readouts

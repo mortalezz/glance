@@ -2181,6 +2181,48 @@ struct TestRunner {
             assertEqual(abs(sonyPoints[0].rectNormalized.origin.y - 0.25) < 0.001, true, "Sony point Y normalized correctly")
 
             // 2. Nikon MakerNotes (AFInfo2 / AFPoints)
+            // 2b. Direct Nikon MakerNote Binary Inspection (Tag 0x00B7 AFInfo2)
+            var mockNikonData = Data()
+            mockNikonData.append("Nikon\0".data(using: .ascii)!)
+            mockNikonData.append(contentsOf: [0x02, 0x11, 0x00, 0x00]) // Version padding (4 bytes)
+            // TIFF Header ("II" + 42 + IFD offset 8)
+            let tiffHeader: [UInt8] = [0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00]
+            mockNikonData.append(contentsOf: tiffHeader)
+            // IFD at offset 8 relative to TIFF: 1 entry (tag 0x00B7, type 7, count 60, offset 26)
+            let ifd: [UInt8] = [
+                0x01, 0x00, // 1 entry
+                0xB7, 0x00, // Tag 0x00B7 (AFInfo2)
+                0x07, 0x00, // Type 7 (UNDEFINED)
+                0x3C, 0x00, 0x00, 0x00, // Count 60
+                0x1A, 0x00, 0x00, 0x00, // Value offset: 26
+                0x00, 0x00, 0x00, 0x00  // Next IFD: 0
+            ]
+            mockNikonData.append(contentsOf: ifd)
+            // AFInfo2 payload at offset 26 relative to TIFF (version 0300, 60 bytes)
+            var b7Payload = [UInt8](repeating: 0, count: 60)
+            b7Payload[0] = 0x30; b7Payload[1] = 0x33; b7Payload[2] = 0x30; b7Payload[3] = 0x30 // "0300"
+            // Little-endian UInt16 helper
+            func writeU16(_ val: UInt16, at off: Int) {
+                b7Payload[off] = UInt8(val & 0xFF)
+                b7Payload[off + 1] = UInt8((val >> 8) & 0xFF)
+            }
+            writeU16(6048, at: 0x2A) // imgW
+            writeU16(4024, at: 0x2C) // imgH
+            writeU16(3024, at: 0x2E) // cx
+            writeU16(2012, at: 0x30) // cy
+            writeU16(285,  at: 0x32) // bw
+            writeU16(308,  at: 0x34) // bh
+            writeU16(1,    at: 0x36) // inFocus
+            mockNikonData.append(contentsOf: b7Payload)
+
+            let binaryNikonPoints = engine.extractAFPoints(from: [:], imageWidth: 6048, imageHeight: 4024, headerData: mockNikonData)
+            assertEqual(binaryNikonPoints.count, 1, "Extracted 1 binary Nikon AF point from MakerNote")
+            assertEqual(binaryNikonPoints[0].status, .locked, "Nikon AF point has .locked status")
+            assertEqual(binaryNikonPoints[0].label, "Nikon AF Lock", "Nikon AF point label is Nikon AF Lock")
+            assertEqual(abs(binaryNikonPoints[0].rectNormalized.midX - 0.50) < 0.001, true, "Nikon point center X at 0.50")
+            assertEqual(abs(binaryNikonPoints[0].rectNormalized.midY - 0.50) < 0.001, true, "Nikon point center Y at 0.50")
+            assertEqual(abs(binaryNikonPoints[0].rectNormalized.width - (285.0 / 6048.0)) < 0.001, true, "Nikon point normalized width matches 285/6048")
+
             let nikonProps: [CFString: Any] = [
                 kCGImagePropertyMakerNikonDictionary: [
                     "AFInfo2" as CFString: [
