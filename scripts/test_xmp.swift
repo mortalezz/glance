@@ -2078,6 +2078,62 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+        // =========================================================================
+        // TEST 37: Spatial Deconfliction between FaceLoupeOverlayView & FilmstripHudView
+        // =========================================================================
+        do {
+            print("🧪 TEST 37: Spatial Deconfliction between FaceLoupeOverlayView & FilmstripHudView...")
+
+            await MainActor.run {
+                let slideView = SlideView(frame: NSRect(x: 0, y: 0, width: 1200, height: 900))
+                slideView.layoutSubtreeIfNeeded()
+
+                let dummyCG = makeTestCGImage(width: 100, height: 100, r: 200, g: 150, b: 120)
+                let faceTile = FaceTileData(index: 1, image: dummyCG, eyeCenterNormalized: CGPoint(x: 0.5, y: 0.5))
+                slideView.updateFaceTiles([faceTile])
+
+                // 1. Initial State: Filmstrip hidden -> Face Loupe sits at bottom -76
+                slideView.setFaceOverlayVisible(true)
+                assertEqual(slideView.faceOverlayView.isPresented, true, "Face overlay presented")
+                assertEqual(slideView.filmstripHud.isPresented, false, "Filmstrip starts hidden")
+
+                // Query the active bottom constraint
+                let initialBottomConstraint = slideView.constraints.first { c in
+                    c.firstItem === slideView.faceOverlayView && c.firstAttribute == .bottom
+                }
+                assertEqual(initialBottomConstraint != nil, true, "Found faceOverlayBottomConstraint")
+                assertEqual(initialBottomConstraint?.constant, -76.0, "Face overlay sits at -76pt when filmstrip is dismissed")
+
+                // 2. Filmstrip Presentation (G key / Hover): Automatically elevates Face Loupe to -178
+                slideView.filmstripHud.present(pinned: true, animated: false)
+                assertEqual(slideView.filmstripHud.isPresented, true, "Filmstrip presented")
+                assertEqual(initialBottomConstraint?.constant, -178.0, "Face overlay dynamically elevates to -178pt above filmstrip")
+
+                // 3. Filmstrip Dismissal: Smoothly restores Face Loupe back down to -76
+                slideView.filmstripHud.dismiss(animated: false)
+                assertEqual(slideView.filmstripHud.isPresented, false, "Filmstrip dismissed")
+                assertEqual(initialBottomConstraint?.constant, -76.0, "Face overlay smoothly restores to -76pt")
+
+                // 4. Presenting Face Overlay when Filmstrip is ALREADY open
+                slideView.setFaceOverlayVisible(false)
+                assertEqual(slideView.faceOverlayView.isPresented, false, "Face overlay dismissed")
+
+                slideView.filmstripHud.present(pinned: true, animated: false)
+                assertEqual(slideView.filmstripHud.isPresented, true, "Filmstrip open")
+
+                // Now present face overlay -> should immediately adopt -178 without jumping
+                slideView.setFaceOverlayVisible(true)
+                assertEqual(slideView.faceOverlayView.isPresented, true, "Face overlay presented while filmstrip open")
+                assertEqual(initialBottomConstraint?.constant, -178.0, "Face overlay immediately assumes elevated -178pt position")
+
+                // Clean up
+                slideView.filmstripHud.dismiss(animated: false)
+                slideView.setFaceOverlayVisible(false)
+            }
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

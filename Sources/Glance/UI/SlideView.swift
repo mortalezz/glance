@@ -102,6 +102,8 @@ public final class SlideView: NSView {
     private var histogramTopConstraint: NSLayoutConstraint?
     private var exifTopConstraint: NSLayoutConstraint?
     private var exifWidthConstraint: NSLayoutConstraint?
+    private var faceOverlayBottomConstraint: NSLayoutConstraint?
+    private var savedFaceOverlayPresented: Bool = false
 
     public private(set) var multiUpMode: MultiUpMode = .single
     public var isSplitMode: Bool { multiUpMode != .single }
@@ -263,6 +265,15 @@ public final class SlideView: NSView {
         topToastView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(topToastView)
 
+        filmstripHud.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(filmstripHud)
+        filmstripHud.onSelectIndex = { [weak self] index in
+            self?.delegate?.slideViewJumpToFilteredPos(index: index)
+        }
+        filmstripHud.onVisibilityChanged = { [weak self] _ in
+            self?.updateFaceOverlayPosition(animated: true)
+        }
+
         faceOverlayView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(faceOverlayView)
         faceOverlayView.onFaceSelected = { [weak self] faceIndex in
@@ -277,12 +288,6 @@ public final class SlideView: NSView {
 
         falseColorLegendHud.translatesAutoresizingMaskIntoConstraints = false
         addSubview(falseColorLegendHud)
-
-        filmstripHud.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(filmstripHud)
-        filmstripHud.onSelectIndex = { [weak self] index in
-            self?.delegate?.slideViewJumpToFilteredPos(index: index)
-        }
 
         // Split Badges: positioned manually via frames in updateLayerLayout
         for badge in splitBadges {
@@ -326,7 +331,11 @@ public final class SlideView: NSView {
             topToastView.heightAnchor.constraint(greaterThanOrEqualToConstant: 32),
 
             faceOverlayView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -28),
-            faceOverlayView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -76),
+            {
+                let c = faceOverlayView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -76)
+                self.faceOverlayBottomConstraint = c
+                return c
+            }(),
 
             falseColorLegendHud.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -28),
             falseColorLegendHud.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -765,9 +774,27 @@ public final class SlideView: NSView {
 
     public func setFaceOverlayVisible(_ visible: Bool) {
         if visible {
+            updateFaceOverlayPosition(animated: false)
             faceOverlayView.present()
         } else {
             faceOverlayView.dismiss()
+        }
+    }
+
+    public func updateFaceOverlayPosition(animated: Bool = true) {
+        let targetBottom: CGFloat = filmstripHud.isPresented ? -178 : -76
+        guard let constraint = faceOverlayBottomConstraint else { return }
+        if constraint.constant == targetBottom { return }
+
+        constraint.constant = targetBottom
+        if animated && faceOverlayView.isPresented {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.20
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                self.layoutSubtreeIfNeeded()
+            }
+        } else {
+            layoutSubtreeIfNeeded()
         }
     }
 
@@ -847,6 +874,7 @@ public final class SlideView: NSView {
         guard !isHelpPresented else { return }
         isHelpPresented = true
         topToastView.dismiss(animated: false)
+        savedFaceOverlayPresented = faceOverlayView.isPresented
         faceOverlayView.dismiss()
         cursorLoupeView.dismiss()
         savedHistogramAlpha = histogramHud.alphaValue
@@ -879,6 +907,10 @@ public final class SlideView: NSView {
             self.exifHud.animator().alphaValue = self.savedExifAlpha
             self.falseColorLegendHud.animator().alphaValue = self.savedFalseColorLegendAlpha
             self.filmstripHud.animator().alphaValue = self.savedFilmstripAlpha
+            if self.savedFaceOverlayPresented {
+                self.updateFaceOverlayPosition(animated: false)
+                self.faceOverlayView.present()
+            }
             for i in 0..<4 {
                 if self.multiUpMode != .single && self.paneImageLayers[i].contents != nil {
                     self.splitBadges[i].animator().alphaValue = (self.savedSplitBadgesAlpha[i] > 0) ? self.savedSplitBadgesAlpha[i] : 1.0
@@ -1230,6 +1262,13 @@ public final class SlideView: NSView {
         if filmstripHud.isPresented {
             let mouseInStrip = filmstripHud.convert(event.locationInWindow, from: nil)
             if filmstripHud.bounds.contains(mouseInStrip) {
+                return
+            }
+        }
+
+        if faceOverlayView.isPresented {
+            let mouseInFace = faceOverlayView.convert(event.locationInWindow, from: nil)
+            if faceOverlayView.bounds.contains(mouseInFace) {
                 return
             }
         }
@@ -1826,6 +1865,8 @@ public final class SlideView: NSView {
 
         if filmstripHud.isPresented {
             if filmstripHud.frame.insetBy(dx: -20, dy: -20).contains(mousePt) {
+                filmstripHud.cancelAutoDismiss()
+            } else if faceOverlayView.isPresented && faceOverlayView.frame.insetBy(dx: -10, dy: -10).contains(mousePt) {
                 filmstripHud.cancelAutoDismiss()
             } else if mousePt.y > filmstripHud.frame.maxY + 40 {
                 filmstripHud.handleMouseExited()

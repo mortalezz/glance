@@ -11,6 +11,7 @@ import QuartzCore
 @MainActor
 public final class FilmstripHudView: ThemedGlassCardView {
     public var onSelectIndex: ((Int) -> Void)?
+    public var onVisibilityChanged: ((Bool) -> Void)?
 
     public private(set) var isPresented: Bool = false
     public private(set) var isPinned: Bool = false
@@ -105,6 +106,7 @@ public final class FilmstripHudView: ThemedGlassCardView {
         guard !isPresented else { return }
         isPresented = true
         isHidden = false
+        onVisibilityChanged?(true)
 
         if animated {
             NSAnimationContext.runAnimationGroup { context in
@@ -126,6 +128,7 @@ public final class FilmstripHudView: ThemedGlassCardView {
 
         guard isPresented else { return }
         isPresented = false
+        onVisibilityChanged?(false)
 
         if animated {
             NSAnimationContext.runAnimationGroup({ context in
