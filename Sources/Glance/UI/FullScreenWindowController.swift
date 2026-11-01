@@ -1802,23 +1802,87 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         }
     }
 
+    /// Dynamically computes only the filters that are actually populated by user ratings and flags in the current session
+    public func availableFilters() -> [CullingFilter] {
+        var filters: [CullingFilter] = [.all]
+
+        var hasPicks = false
+        var hasRejects = false
+        var hasUnrated = false
+        var hasRatedOrFlagged = false
+        var populatedRatings = Set<Int>()
+        var populatedColors = Set<ColorLabel>()
+
+        for item in allItems {
+            let meta = cullingData[item.id] ?? CullingMetadata()
+            if meta.pick == .pick { hasPicks = true }
+            if meta.pick == .reject { hasRejects = true }
+            if meta.rating > 0 { populatedRatings.insert(meta.rating) }
+            if meta.color != .none { populatedColors.insert(meta.color) }
+
+            if meta.rating == 0 && meta.pick == .unflagged {
+                hasUnrated = true
+            } else {
+                hasRatedOrFlagged = true
+            }
+        }
+
+        // 1. Hide Rejects: only relevant if user actually marked rejects
+        if hasRejects {
+            filters.append(.hideRejects)
+        }
+
+        // 2. Picks Only: only relevant if user flagged picks
+        if hasPicks {
+            filters.append(.picksOnly)
+        }
+
+        // 3. User-populated Star Ratings (1...5) in ascending order (omits unassigned ratings)
+        for r in populatedRatings.sorted() {
+            filters.append(.minRating(r))
+        }
+
+        // 4. User-populated Color Labels
+        let standardColors: [ColorLabel] = [.red, .yellow, .green, .blue]
+        for color in standardColors {
+            if populatedColors.contains(color) {
+                filters.append(.color(color))
+            }
+        }
+
+        // 5. Unrated / Untouched shots: only relevant if some photos are culled and unrated photos remain
+        if hasUnrated && hasRatedOrFlagged {
+            filters.append(.unratedOnly)
+        }
+
+        // 6. Rejects Only: review trash before deletion
+        if hasRejects {
+            filters.append(.rejectsOnly)
+        }
+
+        return filters
+    }
+
     public func slideViewCycleFilter() {
         filterBeforeMultiUp = nil
-        switch currentFilter {
-        case .all:
-            currentFilter = .hideRejects
-        case .hideRejects:
-            currentFilter = .picksOnly
-        case .picksOnly:
-            currentFilter = .rejectsOnly
-        case .rejectsOnly:
-            currentFilter = .unratedOnly
-        case .unratedOnly:
-            currentFilter = .minRating(3)
-        case .minRating(3):
-            currentFilter = .minRating(5)
-        case .minRating:
+        let filters = availableFilters()
+
+        guard filters.count > 1 else {
             currentFilter = .all
+            rebuildFilter()
+            slideView.showToast("Filter: All Files (No active ratings/picks)", icon: "🔍", shortcut: "\\")
+            Task {
+                await loadAndDisplayCurrent()
+            }
+            return
+        }
+
+        if let currentIdx = filters.firstIndex(of: currentFilter) {
+            let nextIdx = (currentIdx + 1) % filters.count
+            currentFilter = filters[nextIdx]
+        } else {
+            // If current filter is not in populated list (or is .all), move to first populated filter
+            currentFilter = filters[1]
         }
 
         rebuildFilter()

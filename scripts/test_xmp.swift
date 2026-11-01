@@ -1607,6 +1607,102 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+        // ==========================================
+        // TEST 31: Dynamic Populated Culling Filters Cycle (\\)
+        // ==========================================
+        do {
+            print("🧪 TEST 31: Dynamic Populated Culling Filters Cycle (\\)...")
+
+            // 1. Fresh session with unrated photos (0 ratings, 0 picks, 0 rejects)
+            let dummyItems = [
+                SlideItem(url: URL(fileURLWithPath: "/tmp/img0.jpg")),
+                SlideItem(url: URL(fileURLWithPath: "/tmp/img1.jpg")),
+                SlideItem(url: URL(fileURLWithPath: "/tmp/img2.jpg"))
+            ]
+
+            func computeFilters(items: [SlideItem], data: [String: CullingMetadata]) -> [CullingFilter] {
+                var filters: [CullingFilter] = [.all]
+                var hasPicks = false
+                var hasRejects = false
+                var hasUnrated = false
+                var hasRatedOrFlagged = false
+                var populatedRatings = Set<Int>()
+                var populatedColors = Set<ColorLabel>()
+
+                for item in items {
+                    let meta = data[item.id] ?? CullingMetadata()
+                    if meta.pick == PickStatus.pick { hasPicks = true }
+                    if meta.pick == PickStatus.reject { hasRejects = true }
+                    if meta.rating > 0 { populatedRatings.insert(meta.rating) }
+                    if meta.color != ColorLabel.none { populatedColors.insert(meta.color) }
+
+                    if meta.rating == 0 && meta.pick == PickStatus.unflagged {
+                        hasUnrated = true
+                    } else {
+                        hasRatedOrFlagged = true
+                    }
+                }
+
+                if hasRejects { filters.append(.hideRejects) }
+                if hasPicks { filters.append(.picksOnly) }
+                for r in populatedRatings.sorted() { filters.append(.minRating(r)) }
+                let standardColors: [ColorLabel] = [.red, .yellow, .green, .blue]
+                for color in standardColors {
+                    if populatedColors.contains(color) { filters.append(.color(color)) }
+                }
+                if hasUnrated && hasRatedOrFlagged { filters.append(.unratedOnly) }
+                if hasRejects { filters.append(.rejectsOnly) }
+
+                return filters
+            }
+
+            let emptyData: [String: CullingMetadata] = [:]
+            let filtersFresh: [CullingFilter] = computeFilters(items: dummyItems, data: emptyData)
+            assertEqual(filtersFresh == [CullingFilter.all], true, "Fresh folder only provides [.all], avoiding phantom empty filters")
+
+            // 2. User rates photos with 4 stars and 5 stars only (NO 3-star ratings)
+            var ratedData: [String: CullingMetadata] = [
+                dummyItems[0].id: CullingMetadata(rating: 4),
+                dummyItems[1].id: CullingMetadata(rating: 5),
+                dummyItems[2].id: CullingMetadata(rating: 0) // unrated
+            ]
+            let filtersRated: [CullingFilter] = computeFilters(items: dummyItems, data: ratedData)
+            assertEqual(filtersRated.contains(CullingFilter.minRating(3)), false, "Never cycles through 3 stars when no 3-star photos exist!")
+            assertEqual(filtersRated.contains(CullingFilter.minRating(1)), false, "Omits 1 star when unpopulated")
+            assertEqual(filtersRated.contains(CullingFilter.minRating(2)), false, "Omits 2 stars when unpopulated")
+            assertEqual(filtersRated.contains(CullingFilter.minRating(4)), true, "Includes 4+ Stars")
+            assertEqual(filtersRated.contains(CullingFilter.minRating(5)), true, "Includes 5 Stars")
+            assertEqual(filtersRated.contains(CullingFilter.unratedOnly), true, "Includes Unrated Only since mixed ratings exist")
+            assertEqual(filtersRated.contains(CullingFilter.hideRejects), false, "Omits Hide Rejects when no rejects exist")
+
+            // Check title formatting
+            assertEqual(CullingFilter.minRating(5).title, "5 Stars", "5 stars renders as \"5 Stars\"")
+            assertEqual(CullingFilter.minRating(4).title, "4+ Stars", "4 stars renders as \"4+ Stars\"")
+            assertEqual(CullingFilter.color(.red).title, "Red Label", "Color filter title matches")
+
+            // 3. User flags Rejects and Picks
+            ratedData[dummyItems[0].id] = CullingMetadata(rating: 4, pick: PickStatus.pick)
+            ratedData[dummyItems[2].id] = CullingMetadata(pick: PickStatus.reject)
+            let filtersComplete: [CullingFilter] = computeFilters(items: dummyItems, data: ratedData)
+            assertEqual(filtersComplete.contains(CullingFilter.hideRejects), true, "Includes Hide Rejects when rejects exist")
+            assertEqual(filtersComplete.contains(CullingFilter.picksOnly), true, "Includes Picks Only when picks exist")
+            assertEqual(filtersComplete.contains(CullingFilter.rejectsOnly), true, "Includes Rejects Only when rejects exist")
+
+            // 4. Cycling Sequence Simulation
+            var activeFilter = CullingFilter.all
+            var cycleHistory: [CullingFilter] = []
+            for _ in 0..<filtersComplete.count {
+                let idx = filtersComplete.firstIndex(of: activeFilter)!
+                let nextIdx = (idx + 1) % filtersComplete.count
+                activeFilter = filtersComplete[nextIdx]
+                cycleHistory.append(activeFilter)
+            }
+            assertEqual(cycleHistory.last! == CullingFilter.all, true, "Cycle completes full loop back to .all")
+            assertEqual(cycleHistory.contains(CullingFilter.minRating(3)), false, "Full cycle history never visits 3 stars")
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

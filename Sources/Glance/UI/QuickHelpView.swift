@@ -239,7 +239,7 @@ public final class QuickHelpView: NSView {
             ),
             (
                 ("C", "Auto-Advance", "Speed culling: automatically advances after rating or flag."),
-                ("\\ / ⇧\\", "Filters / Picks Review", "\\: Cycle all filters. ⇧\\: Quick toggle between Picks Only and All Files."),
+                ("\\ / ⇧\\", "Filters / Picks Review", "\\: Cycle populated filters (skips unassigned stars/flags). ⇧\\: Quick toggle between Picks Only and All Files."),
                 ("⌫ / ⇧⌫", "Trash / Purge", "⌫ trashes active shot. ⇧⌫ batch-purges all rejected photos.")
             ),
             (

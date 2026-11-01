@@ -61,6 +61,7 @@ public enum CullingFilter: Equatable, Sendable {
     case rejectsOnly
     case unratedOnly
     case minRating(Int)
+    case color(ColorLabel)
 
     public var title: String {
         switch self {
@@ -69,7 +70,8 @@ public enum CullingFilter: Equatable, Sendable {
         case .hideRejects: return "Hide Rejects"
         case .rejectsOnly: return "Rejects Only (X)"
         case .unratedOnly: return "Unrated Only"
-        case .minRating(let n): return "\(n)+ Stars"
+        case .minRating(let n): return n == 5 ? "5 Stars" : "\(n)+ Stars"
+        case .color(let c): return "\(c.title) Label"
         }
     }
 
@@ -87,6 +89,8 @@ public enum CullingFilter: Equatable, Sendable {
             return meta.rating == 0 && meta.pick == .unflagged
         case .minRating(let n):
             return meta.rating >= n
+        case .color(let c):
+            return meta.color == c
         }
     }
 }
