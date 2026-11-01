@@ -2151,6 +2151,23 @@ struct TestRunner {
 
             let engine = FocusPointEngine.shared
 
+            // 0. Standardized ImageIO {ExifAux} AFInfo (Fujifilm / Sony / Nikon / Canon ImageIO standardized)
+            let exifAuxProps: [CFString: Any] = [
+                "{ExifAux}" as CFString: [
+                    "FocusMode" as CFString: 1 as NSNumber,
+                    "AFInfo" as CFString: [
+                        "0.5900136", "0.4500679", "0.09986413", "0.09986413", "f",
+                        "0.5900136", "0.4500679", "0.09986413", "0.09986413", "f"
+                    ] as [Any]
+                ]
+            ]
+            let auxPoints = engine.extractAFPoints(from: exifAuxProps, imageWidth: 6240, imageHeight: 4160)
+            assertEqual(auxPoints.count, 1, "Extracted exactly 1 deduplicated ExifAux AF point")
+            assertEqual(auxPoints[0].status, .locked, "ExifAux point status is .locked")
+            assertEqual(auxPoints[0].label, "AF Lock", "ExifAux point label is AF Lock")
+            assertEqual(abs(auxPoints[0].rectNormalized.origin.x - 0.5900136) < 0.001, true, "ExifAux point X matches 0.590")
+            assertEqual(abs(auxPoints[0].rectNormalized.origin.y - 0.4500679) < 0.001, true, "ExifAux point Y matches 0.450")
+
             // 1. Sony MakerNotes (FocusLocation tag 0x2027)
             let sonyProps: [CFString: Any] = [
                 "{MakerSony}" as CFString: [

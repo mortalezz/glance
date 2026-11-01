@@ -3,8 +3,9 @@ import CoreGraphics
 import ImageIO
 
 /// High-performance offline camera autofocus point and subject tracking parser.
-/// Decodes MakerNotes binary structures across Sony, Nikon, Fujifilm, and Canon
-/// to extract normalized `(x, y, width, height)` viewfinder focus coordinates.
+/// Decodes standardized ImageIO {ExifAux} AFInfo and MakerNotes binary structures across
+/// Sony, Nikon, Fujifilm, Canon, Leica, and Olympus to extract normalized
+/// `(x, y, width, height)` viewfinder focus coordinates.
 public final class FocusPointEngine: Sendable {
     public static let shared = FocusPointEngine()
 
@@ -29,31 +30,37 @@ public final class FocusPointEngine: Sendable {
         let W = max(1, CGFloat(imageWidth))
         let H = max(1, CGFloat(imageHeight))
 
+        // 0. Standardized ImageIO ExifAux AF Information (Fujifilm, Nikon, Sony, Canon, Leica)
+        if let aux = (properties["{ExifAux}" as CFString] as? [CFString: Any]) ??
+                     (properties[kCGImagePropertyExifAuxDictionary] as? [CFString: Any]) {
+            if let auxPoints = parseExifAuxAF(aux: aux, width: W, height: H) {
+                points.append(contentsOf: auxPoints)
+            }
+        }
+
         // 1. Sony MakerNotes (FocusLocation tag 0x2027)
-        if let sony = (properties["{MakerSony}" as CFString] as? [CFString: Any]) ??
-                      nil {
+        if points.isEmpty, let sony = properties["{MakerSony}" as CFString] as? [CFString: Any] {
             if let sonyPoints = parseSonyAF(sony: sony, width: W, height: H) {
                 points.append(contentsOf: sonyPoints)
             }
         }
 
         // 2. Nikon MakerNotes (AFInfo2 tag 0x00B7 / AFPoints)
-        if let nikon = properties[kCGImagePropertyMakerNikonDictionary] as? [CFString: Any] {
+        if points.isEmpty, let nikon = properties[kCGImagePropertyMakerNikonDictionary] as? [CFString: Any] {
             if let nikonPoints = parseNikonAF(nikon: nikon, width: W, height: H) {
                 points.append(contentsOf: nikonPoints)
             }
         }
 
         // 3. Fujifilm MakerNotes (FocusPixel tag 0x1023 / FocusPoint)
-        if let fuji = (properties["{MakerFuji}" as CFString] as? [CFString: Any]) ??
-                     nil {
+        if points.isEmpty, let fuji = properties["{MakerFuji}" as CFString] as? [CFString: Any] {
             if let fujiPoints = parseFujiAF(fuji: fuji, width: W, height: H) {
                 points.append(contentsOf: fujiPoints)
             }
         }
 
         // 4. Canon MakerNotes (AFInfo / AFArea rectangles)
-        if let canon = properties[kCGImagePropertyMakerCanonDictionary] as? [CFString: Any] {
+        if points.isEmpty, let canon = properties[kCGImagePropertyMakerCanonDictionary] as? [CFString: Any] {
             if let canonPoints = parseCanonAF(canon: canon, width: W, height: H) {
                 points.append(contentsOf: canonPoints)
             }
@@ -74,7 +81,7 @@ public final class FocusPointEngine: Sendable {
                     rectNormalized: clamp(rect: faceRect),
                     status: .subjectTrack,
                     label: (detectedFaces.count > 1) ? "Eye AF #\(i + 1)" : "Eye AF",
-                    isPrimary: (i == 0)
+                    isPrimary: (i == 0 && points.isEmpty)
                 ))
 
                 // Exact Eye Focus Lock Reticle (Emerald) if eyes are detected
@@ -94,7 +101,7 @@ public final class FocusPointEngine: Sendable {
             }
         }
 
-        // 6. Center Point Fallback (Single Center AF Reticle if no MakerNotes or faces found)
+        // 6. Center Point Fallback (Single Center AF Reticle if no hardware AF or faces found)
         if points.isEmpty {
             let defaultDim: CGFloat = 0.06
             let centerRect = CGRect(
@@ -112,6 +119,103 @@ public final class FocusPointEngine: Sendable {
         }
 
         return points
+    }
+
+    // MARK: - Standardized ImageIO ExifAux Parser
+
+    /// Parses Apple ImageIO standardized `{ExifAux}` `AFInfo` array.
+    private func parseExifAuxAF(aux: [CFString: Any], width: CGFloat, height: CGFloat) -> [AFPointData]? {
+        guard let afInfo = (aux["AFInfo" as CFString] as? [Any]) ??
+                          (aux["AFPoints" as CFString] as? [Any]),
+              !afInfo.isEmpty else {
+            return nil
+        }
+
+        var results: [AFPointData] = []
+        let modeNum = aux["FocusMode" as CFString] as? NSNumber
+        let defaultLabel: String
+        if let mode = modeNum?.intValue {
+            if mode == 2 {
+                defaultLabel = "AF-C Lock"
+            } else if mode == 3 {
+                defaultLabel = "MF Point"
+            } else {
+                defaultLabel = "AF Lock"
+            }
+        } else {
+            defaultLabel = "AF Lock"
+        }
+
+        var idx = 0
+        while idx + 4 <= afInfo.count {
+            guard let rawX = parseDouble(afInfo[idx]),
+                  let rawY = parseDouble(afInfo[idx + 1]),
+                  let rawW = parseDouble(afInfo[idx + 2]),
+                  let rawH = parseDouble(afInfo[idx + 3]),
+                  rawW > 0, rawH > 0 else {
+                idx += 1
+                continue
+            }
+
+            var status: AFPointData.Status = .locked
+            var stride = 4
+
+            if idx + 4 < afInfo.count {
+                let flagItem = afInfo[idx + 4]
+                let flagStr = String(describing: flagItem).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if Double(flagStr) == nil {
+                    // Non-numeric flag token (e.g. "f", "t", "focus")
+                    stride = 5
+                    if flagStr == "f" || flagStr == "t" || flagStr == "focus" {
+                        status = .locked
+                    } else {
+                        status = .unconfirmed
+                    }
+                } else if afInfo.count % 5 == 0 && (afInfo.count % 4 != 0) {
+                    stride = 5
+                    if let num = parseDouble(flagItem), num == 1.0 {
+                        status = .locked
+                    }
+                }
+            }
+
+            let isPixelSpace = (rawX > 1.0 || rawY > 1.0 || rawW > 1.0 || rawH > 1.0)
+            let normX = isPixelSpace ? (rawX / width) : rawX
+            let normY = isPixelSpace ? (rawY / height) : rawY
+            let normW = isPixelSpace ? (rawW / width) : rawW
+            let normH = isPixelSpace ? (rawH / height) : rawH
+
+            let rect = clamp(rect: CGRect(x: normX, y: normY, width: normW, height: normH))
+
+            // Deduplicate overlapping or duplicate AF entries
+            let alreadyExists = results.contains { existing in
+                abs(existing.rectNormalized.origin.x - rect.origin.x) < 0.001 &&
+                abs(existing.rectNormalized.origin.y - rect.origin.y) < 0.001 &&
+                abs(existing.rectNormalized.width - rect.width) < 0.001 &&
+                abs(existing.rectNormalized.height - rect.height) < 0.001
+            }
+
+            if !alreadyExists {
+                results.append(AFPointData(
+                    rectNormalized: rect,
+                    status: status,
+                    label: defaultLabel,
+                    isPrimary: results.isEmpty
+                ))
+            }
+
+            idx += stride
+        }
+
+        return results.isEmpty ? nil : results
+    }
+
+    private func parseDouble(_ value: Any) -> Double? {
+        if let num = value as? NSNumber {
+            return num.doubleValue
+        }
+        let str = String(describing: value).trimmingCharacters(in: .whitespacesAndNewlines)
+        return Double(str)
     }
 
     // MARK: - Brand-Specific MakerNotes Parsers
