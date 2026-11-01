@@ -2126,6 +2126,15 @@ struct TestRunner {
                 assertEqual(slideView.faceOverlayView.isPresented, true, "Face overlay presented while filmstrip open")
                 assertEqual(initialBottomConstraint?.constant, -178.0, "Face overlay immediately assumes elevated -178pt position")
 
+                // 5. Face Widget Click-to-Zoom & Toggle-Unzoom Invariants
+                assertEqual(slideView.faceOverlayView.activeFaceIndex == nil, true, "activeFaceIndex initially nil")
+                slideView.faceOverlayView.setActiveFaceIndex(1)
+                assertEqual(slideView.faceOverlayView.activeFaceIndex, 1, "activeFaceIndex is 1")
+
+                // Setting zoom state to false resets activeFaceIndex
+                slideView.setZoom(false)
+                assertEqual(slideView.faceOverlayView.activeFaceIndex == nil, true, "setZoom(false) clears activeFaceIndex")
+
                 // Clean up
                 slideView.filmstripHud.dismiss(animated: false)
                 slideView.setFaceOverlayVisible(false)

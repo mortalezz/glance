@@ -30,6 +30,7 @@ public struct FaceTileData: Sendable {
 public final class FaceTileView: NSView {
     public let faceIndex: Int
     public var onClick: (() -> Void)?
+    public private(set) var isActiveZoom: Bool = false
     private var isHovered: Bool = false
 
     private let data: FaceTileData
@@ -123,11 +124,29 @@ public final class FaceTileView: NSView {
         ))
     }
 
+    public func setActiveZoom(_ active: Bool) {
+        isActiveZoom = active
+        updateBorder()
+    }
+
+    private func updateBorder() {
+        if isActiveZoom {
+            layer?.borderWidth = 2.0
+            layer?.borderColor = NSColor.systemCyan.cgColor
+        } else if isHovered {
+            layer?.borderWidth = 2.0
+            layer?.borderColor = NSColor.systemCyan.cgColor
+        } else {
+            layer?.borderWidth = 1.0
+            layer?.borderColor = ThemeManager.shared.pillBorderColor
+        }
+    }
+
     public func applyTheme() {
         let theme = ThemeManager.shared
         let isDark = theme.isDark
 
-        layer?.borderColor = isHovered ? NSColor.systemCyan.cgColor : theme.pillBorderColor
+        updateBorder()
 
         indexBadge.layer?.backgroundColor = isDark
             ? NSColor.black.withAlphaComponent(0.70).cgColor
@@ -171,14 +190,12 @@ public final class FaceTileView: NSView {
 
     public override func mouseEntered(with event: NSEvent) {
         isHovered = true
-        layer?.borderWidth = 2.0
-        layer?.borderColor = NSColor.systemCyan.cgColor
+        updateBorder()
     }
 
     public override func mouseExited(with event: NSEvent) {
         isHovered = false
-        layer?.borderWidth = 1.0
-        layer?.borderColor = ThemeManager.shared.pillBorderColor
+        updateBorder()
     }
 
     public override func mouseDown(with event: NSEvent) {
@@ -196,7 +213,8 @@ public final class FaceLoupeOverlayView: NSView {
     private let visualEffectView = NSVisualEffectView()
     private let scrimView = NSView()
     private let titleLabel = NSTextField(labelWithString: "👥 FACES")
-    private let hintLabel = NSTextField(labelWithString: "Click to jump 100%")
+    private let hintLabel = NSTextField(labelWithString: "Click to toggle 100%")
+    public private(set) var activeFaceIndex: Int? = nil
     private let closeButton = NSButton()
     private let tilesStack = NSStackView()
 
@@ -350,6 +368,7 @@ public final class FaceLoupeOverlayView: NSView {
             sub.removeFromSuperview()
         }
 
+        activeFaceIndex = nil
         if tiles.isEmpty {
             titleLabel.stringValue = "👥 FACES"
             hintLabel.stringValue = ""
@@ -357,7 +376,7 @@ public final class FaceLoupeOverlayView: NSView {
             dismiss()
         } else {
             titleLabel.stringValue = "👥 FACES (\(tiles.count))"
-            hintLabel.stringValue = "Click to jump 100%"
+            hintLabel.stringValue = "Click to toggle 100%"
             tilesStack.isHidden = false
 
             for tile in tiles {
@@ -370,6 +389,20 @@ public final class FaceLoupeOverlayView: NSView {
             }
         }
         layoutSubtreeIfNeeded()
+    }
+
+    public func setActiveFaceIndex(_ index: Int?) {
+        activeFaceIndex = index
+        for sub in tilesStack.arrangedSubviews {
+            if let tile = sub as? FaceTileView {
+                tile.setActiveZoom(tile.faceIndex == index)
+            }
+        }
+        if index != nil {
+            hintLabel.stringValue = "Click to unzoom"
+        } else {
+            hintLabel.stringValue = "Click to toggle 100%"
+        }
     }
 
     public func toggle() {

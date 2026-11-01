@@ -1090,6 +1090,9 @@ public final class SlideView: NSView {
         }
 
         if isZoomed == zoomed {
+            if !zoomed {
+                faceOverlayView.setActiveFaceIndex(nil)
+            }
             if isZoomed && (!multiFullResImages.isEmpty || fullResImage != nil || rightFullResImage != nil) {
                 updateLayerLayout(animated: false)
             }
@@ -1169,6 +1172,7 @@ public final class SlideView: NSView {
             for i in 0..<4 {
                 zoomPanOffsets[i] = .zero
             }
+            faceOverlayView.setActiveFaceIndex(nil)
         }
 
         updateLayerLayout(animated: true)

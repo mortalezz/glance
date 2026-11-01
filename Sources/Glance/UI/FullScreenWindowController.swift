@@ -42,6 +42,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
     // Auto Face & Eye Focus Jump
     private var isFaceOverlayVisible: Bool = true
+    private var activeZoomedFaceIndex: Int? = nil
     private var filterBeforePicksToggle: CullingFilter? = nil
     private var detectedFacesForCurrentSlide: [DetectedFace] = []
     private var detectedFacesByRawIndex: [Int: [DetectedFace]] = [:]
@@ -364,6 +365,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
         self.cachedSlotItems = slotItems
         self.cachedSlotDecoded = slotDecoded
+        self.activeZoomedFaceIndex = nil
 
         slideView.displayMultiUp(
             images: slotImages,
@@ -1076,6 +1078,8 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     public func slideViewRequestZoomToggle(mouseLocation: CGPoint) {
         stopSlideshowIfRunning()
         if slideView.isZoomed {
+            activeZoomedFaceIndex = nil
+            slideView.faceOverlayView.setActiveFaceIndex(nil)
             slideView.setZoom(false)
         } else {
             guard currentRawIndex != nil else { return }
@@ -1189,6 +1193,14 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             slotOffset = max(0, min(multiUpMode.rawValue - 1, targetSlot - 1))
         }
 
+        // Toggle unzoom if clicking on the currently active zoomed face
+        if slideView.isZoomed && activeZoomedFaceIndex == index {
+            activeZoomedFaceIndex = nil
+            slideView.faceOverlayView.setActiveFaceIndex(nil)
+            slideView.setZoom(false)
+            return
+        }
+
         let targetFilteredPos = (slotOffset < displayedMultiUpPositions.count)
             ? displayedMultiUpPositions[slotOffset]
             : currentFilteredPos
@@ -1199,13 +1211,16 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         guard index >= 1, index <= faces.count else { return }
         let face = faces[index - 1]
 
+        activeZoomedFaceIndex = index
+        slideView.faceOverlayView.setActiveFaceIndex(index)
+
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
         let label = "👁️ Face \(index)/\(faces.count) (Eye Focus)"
         slideView.zoomToNormalizedPoint(face.eyeCenter, targetPaneIndex: slotOffset, label: label)
 
         Task {
             if let fullDec = try? await self.pipeline.getFullResolutionImage(at: targetRawIndex) {
-                guard self.slideView.isZoomed else { return }
+                guard self.slideView.isZoomed && self.activeZoomedFaceIndex == index else { return }
                 let dims = CGSize(width: fullDec.originalWidth, height: fullDec.originalHeight)
                 self.slideView.zoomToNormalizedPoint(
                     face.eyeCenter,
@@ -1366,6 +1381,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             let nextIdx = (self.faceIndicesByRawIndex[targetRawIndex] ?? 0)
             self.faceIndicesByRawIndex[targetRawIndex] = nextIdx + 1
             let currentFace = faces[nextIdx % faces.count]
+            let faceIdx = (nextIdx % faces.count) + 1
+            self.activeZoomedFaceIndex = faceIdx
+            self.slideView.faceOverlayView.setActiveFaceIndex(faceIdx)
 
             let label: String
             if self.multiUpMode != .single {
