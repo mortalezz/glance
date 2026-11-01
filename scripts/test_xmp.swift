@@ -1912,6 +1912,85 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+                // =========================================================================
+        // TEST 35: Expanded Photographer EXIF Metadata & On-Hover Expansion HUD
+        // =========================================================================
+        do {
+            print("🧪 TEST 35: Expanded Photographer EXIF Metadata & On-Hover Expansion HUD...")
+
+            // 1. Rich Photographer Metadata Extraction & Computed Readouts
+            let mockProperties: [CFString: Any] = [
+                kCGImagePropertyTIFFDictionary: [
+                    kCGImagePropertyTIFFMake: "FUJIFILM",
+                    kCGImagePropertyTIFFModel: "X100V",
+                    kCGImagePropertyTIFFSoftware: "Digital Camera X100V Ver.2.00"
+                ],
+                kCGImagePropertyExifDictionary: [
+                    kCGImagePropertyExifExposureTime: 0.001666667, // 1/600s
+                    kCGImagePropertyExifFNumber: 5.6,
+                    kCGImagePropertyExifISOSpeedRatings: [320],
+                    kCGImagePropertyExifFocalLength: 23.0,
+                    kCGImagePropertyExifFocalLenIn35mmFilm: 35,
+                    kCGImagePropertyExifExposureBiasValue: 0.333333,
+                    kCGImagePropertyExifExposureProgram: 3, // Aperture Priority
+                    kCGImagePropertyExifMeteringMode: 5, // Multi-Segment (Matrix)
+                    kCGImagePropertyExifWhiteBalance: 0, // Auto
+                    kCGImagePropertyExifFlash: 16, // Off (Did not fire)
+                    kCGImagePropertyExifColorSpace: 1, // sRGB
+                    kCGImagePropertyExifLensModel: "FUJINON 23mm F2.0",
+                    kCGImagePropertyExifBodySerialNumber: "01004523",
+                    kCGImagePropertyExifDateTimeOriginal: "2026:10:31 13:43:00"
+                ],
+                kCGImagePropertyMakerNikonDictionary: [
+                    "ShutterCount" as CFString: 14280
+                ]
+            ]
+
+            let meta = ExifMetadata(from: mockProperties)
+            assertEqual(meta.formattedExposureProgram, "Aperture Priority (Av)", "Exposure program formatted correctly")
+            assertEqual(meta.formattedMeteringMode, "Multi-Segment (Matrix)", "Metering mode formatted correctly")
+            assertEqual(meta.formattedWhiteBalance, "Auto (AWB)", "White balance formatted correctly")
+            assertEqual(meta.formattedColorSpace, "sRGB", "Color space formatted correctly")
+            assertEqual(meta.formattedFocalWithEquivalent, "23mm (35mm eq: 35mm · 1.5×)", "Focal length formatted with 35mm equivalent & crop factor")
+            assertEqual(meta.formattedFlash, "Off (Did not fire)", "Flash state formatted correctly")
+            assertEqual(meta.formattedShutterCount, "14,280 clicks", "Shutter count formatted with grouping separators")
+            assertEqual(meta.bodySerialNumber, "01004523", "Body serial number parsed")
+
+            // 2. ExifHudView On-Hover Expansion & Hit-Test Invariants
+            await MainActor.run {
+                let hud = ExifHudView(frame: NSRect(x: 0, y: 0, width: 284, height: 160))
+                assertEqual(hud.isExpanded, false, "EXIF HUD starts unexpanded by default")
+
+                // When HUD is hidden (alphaValue == 0), hitTest MUST return nil for click pass-through
+                hud.alphaValue = 0.0
+                assertEqual(hud.hitTest(NSPoint(x: 50, y: 50)) == nil, true, "Hidden EXIF HUD passes mouse through")
+
+                // When HUD is visible (alphaValue == 1.0), hitTest returns self for hover & interaction
+                hud.setVisible(true, animated: false)
+                assertEqual(hud.hitTest(NSPoint(x: 50, y: 50)) === hud, true, "Visible EXIF HUD captures mouse for hover expansion")
+
+                var expansionChangedCallbackValue: Bool? = nil
+                hud.onHoverExpansionChanged = { isExpanded in
+                    expansionChangedCallbackValue = isExpanded
+                }
+
+                // Hover expand
+                hud.setExpanded(true, animated: false)
+                assertEqual(hud.isExpanded, true, "HUD transitions to expanded state")
+                assertEqual(expansionChangedCallbackValue, true, "Expansion callback received true")
+
+                // Hover collapse
+                hud.setExpanded(false, animated: false)
+                assertEqual(hud.isExpanded, false, "HUD transitions back to compact state")
+                assertEqual(expansionChangedCallbackValue, false, "Expansion callback received false")
+
+                // Updating with EXIF data populates both compact and expanded dossiers
+                hud.update(with: meta, dimensions: "6240 × 4160", fileSize: "58.1 MB")
+            }
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

@@ -370,7 +370,20 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                             exposureBias: parsed?.exposureBias,
                             flashFired: parsed?.flashFired,
                             dateTimeOriginal: parsed?.dateTimeOriginal,
-                            pictureControl: extracted
+                            pictureControl: extracted,
+                            exposureProgramInt: parsed?.exposureProgramInt,
+                            meteringModeInt: parsed?.meteringModeInt,
+                            whiteBalanceInt: parsed?.whiteBalanceInt,
+                            flashInt: parsed?.flashInt,
+                            colorSpaceInt: parsed?.colorSpaceInt,
+                            rawColorSpaceName: parsed?.rawColorSpaceName,
+                            lensMake: parsed?.lensMake,
+                            lensSpecification: parsed?.lensSpecification,
+                            maxAperture: parsed?.maxAperture,
+                            software: parsed?.software,
+                            bodySerialNumber: parsed?.bodySerialNumber,
+                            lensSerialNumber: parsed?.lensSerialNumber,
+                            shutterCount: parsed?.shutterCount
                         )
                     }
                 }

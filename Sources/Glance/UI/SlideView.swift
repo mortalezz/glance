@@ -119,6 +119,7 @@ public final class SlideView: NSView {
 
     private var histogramTopConstraint: NSLayoutConstraint?
     private var exifTopConstraint: NSLayoutConstraint?
+    private var exifWidthConstraint: NSLayoutConstraint?
 
     public private(set) var multiUpMode: MultiUpMode = .single
     public var isSplitMode: Bool { multiUpMode != .single }
@@ -272,6 +273,18 @@ public final class SlideView: NSView {
 
         exifHud.translatesAutoresizingMaskIntoConstraints = false
         addSubview(exifHud)
+        exifHud.onHoverExpansionChanged = { [weak self] isExpanded in
+            guard let self = self else { return }
+            self.exifWidthConstraint?.constant = isExpanded ? 370 : 284
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.22
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                self.layoutSubtreeIfNeeded()
+            }
+        }
+        exifHud.onCopiedExif = { [weak self] in
+            self?.showToast("EXIF Copied to Clipboard", icon: "📋", shortcut: nil, tint: .systemCyan)
+        }
 
         quickHelpView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(quickHelpView)
@@ -328,7 +341,11 @@ public final class SlideView: NSView {
                 return c
             }(),
             exifHud.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 28),
-            exifHud.widthAnchor.constraint(equalToConstant: 284),
+            {
+                let c = exifHud.widthAnchor.constraint(equalToConstant: 284)
+                self.exifWidthConstraint = c
+                return c
+            }(),
 
             quickHelpView.centerXAnchor.constraint(equalTo: centerXAnchor),
             quickHelpView.centerYAnchor.constraint(equalTo: centerYAnchor),
