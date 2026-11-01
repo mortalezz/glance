@@ -49,6 +49,7 @@ public protocol SlideViewDelegate: AnyObject {
     func slideViewToggleFocusPeaking()
     func slideViewToggleExif()
     func slideViewCycleCameraProfile()
+    func slideViewToggleAFOverlay()
 
     // Undo & Redo Actions
     func slideViewRequestUndo()
@@ -71,6 +72,7 @@ public extension SlideViewDelegate {
     }
     func slideViewJumpToFilteredPos(index: Int) {}
     func slideViewToggleFilmstrip() {}
+    func slideViewToggleAFOverlay() {}
 }
 
 /// Ultra-responsive, zero-latency layer-backed NSView.
@@ -86,6 +88,9 @@ public final class SlideView: NSView {
     private let paneClippingLayers: [CALayer] = (0..<4).map { _ in CALayer() }
     private let panePeakingLayers: [CALayer] = (0..<4).map { _ in CALayer() }
     private let paneFalseColorLayers: [CALayer] = (0..<4).map { _ in CALayer() }
+    private let paneAFPointLayers: [CALayer] = (0..<4).map { _ in CALayer() }
+    public private(set) var isAFOverlayVisible: Bool = false
+    private var paneAFPoints: [[AFPointData]] = Array(repeating: [], count: 4)
 
     public let hudView = GlassHudView()
     public let histogramHud = HistogramHudView()
@@ -225,12 +230,28 @@ public final class SlideView: NSView {
             ]
             fc.isHidden = true
             img.addSublayer(fc)
+
+            let af = paneAFPointLayers[i]
+            af.backgroundColor = NSColor.clear.cgColor
+            af.actions = [
+                "contents": NSNull(),
+                "bounds": NSNull(),
+                "position": NSNull(),
+                "transform": NSNull(),
+                "opacity": NSNull()
+            ]
+            af.isHidden = true
+            img.addSublayer(af)
         }
     }
 
     private func setupHud() {
         hudView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hudView)
+
+        hudView.onToggleAFOverlay = { [weak self] in
+            self?.delegate?.slideViewToggleAFOverlay()
+        }
 
         histogramHud.translatesAutoresizingMaskIntoConstraints = false
         addSubview(histogramHud)
@@ -592,6 +613,11 @@ public final class SlideView: NSView {
             panePeakingLayers[i].contentsGravity = paneImageLayers[i].contentsGravity
             paneFalseColorLayers[i].frame = paneImageLayers[i].bounds
             paneFalseColorLayers[i].contentsGravity = paneImageLayers[i].contentsGravity
+            paneAFPointLayers[i].frame = paneImageLayers[i].bounds
+            paneAFPointLayers[i].contentsGravity = paneImageLayers[i].contentsGravity
+            if isAFOverlayVisible {
+                renderAFPoints(for: i, in: paneAFPointLayers[i])
+            }
         }
 
         CATransaction.commit()
@@ -756,6 +782,7 @@ public final class SlideView: NSView {
             paneClippingLayers[i].contents = nil
             panePeakingLayers[i].contents = nil
             paneFalseColorLayers[i].contents = nil
+            paneAFPointLayers[i].sublayers?.forEach { $0.removeFromSuperlayer() }
             splitBadges[i].isHidden = true
         }
         CATransaction.commit()
@@ -798,7 +825,158 @@ public final class SlideView: NSView {
         }
     }
 
-    public func showToast(
+    // MARK: - Camera AF Point & Subject Tracking Overlay
+
+    public func setAFOverlayVisible(_ visible: Bool) {
+        isAFOverlayVisible = visible
+        for (i, layer) in paneAFPointLayers.enumerated() {
+            layer.isHidden = !visible
+            if visible {
+                renderAFPoints(for: i, in: layer)
+            } else {
+                layer.sublayers?.forEach { $0.removeFromSuperlayer() }
+            }
+        }
+    }
+
+    public func updateAFPoints(_ points: [[AFPointData]]) {
+        for i in 0..<4 {
+            paneAFPoints[i] = (i < points.count) ? points[i] : []
+            if isAFOverlayVisible {
+                renderAFPoints(for: i, in: paneAFPointLayers[i])
+            }
+        }
+    }
+
+    private func renderAFPoints(for paneIndex: Int, in layer: CALayer) {
+        layer.sublayers?.forEach { $0.removeFromSuperlayer() }
+        guard isAFOverlayVisible else { return }
+        guard paneIndex < paneAFPoints.count else { return }
+        let points = paneAFPoints[paneIndex]
+        guard !points.isEmpty else { return }
+
+        let bounds = paneImageLayers[paneIndex].bounds
+        let imgSize = paneImageSizes[paneIndex]
+        guard bounds.width > 0, bounds.height > 0 else { return }
+
+        let renderedW: CGFloat
+        let renderedH: CGFloat
+        let originX: CGFloat
+        let originY: CGFloat
+
+        if isZoomed {
+            renderedW = bounds.width
+            renderedH = bounds.height
+            originX = 0
+            originY = 0
+        } else if imgSize.width > 0 && imgSize.height > 0 {
+            let fitScale = min(bounds.width / imgSize.width, bounds.height / imgSize.height)
+            renderedW = imgSize.width * fitScale
+            renderedH = imgSize.height * fitScale
+            originX = (bounds.width - renderedW) / 2.0
+            originY = (bounds.height - renderedH) / 2.0
+        } else {
+            renderedW = bounds.width
+            renderedH = bounds.height
+            originX = 0
+            originY = 0
+        }
+
+        for pt in points {
+            let norm = pt.rectNormalized
+            let x = originX + norm.minX * renderedW
+            let y = originY + (1.0 - norm.maxY) * renderedH
+            let w = max(24.0, norm.width * renderedW)
+            let h = max(24.0, norm.height * renderedH)
+            let rect = CGRect(x: x, y: y, width: w, height: h)
+
+            let reticleLayer = createViewfinderReticle(for: rect, status: pt.status, label: pt.label)
+            layer.addSublayer(reticleLayer)
+        }
+    }
+
+    private func createViewfinderReticle(for rect: CGRect, status: AFPointData.Status, label: String?) -> CALayer {
+        let container = CALayer()
+        container.frame = rect
+
+        let color: CGColor
+        switch status {
+        case .locked:
+            color = NSColor(srgbRed: 0.0, green: 0.90, blue: 0.46, alpha: 1.0).cgColor // Emerald
+        case .subjectTrack:
+            color = NSColor(srgbRed: 0.0, green: 0.90, blue: 1.0, alpha: 1.0).cgColor  // Cyan
+        case .unconfirmed:
+            color = NSColor(srgbRed: 1.0, green: 0.70, blue: 0.0, alpha: 1.0).cgColor  // Amber
+        }
+
+        let cornerLen = min(rect.width, rect.height) * 0.32
+        let path = CGMutablePath()
+
+        let w = rect.width
+        let h = rect.height
+
+        // 4 Viewfinder Corner Brackets
+        // Bottom-left
+        path.move(to: CGPoint(x: 0, y: cornerLen))
+        path.addLine(to: CGPoint(x: 0, y: 0))
+        path.addLine(to: CGPoint(x: cornerLen, y: 0))
+
+        // Bottom-right
+        path.move(to: CGPoint(x: w - cornerLen, y: 0))
+        path.addLine(to: CGPoint(x: w, y: 0))
+        path.addLine(to: CGPoint(x: w, y: cornerLen))
+
+        // Top-left
+        path.move(to: CGPoint(x: 0, y: h - cornerLen))
+        path.addLine(to: CGPoint(x: 0, y: h))
+        path.addLine(to: CGPoint(x: cornerLen, y: h))
+
+        // Top-right
+        path.move(to: CGPoint(x: w - cornerLen, y: h))
+        path.addLine(to: CGPoint(x: w, y: h))
+        path.addLine(to: CGPoint(x: w, y: h - cornerLen))
+
+        // Center target dot
+        let dotDim: CGFloat = 3.0
+        path.addEllipse(in: CGRect(x: (w - dotDim) / 2.0, y: (h - dotDim) / 2.0, width: dotDim, height: dotDim))
+
+        // 1. Double-contour outer dark shadow stroke
+        let shadowShape = CAShapeLayer()
+        shadowShape.path = path
+        shadowShape.strokeColor = NSColor.black.withAlphaComponent(0.80).cgColor
+        shadowShape.fillColor = nil
+        shadowShape.lineWidth = 3.0
+        shadowShape.lineCap = .square
+        container.addSublayer(shadowShape)
+
+        // 2. Double-contour inner vibrant stroke
+        let vibrantShape = CAShapeLayer()
+        vibrantShape.path = path
+        vibrantShape.strokeColor = color
+        vibrantShape.fillColor = nil
+        vibrantShape.lineWidth = 1.5
+        vibrantShape.lineCap = .square
+        container.addSublayer(vibrantShape)
+
+        // 3. Optional Status Label / Pill
+        if let text = label {
+            let textLayer = CATextLayer()
+            textLayer.string = text
+            textLayer.font = NSFont.monospacedSystemFont(ofSize: 9, weight: .bold)
+            textLayer.fontSize = 9
+            textLayer.foregroundColor = color
+            textLayer.backgroundColor = NSColor.black.withAlphaComponent(0.65).cgColor
+            textLayer.cornerRadius = 3
+            textLayer.alignmentMode = .center
+            textLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
+            textLayer.frame = CGRect(x: 0, y: h + 3, width: max(w, 64), height: 14)
+            container.addSublayer(textLayer)
+        }
+
+        return container
+    }
+
+        public func showToast(
         _ message: String,
         icon: String? = nil,
         shortcut: String? = nil,
@@ -1653,6 +1831,12 @@ public final class SlideView: NSView {
         // Camera Picture Profile / Film Simulation: 'V' (KeyCode 9)
         if lower == "v" || event.keyCode == 9 {
             delegate?.slideViewCycleCameraProfile()
+            return
+        }
+
+        // Camera AF Points & Focus Box Overlay: 'J' (KeyCode 38)
+        if !isCmd && (lower == "j" || event.keyCode == 38) {
+            delegate?.slideViewToggleAFOverlay()
             return
         }
 

@@ -40,6 +40,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     private var slideshowInterval: Double = 3.0
     private var slideshowTimer: Timer? = nil
 
+    // Camera AF Point & Subject Tracking Overlay
+    private var isAFOverlayVisible: Bool = false
+
     // Auto Face & Eye Focus Jump
     private var isFaceOverlayVisible: Bool = true
     private var activeZoomedFaceIndex: Int? = nil
@@ -360,7 +363,8 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             slideshowInterval: slideshowInterval,
             exportProgressText: exportProgressText,
             aestheticScore: cachedAesthetic,
-            burstInfo: burstBreadcrumb
+            burstInfo: burstBreadcrumb,
+            isAFOverlayVisible: isAFOverlayVisible
         )
 
         self.cachedSlotItems = slotItems
@@ -373,6 +377,17 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             splitInfos: slotInfos,
             info: info
         )
+
+        var slotAFPoints: [[AFPointData]] = []
+        for s in 0..<slotCount {
+            if let dec = slotDecoded[s], let exif = dec.exif {
+                slotAFPoints.append(exif.afPoints)
+            } else {
+                slotAFPoints.append([])
+            }
+        }
+        slideView.updateAFPoints(slotAFPoints)
+        slideView.setAFOverlayVisible(isAFOverlayVisible)
 
         let playlistItems = filteredIndices.map { allItems[$0] }
         slideView.updateFilmstrip(
@@ -1473,6 +1488,14 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         } else {
             slideView.updateFalseColorMasks([nil, nil, nil, nil])
         }
+    }
+
+    public func slideViewToggleAFOverlay() {
+        isAFOverlayVisible.toggle()
+        slideView.setAFOverlayVisible(isAFOverlayVisible)
+        slideView.hudView.updateAFState(isAFOverlayVisible)
+        let msg = isAFOverlayVisible ? "AF Points: ON" : "AF Points: OFF"
+        slideView.showToast(msg, icon: "🎯", shortcut: "J", tint: isAFOverlayVisible ? .systemGreen : nil)
     }
 
     public func slideViewToggleFocusPeaking() {

@@ -2143,6 +2143,106 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+        // =========================================================================
+        // TEST 38: Camera AF Point & Subject Box Overlay (J Key & FocusPointEngine)
+        // =========================================================================
+        do {
+            print("🧪 TEST 38: Camera AF Point & Subject Box Overlay (J Key & FocusPointEngine)...")
+
+            let engine = FocusPointEngine.shared
+
+            // 1. Sony MakerNotes (FocusLocation tag 0x2027)
+            let sonyProps: [CFString: Any] = [
+                "{MakerSony}" as CFString: [
+                    "FocusLocation" as CFString: [1000, 750, 200, 150] as [NSNumber]
+                ]
+            ]
+            let sonyPoints = engine.extractAFPoints(from: sonyProps, imageWidth: 4000, imageHeight: 3000)
+            assertEqual(sonyPoints.count, 1, "Extracted 1 Sony AF point")
+            assertEqual(sonyPoints[0].status, .locked, "Sony AF point has .locked status")
+            assertEqual(abs(sonyPoints[0].rectNormalized.origin.x - 0.25) < 0.001, true, "Sony point X normalized correctly")
+            assertEqual(abs(sonyPoints[0].rectNormalized.origin.y - 0.25) < 0.001, true, "Sony point Y normalized correctly")
+
+            // 2. Nikon MakerNotes (AFInfo2 / AFPoints)
+            let nikonProps: [CFString: Any] = [
+                kCGImagePropertyMakerNikonDictionary: [
+                    "AFInfo2" as CFString: [
+                        "AFArea" as CFString: [1200, 900, 240, 180] as [NSNumber]
+                    ]
+                ]
+            ]
+            let nikonPoints = engine.extractAFPoints(from: nikonProps, imageWidth: 4000, imageHeight: 3000)
+            assertEqual(nikonPoints.count, 1, "Extracted 1 Nikon AF point")
+            assertEqual(nikonPoints[0].status, .locked, "Nikon AF point has .locked status")
+            assertEqual(abs(nikonPoints[0].rectNormalized.origin.x - 0.30) < 0.001, true, "Nikon point X normalized correctly")
+
+            // 3. Fujifilm MakerNotes (FocusPixel [x, y])
+            let fujiProps: [CFString: Any] = [
+                "{MakerFuji}" as CFString: [
+                    "FocusPixel" as CFString: [3000, 2000] as [NSNumber]
+                ]
+            ]
+            let fujiPoints = engine.extractAFPoints(from: fujiProps, imageWidth: 6000, imageHeight: 4000)
+            assertEqual(fujiPoints.count, 1, "Extracted 1 Fujifilm AF point")
+            assertEqual(fujiPoints[0].status, .locked, "Fujifilm point has .locked status")
+            assertEqual(abs(fujiPoints[0].rectNormalized.midX - 0.50) < 0.001, true, "Fujifilm point center X at 0.50")
+            assertEqual(abs(fujiPoints[0].rectNormalized.midY - 0.50) < 0.001, true, "Fujifilm point center Y at 0.50")
+
+            // 4. Canon MakerNotes (AFInfo / AFArea)
+            let canonProps: [CFString: Any] = [
+                kCGImagePropertyMakerCanonDictionary: [
+                    "AFInfo" as CFString: [1500, 1000, 300, 200] as [NSNumber]
+                ]
+            ]
+            let canonPoints = engine.extractAFPoints(from: canonProps, imageWidth: 6000, imageHeight: 4000)
+            assertEqual(canonPoints.count, 1, "Extracted 1 Canon AF point")
+            assertEqual(canonPoints[0].status, .locked, "Canon point has .locked status")
+            assertEqual(abs(canonPoints[0].rectNormalized.origin.x - 0.25) < 0.001, true, "Canon point X normalized correctly")
+
+            // 5. Subject Tracking Box & Eye AF Integration
+            let mockEyeFace = DetectedFace(
+                boundingBox: CGRect(x: 0.3, y: 0.4, width: 0.3, height: 0.4),
+                eyeCenter: CGPoint(x: 0.45, y: 0.65),
+                leftEye: CGPoint(x: 0.40, y: 0.65),
+                rightEye: CGPoint(x: 0.50, y: 0.65),
+                confidence: 0.98
+            )
+            let trackingPoints = engine.extractAFPoints(from: [:], imageWidth: 4000, imageHeight: 3000, detectedFaces: [mockEyeFace])
+            assertEqual(trackingPoints.count, 2, "Generated 2 reticles: 1 Face Tracking + 1 Eye Lock")
+            assertEqual(trackingPoints[0].status, .subjectTrack, "First reticle is Cyan subject tracking box")
+            assertEqual(trackingPoints[1].status, .locked, "Second reticle is Emerald Eye Lock")
+
+            // 6. Center Fallback when no maker metadata or faces
+            let fallbackPoints = engine.extractAFPoints(from: [:], imageWidth: 4000, imageHeight: 3000)
+            assertEqual(fallbackPoints.count, 1, "Generated 1 fallback point")
+            assertEqual(fallbackPoints[0].status, .unconfirmed, "Fallback point is Amber unconfirmed center point")
+
+            // 7. SlideView Layer Integration & Visibility Invariants
+            await MainActor.run {
+                let slideView = SlideView(frame: NSRect(x: 0, y: 0, width: 1200, height: 900))
+                slideView.layoutSubtreeIfNeeded()
+
+                assertEqual(slideView.isAFOverlayVisible, false, "AF overlay initially invisible")
+
+                // Update AF points with test reticles
+                slideView.updateAFPoints([sonyPoints])
+                slideView.setAFOverlayVisible(true)
+                assertEqual(slideView.isAFOverlayVisible, true, "AF overlay active")
+
+                // HUD status reflection
+                let hud = slideView.hudView
+                hud.updateAFState(true)
+                assertEqual(slideView.isAFOverlayVisible, true, "AF State synced")
+
+                // Toggle off
+                slideView.setAFOverlayVisible(false)
+                assertEqual(slideView.isAFOverlayVisible, false, "AF overlay toggled off")
+                hud.updateAFState(false)
+            }
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

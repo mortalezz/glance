@@ -127,7 +127,7 @@ public final class QuickHelpView: NSView {
             (("C", "Auto-advance (ON)"), ("H", "RGB Histogram")),
             (("\\ / ⇧\\", "Filter / Picks review"), ("O / ⇧O", "Blinkies / False Color")),
             (("Space / →", "Next / Prev photo"), ("F / ⇧F", "Fullscreen / Peaking")),
-            (("[ / ]", "Scene leap"), ("G", "Filmstrip scrubber")),
+            (("[ / ]", "Scene leap"), ("G / J", "Filmstrip / AF Points")),
             (("B", "Best in burst (Hero)"), ("I", "EXIF (Hover expand)")),
             (("E / ⇧E", "Export / Batch Selects"), ("V / T", "Profile / Theme")),
             (("R / L", "Lossless rotate 90°"), ("Return", "Slideshow (+ / - speed)")),
@@ -239,7 +239,7 @@ public final class QuickHelpView: NSView {
             ),
             (
                 ("⌘Z / ⇧⌘Z", "Multi-Step Undo / Redo", "Full undo stack for ratings, flags, rotations, burst knockouts, and purge operations."),
-                ("G / I", "Filmstrip & EXIF HUD", "G: Floating filmstrip with burst brackets & ratings. I: EXIF dossier (hover to expand, click to copy)."),
+                ("G / J / I", "Filmstrip, AF & EXIF", "G: Floating filmstrip. J: Camera AF points & subject tracking box. I: EXIF dossier (hover to expand)."),
                 ("Esc / Q", "Dismiss & Quit Glance", "Esc dismisses open overlays or zooms. Esc or Q quits Glance to reveal Finder.")
             )
         ]
