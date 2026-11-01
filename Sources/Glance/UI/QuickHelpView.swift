@@ -120,19 +120,19 @@ public final class QuickHelpView: NSView {
         grid.rowSpacing = 8
 
         let compactPairs: [(col1: (key: String, desc: String), col2: (key: String, desc: String))] = [
-            (("P / ⇧P", "Pick / Knockout"), ("Space / Z", "100% Loupe")),
-            (("X", "Reject (Rating -1)"), ("⇧Z", "Eye Focus Jump")),
-            (("U", "Unflag"), ("A", "Faces (Narrative)")),
-            (("1 – 5", "Rating (0 clears)"), ("S", "Multi-Up Compare")),
-            (("6 – 9", "Color labels"), ("M", "Magnifier Loupe")),
+            (("P / ⇧P", "Pick / Burst Knockout"), ("Z / ⇧Z", "100% Loupe / Eye Jump")),
+            (("X / U", "Reject / Unflag"), ("M", "Magnifier Loupe (2× / 4×)")),
+            (("1 – 5", "Rating (0 to clear)"), ("A", "Faces (Narrative dock)")),
+            (("6 – 9", "Color labels"), ("S", "Multi-Up (1 / 2 / 4-UP)")),
             (("C", "Auto-advance (ON)"), ("H", "RGB Histogram")),
-            (("[ / ]", "Scene leap"), ("O / ⇧O", "Blinkies / False Color")),
-            (("B", "Best in burst"), ("⇧F", "Focus Peaking")),
-            (("E / ⇧E", "Export / Batch"), ("I", "EXIF (Hover expand)")),
-            (("R / L", "Rotate 90°"), ("\\ / ⇧\\", "Filter / Picks")),
-            (("⌫ / ⇧⌫", "Trash / Purge"), ("V / T", "Profile / Theme")),
-            (("⌘Z / ⇧⌘Z", "Undo / Redo"), ("Return", "Slideshow (+ / -)")),
-            (("?", "Cheatsheet"), ("Esc / Q", "Quit to Finder"))
+            (("\\ / ⇧\\", "Filter / Picks review"), ("O / ⇧O", "Blinkies / False Color")),
+            (("Space / →", "Next / Prev photo"), ("F / ⇧F", "Fullscreen / Peaking")),
+            (("[ / ]", "Scene leap"), ("I", "EXIF (Hover expand)")),
+            (("B", "Best in burst (Hero)"), ("V / T", "Profile / Theme")),
+            (("E / ⇧E", "Export / Batch Selects"), ("Return", "Slideshow (+ / - speed)")),
+            (("R / L", "Lossless rotate 90°"), ("⌘↵ / ⌘O", "Open in Lightroom/PS")),
+            (("⌫ / ⇧⌫", "Trash / Purge rejects"), ("⌘Z / ⇧⌘Z", "Multi-Step Undo / Redo")),
+            (("?", "Cheatsheet toggle"), ("Esc / Q", "Dismiss / Quit Glance"))
         ]
 
         for pair in compactPairs {
@@ -141,8 +141,8 @@ public final class QuickHelpView: NSView {
             grid.addRow(with: [rowCell1, rowCell2])
         }
 
-        grid.column(at: 0).width = 185
-        grid.column(at: 1).width = 205
+        grid.column(at: 0).width = 205
+        grid.column(at: 1).width = 225
 
         stack.addArrangedSubview(grid)
         compactContainer.addSubview(stack)
@@ -164,7 +164,7 @@ public final class QuickHelpView: NSView {
         row.spacing = 10
         row.translatesAutoresizingMaskIntoConstraints = false
 
-        let keycap = makeKeycap(text: key, fixedWidth: 52)
+        let keycap = makeKeycap(text: key, fixedWidth: 54)
         row.addArrangedSubview(keycap)
 
         let descLabel = NSTextField(labelWithString: desc)
@@ -198,7 +198,7 @@ public final class QuickHelpView: NSView {
         let grid = NSGridView()
         grid.translatesAutoresizingMaskIntoConstraints = false
         grid.columnSpacing = 32
-        grid.rowSpacing = 14
+        grid.rowSpacing = 12
 
         // Section Sub-headers Row
         let h1 = makeSectionSubHeader(title: "CULLING & XMP SYNC")
@@ -213,44 +213,44 @@ public final class QuickHelpView: NSView {
             c3: (key: String, title: String, desc: String)
         )] = [
             (
-                ("P / ⇧P", "Pick / Knockout", "P: Flag keeper. ⇧P: Burst Knockout (pick best, auto-reject all burst siblings)."),
-                ("A / ⇧Z", "Faces / Eye Jump", "A: Narrative face dock (ON by default, auto-hides if 0 faces). ⇧Z: 100% Loupe eye jump."),
-                ("Return", "Slideshow", "Automated timed presentation. Any key or click stops it.")
+                ("P / ⇧P", "Pick / Burst Knockout", "P: Flag keeper (xmp:Pick=1). ⇧P: Burst Knockout (pick best, auto-reject burst siblings)."),
+                ("Z / ⇧Z", "100% Loupe & Eye Jump", "Z: Instant 1:1 Loupe peep at cursor. ⇧Z: Jump Loupe directly to detected eye or face."),
+                ("Space / →", "Photo Navigation", "Space or → advances to next photo. ← goes back. Home / End jump to first or last photo.")
             ),
             (
-                ("X", "Reject (Trash)", "Marks for purge. Writes xmp:Rating=-1 to sidecar."),
-                ("S", "Scene Multi-Up", "Cycles 1-UP ➔ 2-UP ➔ 4-UP quad grid; bursts stay unified on one page without fracturing."),
-                ("+ / -", "Slideshow Speed", "Live interval stepping (1s, 2s, 3s, 5s, 8s... up to 30s).")
+                ("X / U", "Reject / Unflag", "X: Mark reject (xmp:Rating=-1). U: Clear flags back to neutral in Adobe XMP sidecar."),
+                ("M", "Floating Optical Loupe", "2× / 4× circular reticle loupe. Press M or click to cycle 2× ➔ 4× ➔ Off. Use + / - to zoom."),
+                ("[ / ] / B", "Scene Leap & Hero", "[ / ]: Leap across scenes / bursts. B: Leap directly to 👑 Best in Burst (Hero shot).")
             ),
             (
-                ("U", "Unflag", "Clears pick/reject flags back to neutral in sidecar."),
-                ("H", "RGB Histogram", "Hardware 256-bin RGB & Rec. 709 Luminance curve overlay."),
-                ("R / L", "Lossless Rotation", "R: 90° CW, L: 90° CCW via lossless EXIF rewrite.")
+                ("1 – 5", "Star Ratings", "Sets 1 to 5 stars (xmp:Rating). Press 0 to clear stars. Syncs instantly to .xmp sidecar."),
+                ("A", "Face Inspection Dock", "Narrative face crop strip with AI sharpness scores. ON by default; auto-hides if 0 faces."),
+                ("E / ⇧E", "Export & Batch Selects", "E: Quick export active photo. ⇧E: Batch-export all ✓ Picks to ./Selects directory.")
             ),
             (
-                ("1 – 5", "Star Ratings", "Rates 1 to 5 stars (xmp:Rating). 0 clears stars."),
-                ("O / ⇧O", "Clipping & False Color", "O: Pulsing blinkies. ⇧O: ARRI False Color exposure HUD with IRE scale."),
-                ("E / ⇧E", "Export / Batch Picks", "E: Quick export active shot. ⇧E: Batch export all ✓ Picks to ./Selects.")
+                ("6 – 9", "Color Labels", "Sets Adobe label: 6: Red, 7: Yellow, 8: Green, 9: Blue in sidecar XMP."),
+                ("S", "Scene Multi-Up", "Cycles 1-UP ➔ 2-UP split ➔ 4-UP quad grid; bursts stay grouped on one sheet."),
+                ("R / L", "Lossless 90° Rotation", "R: Rotate 90° CW. L: Rotate 90° CCW via lossless EXIF orientation rewrite.")
             ),
             (
-                ("6 – 9", "Color Labels", "6: Red, 7: Yellow, 8: Green, 9: Blue in Adobe XMP."),
-                ("I", "EXIF Info HUD", "Camera, lens, exposure. Hover to unfold full shooting dossier (metering, WB, 35mm eq, shutter count, sensor MP). Click to copy!"),
-                ("V / T", "Profile / Theme", "V: Cycle Camera Picture Controls / Film Sims. T: Frosted dark/light theme.")
+                ("C", "Auto-Advance", "Speed culling: automatically advances after rating, flag, or color change (ON by default)."),
+                ("H", "RGB Histogram", "Real-time 256-bin RGB and Rec. 709 Luminance tonal curve distribution overlay."),
+                ("V / T", "Color Profile & Theme", "V: Cycle Camera Picture Controls / Film Sims. T: Switch between Frosted Dark & Light glass.")
             ),
             (
-                ("C", "Auto-Advance", "Speed culling: automatically advances after rating, flag, or color label (ON by default)."),
-                ("\\ / ⇧\\", "Filters / Picks Review", "\\: Cycle populated filters (skips unassigned stars/flags). ⇧\\: Quick toggle between Picks Only and All Files."),
-                ("⌫ / ⇧⌫", "Trash / Purge", "⌫ trashes active shot. ⇧⌫ batch-purges all rejected photos.")
+                ("\\ / ⇧\\", "Filters & Picks Review", "\\: Cycle populated filters (skips unassigned). ⇧\\: Instant toggle between Picks Only and All Files."),
+                ("O / ⇧O", "Clipping & False Color", "O: Pulsing zebra blinkies. ⇧O: ARRI 7-band False Color exposure HUD with IRE scale."),
+                ("Return", "Slideshow Presentation", "Timed hands-free presentation. Press + / - to step speed (1s to 30s). Any key stops it.")
             ),
             (
-                ("[ / ] / B", "Scene & Hero Leap", "[ / ]: Leap across scenes. B: Leap directly to 👑 Hero / Best in Burst."),
-                ("F / ⇧F", "Full Screen / Peaking", "F: edge-to-edge presentation mode. ⇧F: live EVF focus peaking overlay."),
-                ("Space / Z", "100% Pixel Peep", "Toggle instant 1:1 Loupe peep centered on cursor or detected subject.")
+                ("⌫ / ⇧⌫", "Trash & Purge Rejects", "⌫ moves photo to macOS Trash. ⇧⌫ batch-purges all rejected photos from disk."),
+                ("F / ⇧F", "Full Screen & Peaking", "F: Edge-to-edge borderless mode. ⇧F: EVF focus peaking highlights in-focus subject planes."),
+                ("⌘↵ / ⌘O", "Open in External Editor", "Quick handoff to Lightroom, Photoshop, or macOS default RAW photo editor.")
             ),
             (
-                ("⌘Z / ⇧⌘Z", "Multi-Step Undo / Redo", "Full undo/redo stack including compound burst knockout actions."),
-                ("M", "Magnifier Loupe", "2× / 4× circular optical reticle loupe. Press M or click to cycle 2× ➔ 4× ➔ Off."),
-                ("⌘↵ / Esc", "Editor / Finder", "⌘↵ / ⌘O opens in Lightroom/Photoshop. Esc or Q quits Glance to Finder.")
+                ("⌘Z / ⇧⌘Z", "Multi-Step Undo / Redo", "Full undo stack for ratings, flags, rotations, burst knockouts, and purge operations."),
+                ("I", "EXIF Technical HUD", "Camera, lens, exposure. Hover to reveal full shooting dossier (metering, WB, shutter count). Click to copy."),
+                ("Esc / Q", "Dismiss & Quit Glance", "Esc dismisses open overlays or zooms. Esc or Q quits Glance to reveal Finder.")
             )
         ]
 
@@ -261,10 +261,9 @@ public final class QuickHelpView: NSView {
             grid.addRow(with: [cell1, cell2, cell3])
         }
 
-        grid.rowSpacing = 12
-        grid.column(at: 0).width = 280
-        grid.column(at: 1).width = 280
-        grid.column(at: 2).width = 280
+        grid.column(at: 0).width = 285
+        grid.column(at: 1).width = 285
+        grid.column(at: 2).width = 285
 
         stack.addArrangedSubview(grid)
         expandedContainer.addSubview(stack)
@@ -552,12 +551,11 @@ public final class QuickHelpView: NSView {
         })
     }
 
-    public func resetDismissTimer(timeout: TimeInterval = 5.0) {
+    private func resetDismissTimer(timeout: TimeInterval) {
         dismissTimer?.invalidate()
         dismissTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self = self, !self.isExpanded else { return }
-                self.dismiss()
+                self?.dismiss()
             }
         }
     }
