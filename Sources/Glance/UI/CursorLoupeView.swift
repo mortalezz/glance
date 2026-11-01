@@ -3,7 +3,7 @@ import CoreGraphics
 import QuartzCore
 
 /// Floating circular optical magnifier loupe (2× / 4×) hovering smoothly over the cursor
-/// with precision lens barrel chamfering, etched viewfinder reticle, and zero CPU copy overhead.
+/// with precision lens barrel chamfering, etched viewfinder reticle, and detached floating multiplier badge.
 @MainActor
 public final class CursorLoupeView: NSView {
     private static var isSystemCursorHidden = false
@@ -28,6 +28,12 @@ public final class CursorLoupeView: NSView {
     private let glassDiameter: CGFloat = 210.0
     private let bezelWidth: CGFloat = 8.0
 
+    // Floating Multiplier Badge clearance: 8pt air gap between barrel ring and badge
+    private let badgeHeight: CGFloat = 20.0
+    private let badgeGap: CGFloat = 8.0
+    private var barrelOffsetY: CGFloat { badgeGap + badgeHeight } // 28.0pt
+    private var totalHeight: CGFloat { totalDiameter + barrelOffsetY } // 254.0pt
+
     // Layer Tree
     private let barrelContainer = CALayer()
     private let outerChamferLayer = CALayer()
@@ -40,13 +46,13 @@ public final class CursorLoupeView: NSView {
     private let lensCoatingRingLayer = CAShapeLayer()
     private let reticleLayer = CAShapeLayer()
 
-    // Integrated Lens Barrel Dial Pill
+    // Integrated Lens Barrel Dial Pill (Detached satellite badge)
     private let badgeView = NSVisualEffectView()
     private let badgeDot = CALayer()
     private let badgeLabel = NSTextField(labelWithString: "2×")
 
     public override init(frame frameRect: NSRect) {
-        super.init(frame: NSRect(x: 0, y: 0, width: totalDiameter, height: totalDiameter))
+        super.init(frame: NSRect(x: 0, y: 0, width: 226.0, height: 254.0))
         setupUI()
         setupThemeObserver()
     }
@@ -56,9 +62,14 @@ public final class CursorLoupeView: NSView {
     }
 
     public override func hitTest(_ point: NSPoint) -> NSView? {
-        let center = CGPoint(x: totalDiameter / 2.0, y: totalDiameter / 2.0)
-        let dist = hypot(point.x - center.x, point.y - center.y)
+        // 1. Check barrel circle
+        let barrelCenter = CGPoint(x: totalDiameter / 2.0, y: barrelOffsetY + totalDiameter / 2.0)
+        let dist = hypot(point.x - barrelCenter.x, point.y - barrelCenter.y)
         if dist <= totalDiameter / 2.0 {
+            return self
+        }
+        // 2. Check detached badge pill
+        if badgeView.frame.insetBy(dx: -4, dy: -4).contains(point) {
             return self
         }
         return nil
@@ -92,8 +103,8 @@ public final class CursorLoupeView: NSView {
         shadow.shadowOffset = NSSize(width: 0, height: -5)
         self.shadow = shadow
 
-        // 2. Machined Lens Barrel Frame
-        barrelContainer.frame = CGRect(x: 0, y: 0, width: totalDiameter, height: totalDiameter)
+        // 2. Machined Lens Barrel Frame (positioned at barrelOffsetY above badge)
+        barrelContainer.frame = CGRect(x: 0, y: barrelOffsetY, width: totalDiameter, height: totalDiameter)
         barrelContainer.cornerRadius = totalDiameter / 2.0
         barrelContainer.cornerCurve = .circular
         barrelContainer.masksToBounds = true
@@ -130,7 +141,7 @@ public final class CursorLoupeView: NSView {
         glassContainer.wantsLayer = true
         glassContainer.frame = NSRect(
             x: bezelWidth,
-            y: bezelWidth,
+            y: barrelOffsetY + bezelWidth,
             width: glassDiameter,
             height: glassDiameter
         )
@@ -183,20 +194,20 @@ public final class CursorLoupeView: NSView {
         drawPrecisionReticle()
         glassContainer.layer?.addSublayer(reticleLayer)
 
-        // 4. Integrated Lens Barrel Magnification Pill
+        // 4. Detached Floating Multiplier Badge Pill (8pt below barrel ring, never touching)
         badgeView.material = .hudWindow
         badgeView.blendingMode = .withinWindow
         badgeView.state = .active
         badgeView.wantsLayer = true
-        badgeView.layer?.cornerRadius = 9.5
+        badgeView.layer?.cornerRadius = 10.0
         badgeView.layer?.cornerCurve = .continuous
         badgeView.layer?.borderWidth = 0.5
         badgeView.layer?.masksToBounds = true
         badgeView.translatesAutoresizingMaskIntoConstraints = false
 
-        badgeDot.frame = CGRect(x: 8, y: 6.5, width: 6, height: 6)
+        badgeDot.frame = CGRect(x: 8.5, y: 7.0, width: 6, height: 6)
         badgeDot.cornerRadius = 3.0
-        badgeDot.backgroundColor = NSColor(white: 0.9, alpha: 0.9).cgColor
+        badgeDot.backgroundColor = NSColor(white: 0.85, alpha: 0.95).cgColor
         badgeView.layer?.addSublayer(badgeDot)
 
         badgeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .bold)
@@ -208,15 +219,15 @@ public final class CursorLoupeView: NSView {
         NSLayoutConstraint.activate([
             badgeLabel.topAnchor.constraint(equalTo: badgeView.topAnchor, constant: 2.5),
             badgeLabel.bottomAnchor.constraint(equalTo: badgeView.bottomAnchor, constant: -2.5),
-            badgeLabel.leadingAnchor.constraint(equalTo: badgeView.leadingAnchor, constant: 18),
+            badgeLabel.leadingAnchor.constraint(equalTo: badgeView.leadingAnchor, constant: 19),
             badgeLabel.trailingAnchor.constraint(equalTo: badgeView.trailingAnchor, constant: -8)
         ])
 
         addSubview(badgeView)
         NSLayoutConstraint.activate([
             badgeView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            badgeView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
-            badgeView.heightAnchor.constraint(equalToConstant: 19)
+            badgeView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: 0),
+            badgeView.heightAnchor.constraint(equalToConstant: badgeHeight)
         ])
 
         updateTheme()
@@ -333,8 +344,8 @@ public final class CursorLoupeView: NSView {
             innerChamferLayer.borderColor = NSColor(white: 1.0, alpha: 0.38).cgColor
             bezelEngravingsLayer.strokeColor = NSColor(white: 1.0, alpha: 0.30).cgColor
 
-            badgeView.layer?.borderColor = NSColor(white: 1.0, alpha: 0.30).cgColor
-            badgeView.layer?.backgroundColor = NSColor(white: 0.08, alpha: 0.60).cgColor
+            badgeView.layer?.borderColor = NSColor(white: 1.0, alpha: 0.32).cgColor
+            badgeView.layer?.backgroundColor = NSColor(white: 0.08, alpha: 0.65).cgColor
             badgeLabel.textColor = NSColor(white: 0.95, alpha: 1.0)
         } else {
             // Brushed aluminum barrel
@@ -344,7 +355,7 @@ public final class CursorLoupeView: NSView {
             bezelEngravingsLayer.strokeColor = NSColor(white: 0.20, alpha: 0.35).cgColor
 
             badgeView.layer?.borderColor = NSColor(white: 0.10, alpha: 0.25).cgColor
-            badgeView.layer?.backgroundColor = NSColor(white: 0.96, alpha: 0.70).cgColor
+            badgeView.layer?.backgroundColor = NSColor(white: 0.96, alpha: 0.72).cgColor
             badgeLabel.textColor = NSColor(white: 0.10, alpha: 1.0)
         }
         updateBadgeVisuals()
@@ -417,14 +428,15 @@ public final class CursorLoupeView: NSView {
     public func updatePosition(mousePt: CGPoint, in slideView: SlideView) {
         guard isPresented else { return }
 
-        // 1. Position Clamping: keep circular loupe fully visible within viewport
-        let half = totalDiameter / 2.0
-        var targetX = mousePt.x - half
-        var targetY = mousePt.y - half
+        // 1. Position Clamping: keep circular loupe + floating badge fully visible within viewport
+        let halfX = totalDiameter / 2.0
+        let opticalCenterY = barrelOffsetY + totalDiameter / 2.0 // 28 + 113 = 141.0
+        var targetX = mousePt.x - halfX
+        var targetY = mousePt.y - opticalCenterY
 
         let pad: CGFloat = 12.0
         targetX = max(pad, min(slideView.bounds.width - totalDiameter - pad, targetX))
-        targetY = max(pad, min(slideView.bounds.height - totalDiameter - pad, targetY))
+        targetY = max(pad, min(slideView.bounds.height - totalHeight - pad, targetY))
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
