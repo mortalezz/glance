@@ -202,6 +202,26 @@ public actor SlidePipeline {
         }
         inFlightTasks = newTasks
 
+        var newFullResCache: [Int: DecodedImage] = [:]
+        for (k, v) in fullResCache {
+            if k < index {
+                newFullResCache[k] = v
+            } else if k > index {
+                newFullResCache[k - 1] = v
+            }
+        }
+        fullResCache = newFullResCache
+
+        var newFullResTasks: [Int: Task<DecodedImage, Error>] = [:]
+        for (k, v) in inFlightFullResTasks {
+            if k < index {
+                newFullResTasks[k] = v
+            } else if k > index {
+                newFullResTasks[k - 1] = v
+            }
+        }
+        inFlightFullResTasks = newFullResTasks
+
         if items.isEmpty {
             currentIndex = 0
         } else if currentIndex >= items.count {
@@ -236,6 +256,26 @@ public actor SlidePipeline {
             }
         }
         inFlightTasks = newTasks
+
+        var newFullResCache: [Int: DecodedImage] = [:]
+        for (k, v) in fullResCache {
+            if k < insertIdx {
+                newFullResCache[k] = v
+            } else {
+                newFullResCache[k + 1] = v
+            }
+        }
+        fullResCache = newFullResCache
+
+        var newFullResTasks: [Int: Task<DecodedImage, Error>] = [:]
+        for (k, v) in inFlightFullResTasks {
+            if k < insertIdx {
+                newFullResTasks[k] = v
+            } else {
+                newFullResTasks[k + 1] = v
+            }
+        }
+        inFlightFullResTasks = newFullResTasks
 
         currentIndex = insertIdx
         pruneAndPreload(around: currentIndex, direction: .forward)

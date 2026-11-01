@@ -706,12 +706,11 @@ struct TestRunner {
             }
 
             // Test SplitPaneInfo model
-            let p1 = SplitPaneInfo(slot: 1, filename: "DSC_0001.NEF", pick: .pick, isChampion: true)
+            let p1 = SplitPaneInfo(slot: 1, filename: "DSC_0001.NEF", pick: .pick)
             assertEqual(p1.slot, 1, "Slot 1")
-            assertEqual(p1.isChampion, true, "Slot 1 is champion")
             assertEqual(p1.pick, PickStatus.pick, "Slot 1 is picked")
 
-            let p2 = SplitPaneInfo(slot: 2, filename: "DSC_0002.NEF", pick: .reject, isChampion: false)
+            let p2 = SplitPaneInfo(slot: 2, filename: "DSC_0002.NEF", pick: .reject)
             assertEqual(p2.slot, 2, "Slot 2")
             assertEqual(p2.pick, PickStatus.reject, "Slot 2 is rejected")
 
@@ -747,13 +746,12 @@ struct TestRunner {
             }
 
             // 2. SplitPaneInfo ratings and color labels
-            let p1 = SplitPaneInfo(slot: 1, filename: "DSC_0001.NEF", pick: .pick, rating: 5, color: .red, isChampion: true)
+            let p1 = SplitPaneInfo(slot: 1, filename: "DSC_0001.NEF", pick: .pick, rating: 5, color: .red)
             assertEqual(p1.slot, 1, "Slot 1")
-            assertEqual(p1.rating, 5, "Rating 5 preserved on Champion")
-            assertEqual(p1.color, ColorLabel.red, "Color red preserved on Champion")
-            assertEqual(p1.isChampion, true, "Champion flag true")
+            assertEqual(p1.rating, 5, "Rating 5 preserved on pane 1")
+            assertEqual(p1.color, ColorLabel.red, "Color red preserved on pane 1")
 
-            let p2 = SplitPaneInfo(slot: 2, filename: "DSC_0002.NEF", pick: .unflagged, rating: 0, color: .none, isChampion: false)
+            let p2 = SplitPaneInfo(slot: 2, filename: "DSC_0002.NEF", pick: .unflagged, rating: 0, color: .none)
             assertEqual(p2.rating, 0, "Rating 0 on Challenger")
             assertEqual(p2.color, ColorLabel.none, "Color none on Challenger")
 
@@ -871,7 +869,6 @@ struct TestRunner {
                 slot: 1,
                 filename: "HERO_001.NEF",
                 pick: .pick,
-                isChampion: true,
                 aestheticScore: compWin
             )
             assertEqual(paneInfo.aestheticScore?.isWinner, true, "SplitPaneInfo preserves winner aesthetic score")
@@ -1000,11 +997,8 @@ struct TestRunner {
                 let updatedScore = AestheticScoreResult(score: 9.3)
                 hudView.updateAestheticScore(updatedScore)
 
-                // Show transient message
-                hudView.showMessage("Focus Peaking: ON", duration: 0.1)
-
-                // Restore last info
-                hudView.restoreLastInfo()
+                // Pulse HUD view
+                hudView.pulse()
             }
 
             print("  ✅ Passed")
@@ -1144,7 +1138,7 @@ struct TestRunner {
             // 2. HistogramHudView dual comparative update
             await MainActor.run {
                 let histHud = HistogramHudView(frame: NSRect(x: 0, y: 0, width: 284, height: 140))
-                histHud.updateDual(left: hist1, right: hist2)
+                histHud.update(with: hist1, slot: 1)
                 histHud.setVisible(true, animated: false)
                 assertEqual(histHud.alphaValue, 1.0, "HistogramHud visible")
             }

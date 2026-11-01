@@ -277,7 +277,6 @@ public final class GlassHudView: NSView {
     private var lastInfo: HudInfo?
 
     private var fadeTimer: Timer?
-    private var messageTimer: Timer?
 
     public var isPersistentlyVisible: Bool = false {
         didSet {
@@ -792,23 +791,7 @@ public final class GlassHudView: NSView {
         aestheticPill.isHidden = false
     }
 
-    public override func layout() {
-        super.layout()
-        updateMask()
-    }
 
-    private func updateMask() {
-        guard bounds.width > 0 && bounds.height > 0 else { return }
-        let maskImage = NSImage(size: bounds.size, flipped: false) { rect in
-            let path = NSBezierPath(roundedRect: rect, xRadius: 16, yRadius: 16)
-            NSColor.black.setFill()
-            path.fill()
-            return true
-        }
-        maskImage.capInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
-        maskImage.resizingMode = .stretch
-        visualEffectView.maskImage = maskImage
-    }
 
     /// Updates the HUD contents with culling indicators.
     public func update(with info: HudInfo) {
@@ -841,8 +824,6 @@ public final class GlassHudView: NSView {
             )
         }
         self.lastInfo = mergedInfo
-        messageTimer?.invalidate()
-        messageTimer = nil
         renderInfo(mergedInfo)
         pulse()
     }
@@ -882,13 +863,7 @@ public final class GlassHudView: NSView {
         }
     }
 
-    /// Restores the last active photo metadata (clearing any transient status messages)
-    public func restoreLastInfo() {
-        messageTimer?.invalidate()
-        messageTimer = nil
-        guard let info = lastInfo else { return }
-        renderInfo(info)
-    }
+
 
     private func renderInfo(_ info: HudInfo) {
         if info.totalCount > 0 {
@@ -1147,30 +1122,11 @@ public final class GlassHudView: NSView {
         pulse()
     }
 
-    /// Displays a transient status message (e.g. toggle confirmation), which reverts back to original photo info after timeout.
-    public func showMessage(_ message: String, duration: TimeInterval = 2.0) {
-        messageTimer?.invalidate()
-        fadeTimer?.invalidate()
 
-        filenameLabel.stringValue = message
-        filenameLabel.textColor = ThemeManager.shared.primaryTextColor
-
-        fadeIn()
-
-        messageTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                guard let self = self else { return }
-                self.restoreLastInfo()
-                if !self.isPersistentlyVisible {
-                    self.scheduleFadeOut()
-                }
-            }
-        }
-    }
 
     public func pulse() {
         fadeIn()
-        if !isPersistentlyVisible && messageTimer == nil {
+        if !isPersistentlyVisible {
             scheduleFadeOut()
         }
     }
@@ -1203,6 +1159,5 @@ public final class GlassHudView: NSView {
 
     deinit {
         fadeTimer?.invalidate()
-        messageTimer?.invalidate()
     }
 }

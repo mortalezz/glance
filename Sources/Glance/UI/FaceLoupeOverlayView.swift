@@ -30,6 +30,7 @@ public struct FaceTileData: Sendable {
 public final class FaceTileView: NSView {
     public let faceIndex: Int
     public var onClick: (() -> Void)?
+    private var isHovered: Bool = false
 
     private let data: FaceTileData
     private let imageLayer = CALayer()
@@ -37,7 +38,6 @@ public final class FaceTileView: NSView {
     private let badgeLabel = NSTextField(labelWithString: "")
     private let statusLabel = NSTextField(labelWithString: "")
     private let statusPill = NSView()
-    private var isHovered = false
 
     public init(data: FaceTileData) {
         self.faceIndex = data.index
@@ -164,18 +164,21 @@ public final class FaceTileView: NSView {
         }
     }
 
+    public override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
     public override func mouseEntered(with event: NSEvent) {
         isHovered = true
         layer?.borderWidth = 2.0
         layer?.borderColor = NSColor.systemCyan.cgColor
-        NSCursor.pointingHand.push()
     }
 
     public override func mouseExited(with event: NSEvent) {
         isHovered = false
         layer?.borderWidth = 1.0
         layer?.borderColor = ThemeManager.shared.pillBorderColor
-        NSCursor.pop()
     }
 
     public override func mouseDown(with event: NSEvent) {
@@ -196,7 +199,6 @@ public final class FaceLoupeOverlayView: NSView {
     private let hintLabel = NSTextField(labelWithString: "Click to jump 100%")
     private let closeButton = NSButton()
     private let tilesStack = NSStackView()
-    private let emptyLabel = NSTextField(labelWithString: "No faces detected in frame")
 
     public private(set) var isPresented: Bool = false
 
@@ -299,10 +301,7 @@ public final class FaceLoupeOverlayView: NSView {
         tilesStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.addArrangedSubview(tilesStack)
 
-        // Empty label (kept hidden; widget hides when empty)
-        emptyLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
-        emptyLabel.isHidden = true
-        contentStack.addArrangedSubview(emptyLabel)
+
     }
 
     private func setupThemeObserver() {
@@ -332,7 +331,6 @@ public final class FaceLoupeOverlayView: NSView {
         titleLabel.textColor = theme.primaryTextColor
         hintLabel.textColor = theme.secondaryTextColor
         closeButton.contentTintColor = theme.secondaryTextColor
-        emptyLabel.textColor = theme.secondaryTextColor
 
         for subview in tilesStack.arrangedSubviews {
             if let tile = subview as? FaceTileView {
@@ -355,13 +353,11 @@ public final class FaceLoupeOverlayView: NSView {
         if tiles.isEmpty {
             titleLabel.stringValue = "👥 FACES"
             hintLabel.stringValue = ""
-            emptyLabel.isHidden = true
             tilesStack.isHidden = true
             dismiss()
         } else {
             titleLabel.stringValue = "👥 FACES (\(tiles.count))"
             hintLabel.stringValue = "Click to jump 100%"
-            emptyLabel.isHidden = true
             tilesStack.isHidden = false
 
             for tile in tiles {

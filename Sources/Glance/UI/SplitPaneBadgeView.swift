@@ -7,8 +7,6 @@ public struct SplitPaneInfo: Sendable {
     public let pick: PickStatus
     public let rating: Int
     public let color: ColorLabel
-    public let isChampion: Bool
-    public let isChallenger: Bool
     public let isPairScouting: Bool
     public let aestheticScore: AestheticScoreResult?
     public let burstDescription: String?
@@ -20,8 +18,6 @@ public struct SplitPaneInfo: Sendable {
         pick: PickStatus,
         rating: Int = 0,
         color: ColorLabel = .none,
-        isChampion: Bool = false,
-        isChallenger: Bool = false,
         isPairScouting: Bool = false,
         aestheticScore: AestheticScoreResult? = nil,
         burstDescription: String? = nil,
@@ -32,8 +28,6 @@ public struct SplitPaneInfo: Sendable {
         self.pick = pick
         self.rating = rating
         self.color = color
-        self.isChampion = isChampion
-        self.isChallenger = isChallenger
         self.isPairScouting = isPairScouting
         self.aestheticScore = aestheticScore
         self.burstDescription = burstDescription
@@ -293,8 +287,6 @@ public final class SplitPaneBadgeView: NSView {
                 pick: current.pick,
                 rating: current.rating,
                 color: current.color,
-                isChampion: current.isChampion,
-                isChallenger: current.isChallenger,
                 isPairScouting: current.isPairScouting,
                 aestheticScore: current.aestheticScore,
                 burstDescription: desc,

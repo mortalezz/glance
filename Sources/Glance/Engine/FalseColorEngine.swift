@@ -58,7 +58,7 @@ public enum FalseColorEngine {
         var format = vImage_CGImageFormat(
             bitsPerComponent: 8,
             bitsPerPixel: 32,
-            colorSpace: Unmanaged.passRetained(colorSpace),
+            colorSpace: Unmanaged.passUnretained(colorSpace),
             bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
             version: 0,
             decode: nil,

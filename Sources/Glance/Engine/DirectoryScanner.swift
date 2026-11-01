@@ -1,5 +1,4 @@
 import Foundation
-import Darwin
 
 public struct ScanResult: Sendable {
     public let items: [SlideItem]
@@ -65,10 +64,6 @@ public actor DirectoryScanner {
 
             for fileURL in contents {
                 guard SupportedFormats.isSupported(url: fileURL) else { continue }
-
-                // Strip quarantine and corrupt launch-services attributes in background
-                _ = removexattr(fileURL.path, "com.apple.quarantine", 0)
-                _ = removexattr(fileURL.path, "com.apple.LaunchServices.OpenWith", 0)
 
                 var fileSize: Int64 = 0
                 if let resourceValues = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),

@@ -86,6 +86,37 @@ public struct ExifMetadata: Sendable {
         self.shutterCount = shutterCount
     }
 
+    /// Returns a copy of this metadata with an updated pictureControl profile name.
+    public func withPictureControl(_ profile: String?) -> ExifMetadata {
+        ExifMetadata(
+            cameraMake: cameraMake,
+            cameraModel: cameraModel,
+            lensModel: lensModel,
+            shutterSpeed: shutterSpeed,
+            aperture: aperture,
+            iso: iso,
+            focalLength: focalLength,
+            focalLength35mm: focalLength35mm,
+            exposureBias: exposureBias,
+            flashFired: flashFired,
+            dateTimeOriginal: dateTimeOriginal,
+            pictureControl: profile,
+            exposureProgramInt: exposureProgramInt,
+            meteringModeInt: meteringModeInt,
+            whiteBalanceInt: whiteBalanceInt,
+            flashInt: flashInt,
+            colorSpaceInt: colorSpaceInt,
+            rawColorSpaceName: rawColorSpaceName,
+            lensMake: lensMake,
+            lensSpecification: lensSpecification,
+            maxAperture: maxAperture,
+            software: software,
+            bodySerialNumber: bodySerialNumber,
+            lensSerialNumber: lensSerialNumber,
+            shutterCount: shutterCount
+        )
+    }
+
     /// Parses EXIF, TIFF, and MakerNotes dictionaries from ImageIO properties dictionary.
     public init(from properties: [CFString: Any]) {
         let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any]
@@ -296,24 +327,36 @@ public struct ExifMetadata: Sendable {
         return String(format: "%+.1f EV", b)
     }
 
+    // High-performance thread-safe date parsing & formatting (zero heap allocations in tight loops)
+    private static let displayFormatterLock = NSLock()
+    private static let displayDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    private static func parseExifDate(_ raw: String) -> Date? {
+        guard raw.count >= 19 else { return nil }
+        var tm = tm()
+        return raw.withCString { ptr in
+            guard strptime(ptr, "%Y:%m:%d %H:%M:%S", &tm) != nil else { return nil }
+            let time = mktime(&tm)
+            guard time != -1 else { return nil }
+            return Date(timeIntervalSince1970: TimeInterval(time))
+        }
+    }
+
     public var date: Date? {
         guard let raw = dateTimeOriginal else { return nil }
-        let parser = DateFormatter()
-        parser.dateFormat = "yyyy:MM:dd HH:mm:ss"
-        return parser.date(from: raw)
+        return Self.parseExifDate(raw)
     }
 
     public var formattedDate: String? {
-        guard let raw = dateTimeOriginal else { return nil }
-        let parser = DateFormatter()
-        parser.dateFormat = "yyyy:MM:dd HH:mm:ss"
-        if let date = parser.date(from: raw) {
-            let formatter = DateFormatter()
-            formatter.dateStyle = .medium
-            formatter.timeStyle = .short
-            return formatter.string(from: date)
-        }
-        return raw
+        guard let d = date else { return dateTimeOriginal }
+        Self.displayFormatterLock.lock()
+        defer { Self.displayFormatterLock.unlock() }
+        return Self.displayDateFormatter.string(from: d)
     }
 
     public var formattedExposureProgram: String? {
@@ -323,11 +366,11 @@ public struct ExifMetadata: Sendable {
         case 2: return "Program AE (P)"
         case 3: return "Aperture Priority (Av)"
         case 4: return "Shutter Priority (Tv)"
-        case 5: return "Creative Program (DoF)"
-        case 6: return "Action Program"
+        case 5: return "Creative / Depth"
+        case 6: return "Action / High Speed"
         case 7: return "Portrait Mode"
         case 8: return "Landscape Mode"
-        default: return "Auto"
+        default: return "Normal (AE)"
         }
     }
 
@@ -335,7 +378,7 @@ public struct ExifMetadata: Sendable {
         guard let m = meteringModeInt else { return nil }
         switch m {
         case 1: return "Average"
-        case 2: return "Center-Weighted"
+        case 2: return "Center-Weighted Average"
         case 3: return "Spot"
         case 4: return "Multi-Spot"
         case 5: return "Multi-Segment (Matrix)"

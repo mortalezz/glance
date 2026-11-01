@@ -42,8 +42,11 @@ public enum LosslessRotationEngine {
         }
     }
 
-    /// Reads the current EXIF orientation for a given file.
+    /// Reads the current EXIF orientation for a given file (checking XMP sidecar first for RAW files).
     public static func currentOrientation(for fileURL: URL) -> Int {
+        if let sidecar = XmpSidecarManager.readMetadata(for: fileURL), let sOrient = sidecar.orientation {
+            return sOrient
+        }
         guard let src = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
               let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] else {
             return 1
@@ -82,17 +85,22 @@ public enum LosslessRotationEngine {
         }
 
         // 3. For RAW files or when an XMP sidecar exists, write tiff:Orientation to the XMP sidecar
-        var sidecarURLs: [URL] = []
+        var sidecarTargets: [URL] = []
         if let raw = item.rawURL {
-            sidecarURLs.append(XmpSidecarManager.targetSidecarURL(for: raw))
-        } else {
-            sidecarURLs.append(XmpSidecarManager.targetSidecarURL(for: item.url))
+            sidecarTargets.append(raw)
+        }
+        if item.isStacked, let comp = item.companionURL, comp.path != item.url.path {
+            sidecarTargets.append(comp)
+        }
+        if sidecarTargets.isEmpty {
+            sidecarTargets.append(item.url)
         }
 
-        for sidecarURL in sidecarURLs {
+        for targetURL in sidecarTargets {
+            let sidecarURL = XmpSidecarManager.targetSidecarURL(for: targetURL)
             var meta = XmpSidecarManager.read(from: sidecarURL)
             meta.orientation = newOrientation
-            try? XmpSidecarManager.save(metadata: meta, for: item.url)
+            try? XmpSidecarManager.save(metadata: meta, for: targetURL)
         }
 
         return newOrientation

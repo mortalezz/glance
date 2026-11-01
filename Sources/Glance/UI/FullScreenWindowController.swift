@@ -44,10 +44,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     private var isFaceOverlayVisible: Bool = true
     private var filterBeforePicksToggle: CullingFilter? = nil
     private var detectedFacesForCurrentSlide: [DetectedFace] = []
-    private var detectedFacesForChallengerSlide: [DetectedFace] = []
     private var detectedFacesByRawIndex: [Int: [DetectedFace]] = [:]
     private var faceIndicesByRawIndex: [Int: Int] = [:]
-    private var currentFaceIndex: Int = 0
+    private var backgroundAnalysisTask: Task<Void, Never>? = nil
 
     // Multi-Level Undo & Redo
     private let cullingUndoManager = CullingUndoManager.shared
@@ -353,42 +352,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             autoAdvance: autoAdvance,
             filterTitle: filterBadge,
             isZoomed: slideView.isZoomed,
-            exif: {
-                var parsed = decoded.exif
-                if parsed?.pictureControl == nil {
-                    let targetURL = item.rawURL ?? item.url
-                    if let extracted = CameraProfileEngine.extractCameraProfile(from: targetURL) {
-                        parsed = ExifMetadata(
-                            cameraMake: parsed?.cameraMake,
-                            cameraModel: parsed?.cameraModel,
-                            lensModel: parsed?.lensModel,
-                            shutterSpeed: parsed?.shutterSpeed,
-                            aperture: parsed?.aperture,
-                            iso: parsed?.iso,
-                            focalLength: parsed?.focalLength,
-                            focalLength35mm: parsed?.focalLength35mm,
-                            exposureBias: parsed?.exposureBias,
-                            flashFired: parsed?.flashFired,
-                            dateTimeOriginal: parsed?.dateTimeOriginal,
-                            pictureControl: extracted,
-                            exposureProgramInt: parsed?.exposureProgramInt,
-                            meteringModeInt: parsed?.meteringModeInt,
-                            whiteBalanceInt: parsed?.whiteBalanceInt,
-                            flashInt: parsed?.flashInt,
-                            colorSpaceInt: parsed?.colorSpaceInt,
-                            rawColorSpaceName: parsed?.rawColorSpaceName,
-                            lensMake: parsed?.lensMake,
-                            lensSpecification: parsed?.lensSpecification,
-                            maxAperture: parsed?.maxAperture,
-                            software: parsed?.software,
-                            bodySerialNumber: parsed?.bodySerialNumber,
-                            lensSerialNumber: parsed?.lensSerialNumber,
-                            shutterCount: parsed?.shutterCount
-                        )
-                    }
-                }
-                return parsed
-            }(),
+            exif: decoded.exif,
             isSlideshow: isSlideshowActive,
             slideshowInterval: slideshowInterval,
             exportProgressText: exportProgressText,
@@ -437,17 +401,28 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             updateFalseColorMaskAsync(for: slotImages)
         }
 
-        // Face detection asynchronously across multi-up slots
-        currentFaceIndex = 0
+        // Cooperative background analysis with instant cancellation on rapid scrubbing
         detectedFacesForCurrentSlide = []
-        detectedFacesForChallengerSlide = []
+        let curPos = currentFilteredPos
+        let isMultiUp = (multiUpMode != .single)
+        var slotRawIndices: [Int: Int] = [:]
         for s in 0..<slotCount {
-            guard let p = slotPaths[s], let img = slotImages[s] else { continue }
-            let pos = (s < pagePositions.count) ? pagePositions[s] : (currentFilteredPos + s)
-            guard pos < filteredIndices.count else { continue }
-            let rIdx = filteredIndices[pos]
-            Task.detached(priority: .utility) { [weak self] in
+            let pos = (s < pagePositions.count) ? pagePositions[s] : (curPos + s)
+            if pos < filteredIndices.count {
+                slotRawIndices[s] = filteredIndices[pos]
+            }
+        }
+
+        backgroundAnalysisTask?.cancel()
+        backgroundAnalysisTask = Task.detached(priority: .utility) { [weak self] in
+            guard !Task.isCancelled else { return }
+
+            // 1. Face detection across active panes
+            for s in 0..<slotCount {
+                guard !Task.isCancelled else { return }
+                guard let p = slotPaths[s], let img = slotImages[s], let rIdx = slotRawIndices[s] else { continue }
                 let faces = await FaceDetectionEngine.shared.detectFaces(in: img, cacheKey: p)
+                guard !Task.isCancelled else { return }
                 await MainActor.run { [weak self] in
                     guard let self = self, self.currentRawIndex == rawIndex else { return }
                     self.detectedFacesByRawIndex[rIdx] = faces
@@ -459,14 +434,14 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                     }
                 }
             }
-        }
 
-        // ANE Burst / Scene Similarity
-        if multiUpMode != .single, let img1 = slotImages[0], let img2 = slotImages[1], let p1 = slotPaths[0], let p2 = slotPaths[1] {
-            let d1 = slotDecoded[0]?.exif?.date
-            let d2 = slotDecoded[1]?.exif?.date
-            let dt = (d1 != nil && d2 != nil) ? abs(d2!.timeIntervalSince(d1!)) : nil
-            Task.detached(priority: .utility) { [weak self] in
+            guard !Task.isCancelled else { return }
+
+            // 2. ANE Burst / Scene Similarity (Multi-up)
+            if isMultiUp, let img1 = slotImages[0], let img2 = slotImages[1], let p1 = slotPaths[0], let p2 = slotPaths[1] {
+                let d1 = slotDecoded[0]?.exif?.date
+                let d2 = slotDecoded[1]?.exif?.date
+                let dt = (d1 != nil && d2 != nil) ? abs(d2!.timeIntervalSince(d1!)) : nil
                 let sceneResult = await SceneDetectionEngine.shared.compareScenes(
                     imageA: img1,
                     keyA: p1,
@@ -474,52 +449,54 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                     keyB: p2,
                     timeDelta: dt
                 )
+                guard !Task.isCancelled else { return }
                 await MainActor.run { [weak self] in
                     guard let self = self, self.currentRawIndex == rawIndex else { return }
                     self.slideView.updateSlotScene(slot: 1, description: sceneResult.statusDescription)
                     self.slideView.updateSlotScene(slot: 2, description: sceneResult.statusDescription)
                 }
             }
-        }
 
-        // Apple Vision Aesthetic Scoring
-        if multiUpMode != .single {
-            for s in 0..<slotCount {
-                guard let img = slotImages[s], let path = slotPaths[s] else { continue }
-                let slotNum = s + 1
-                Task.detached(priority: .utility) { [weak self] in
+            guard !Task.isCancelled else { return }
+
+            // 3. Vision Aesthetic Scoring
+            if isMultiUp {
+                for s in 0..<slotCount {
+                    guard !Task.isCancelled else { return }
+                    guard let img = slotImages[s], let path = slotPaths[s] else { continue }
+                    let slotNum = s + 1
                     let score = await AestheticsEngine.shared.computeScore(for: img, cacheKey: path)
+                    guard !Task.isCancelled else { return }
                     await MainActor.run { [weak self] in
                         guard let self = self, self.currentRawIndex == rawIndex else { return }
                         self.slideView.updateSlotAesthetics(slot: slotNum, score: score)
                     }
                 }
-            }
-        } else if let img = slotImages[0], let path = slotPaths[0] {
-            Task.detached(priority: .utility) { [weak self] in
+            } else if let img = slotImages[0], let path = slotPaths[0] {
                 let score = await AestheticsEngine.shared.computeScore(for: img, cacheKey: path)
+                guard !Task.isCancelled else { return }
                 await MainActor.run { [weak self] in
                     guard let self = self, self.currentRawIndex == rawIndex else { return }
                     self.slideView.updateAestheticScore(score)
                 }
             }
-        }
 
-        // Background pre-warming of aesthetic scores and burst clusters ahead of the playhead
-        let curPos = currentFilteredPos
-        Task.detached(priority: .utility) { [weak self] in
-            guard let self = self else { return }
+            guard !Task.isCancelled else { return }
+
+            // 4. Background pre-warming of aesthetic scores and burst clusters
             let ahead = [curPos + 1, curPos + 2, curPos - 1]
             for pos in ahead {
-                let pair: (Int, String)? = await MainActor.run {
-                    guard pos >= 0, pos < self.filteredIndices.count else { return nil }
+                guard !Task.isCancelled else { return }
+                let pair: (Int, String)? = await MainActor.run { [weak self] in
+                    guard let self = self, pos >= 0, pos < self.filteredIndices.count else { return nil }
                     let r = self.filteredIndices[pos]
                     return (r, self.allItems[r].url.path)
                 }
                 guard let (raw, path) = pair else { continue }
-                _ = await self.computeBurstCluster(for: pos)
+                _ = await self?.computeBurstCluster(for: pos)
                 if AestheticsEngine.shared.cachedScore(for: path) == nil {
-                    if let dec = try? await self.pipeline.getImage(at: raw) {
+                    if let dec = try? await self?.pipeline.getImage(at: raw) {
+                        guard !Task.isCancelled else { return }
                         _ = await AestheticsEngine.shared.computeScore(for: dec.image, cacheKey: path)
                     }
                 }
@@ -587,10 +564,6 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 navigate(toFilteredPos: targetPos, direction: .backward)
             }
         }
-    }
-
-    public func slideViewCommitSplitMatchup() {
-        slideViewRequestNext()
     }
 
     public func slideViewRequestFirst() {
@@ -1036,23 +1009,44 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         if alert.runModal() == .alertFirstButtonReturn {
             Task {
                 var trashedCount = 0
+                var deleteActions: [CullingAction] = []
                 for item in rejectedItems {
                     if let idx = self.allItems.firstIndex(where: { $0.id == item.id }) {
+                        var trashedRecords: [TrashedFileRecord] = []
                         for url in item.allURLs {
-                            _ = try? await TrashManager.moveToTrash(url: url)
+                            if let trashed = try? await TrashManager.moveToTrash(url: url) {
+                                trashedRecords.append(TrashedFileRecord(originalURL: url, trashedURL: trashed))
+                            }
+                            if let sidecar = XmpSidecarManager.existingSidecarURL(for: url) {
+                                if let trashedSidecar = try? await TrashManager.moveToTrash(url: sidecar) {
+                                    trashedRecords.append(TrashedFileRecord(originalURL: sidecar, trashedURL: trashedSidecar))
+                                }
+                            }
                         }
-                        if let sidecar = XmpSidecarManager.existingSidecarURL(for: item.url) {
-                            _ = try? await TrashManager.moveToTrash(url: sidecar)
-                        }
+                        let previousMeta = self.cullingData[item.id]
+                        deleteActions.append(.delete(
+                            item: item,
+                            rawIndex: idx,
+                            previousMeta: previousMeta,
+                            trashedRecords: trashedRecords
+                        ))
+
                         _ = await self.pipeline.removeItem(at: idx)
                         self.allItems.remove(at: idx)
                         self.cullingData.removeValue(forKey: item.id)
                         trashedCount += 1
                     }
                 }
+                if !deleteActions.isEmpty {
+                    self.cullingUndoManager.record(.compound(deleteActions))
+                }
                 self.rebuildFilter()
-                await self.loadAndDisplayCurrent()
-                self.slideView.showToast("Purged \(trashedCount) Rejected Photos", icon: "🧹", tint: .systemRed)
+                if self.allItems.isEmpty {
+                    self.displayEmptyState("Directory is now empty.")
+                } else {
+                    await self.loadAndDisplayCurrent()
+                }
+                self.slideView.showToast("Purged \(trashedCount) Rejected Photos", icon: "🧹", shortcut: "⌘Z to Undo", tint: .systemRed)
             }
         }
     }
@@ -1062,7 +1056,6 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     public func slideViewRequestZoomToggle(mouseLocation: CGPoint) {
         stopSlideshowIfRunning()
         if slideView.isZoomed {
-            currentFaceIndex = 0
             slideView.setZoom(false)
         } else {
             guard currentRawIndex != nil else { return }
@@ -1737,10 +1730,6 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         saveMetadataAsync(meta: meta, for: item)
     }
 
-    public func slideViewPickWinner(slot: Int) {
-        // King of the Hill elimination removed; no-op preserved for protocol compatibility
-    }
-
     /// Proposal 4: Burst Knockout Culling (⇧P)
     /// Flags the winner frame as Pick, automatically marks all other frames in the burst as Reject,
     /// groups into a compound undo step, and leaps seamlessly to the start of the next scene.
@@ -2119,12 +2108,19 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
             Task.detached(priority: .userInitiated) { [weak self] in
                 do {
+                    var updatedOrientations: [(SlideItem, Int)] = []
                     for (item, rIdx) in itemsToRotate {
-                        _ = try LosslessRotationEngine.rotate(item: item, direction: direction)
+                        let newOrient = try LosslessRotationEngine.rotate(item: item, direction: direction)
+                        updatedOrientations.append((item, newOrient))
                         await self?.pipeline.invalidateCache(at: rIdx)
                     }
                     Task { @MainActor [weak self] in
                         guard let self = self else { return }
+                        for (item, newOrient) in updatedOrientations {
+                            var meta = self.cullingData[item.id] ?? CullingMetadata()
+                            meta.orientation = newOrient
+                            self.cullingData[item.id] = meta
+                        }
                         let dirTitle = (direction == .clockwise) ? "Clockwise 90° [R]" : "Counter-Clockwise 90° [L]"
                         self.slideView.showToast("Rotated Burst \(dirTitle)", icon: "🔄", shortcut: "R")
                         await self.loadAndDisplayCurrent()
@@ -2143,10 +2139,13 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         slideView.showToast("Rotating...", icon: "🔄", shortcut: "R")
         Task.detached(priority: .userInitiated) { [weak self] in
             do {
-                _ = try LosslessRotationEngine.rotate(item: item, direction: direction)
+                let newOrient = try LosslessRotationEngine.rotate(item: item, direction: direction)
                 await self?.pipeline.invalidateCache(at: rawIndex)
                 Task { @MainActor [weak self] in
                     guard let self = self else { return }
+                    var meta = self.cullingData[item.id] ?? CullingMetadata()
+                    meta.orientation = newOrient
+                    self.cullingData[item.id] = meta
                     let dirTitle = (direction == .clockwise) ? "Clockwise 90° [R]" : "Counter-Clockwise 90° [L]"
                     self.slideView.showToast("Rotated \(dirTitle)", icon: "🔄", shortcut: "R")
                     await self.loadAndDisplayCurrent()
@@ -2322,12 +2321,22 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
                 self.allItems.firstIndex(where: { $0.url == cur || $0.allURLs.contains(cur) })
             } ?? 0
 
+            // Load sidecars for newly discovered items
+            let newItems = scanResult.items.filter { self.cullingData[$0.id] == nil }
+            if !newItems.isEmpty {
+                let newSidecars = await XmpSidecarManager.loadAllSidecars(for: newItems)
+                for (id, meta) in newSidecars {
+                    self.cullingData[id] = meta
+                }
+            }
+
             self.rebuildFilter(targetIndex: targetIdx)
             await self.pipeline.setPlaylist(
                 items: self.allItems,
                 initialIndex: targetIdx,
                 maxPixelSize: self.pipelineMaxPixelSize
             )
+            await self.loadAndDisplayCurrent()
         }
     }
 
@@ -2588,7 +2597,11 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
             guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
             let item = allItems[idx]
             let reverseDir: RotationDirection = (direction == .clockwise) ? .counterClockwise : .clockwise
-            _ = try? LosslessRotationEngine.rotate(item: item, direction: reverseDir)
+            if let newOrient = try? LosslessRotationEngine.rotate(item: item, direction: reverseDir) {
+                var meta = cullingData[itemID] ?? CullingMetadata()
+                meta.orientation = newOrient
+                cullingData[itemID] = meta
+            }
         case .delete:
             break
         }
@@ -2625,7 +2638,11 @@ extension FullScreenWindowController: DirectoryWatcherDelegate {
         case .rotate(let itemID, _, let direction):
             guard let idx = allItems.firstIndex(where: { $0.id == itemID }) else { return }
             let item = allItems[idx]
-            _ = try? LosslessRotationEngine.rotate(item: item, direction: direction)
+            if let newOrient = try? LosslessRotationEngine.rotate(item: item, direction: direction) {
+                var meta = cullingData[itemID] ?? CullingMetadata()
+                meta.orientation = newOrient
+                cullingData[itemID] = meta
+            }
         case .delete:
             break
         }

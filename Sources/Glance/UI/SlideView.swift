@@ -23,8 +23,6 @@ public protocol SlideViewDelegate: AnyObject {
     func slideViewCycleFilter()
     func slideViewCycleMultiUp()
     func slideViewToggleSplitCompare()
-    func slideViewPickWinner(slot: Int)
-    func slideViewCommitSplitMatchup()
     func slideViewHoverPaneChanged(to slot: Int)
 
     // Scene Leap Navigation (Same Scene & Burst Traversal)
@@ -69,10 +67,6 @@ public extension SlideViewDelegate {
     func slideViewToggleSplitCompare() {
         slideViewCycleMultiUp()
     }
-    func slideViewPickWinner(slot: Int) {}
-    func slideViewCommitSplitMatchup() {
-        slideViewRequestNext()
-    }
 }
 
 /// Ultra-responsive, zero-latency layer-backed NSView.
@@ -89,21 +83,6 @@ public final class SlideView: NSView {
     private let panePeakingLayers: [CALayer] = (0..<4).map { _ in CALayer() }
     private let paneFalseColorLayers: [CALayer] = (0..<4).map { _ in CALayer() }
 
-    // Backward-compatibility aliases
-    private var leftContainerLayer: CALayer { paneContainerLayers[0] }
-    private var leftImageLayer: CALayer { paneImageLayers[0] }
-    private var leftClippingLayer: CALayer { paneClippingLayers[0] }
-    private var leftPeakingLayer: CALayer { panePeakingLayers[0] }
-
-    private var rightContainerLayer: CALayer { paneContainerLayers[1] }
-    private var rightImageLayer: CALayer { paneImageLayers[1] }
-    private var rightClippingLayer: CALayer { paneClippingLayers[1] }
-    private var rightPeakingLayer: CALayer { panePeakingLayers[1] }
-
-    private var containerLayer: CALayer { paneContainerLayers[0] }
-    private var imageLayer: CALayer { paneImageLayers[0] }
-    private var splitLayer: CALayer { paneImageLayers[1] }
-
     public let hudView = GlassHudView()
     public let histogramHud = HistogramHudView()
     public let exifHud = ExifHudView()
@@ -114,8 +93,6 @@ public final class SlideView: NSView {
     public let falseColorLegendHud = FalseColorLegendHudView()
 
     public let splitBadges: [SplitPaneBadgeView] = (1...4).map { SplitPaneBadgeView(slot: $0) }
-    public var leftSplitBadge: SplitPaneBadgeView { splitBadges[0] }
-    public var rightSplitBadge: SplitPaneBadgeView { splitBadges[1] }
 
     private var histogramTopConstraint: NSLayoutConstraint?
     private var exifTopConstraint: NSLayoutConstraint?
@@ -150,24 +127,6 @@ public final class SlideView: NSView {
     private var dragStartOffsets: [CGPoint] = Array(repeating: .zero, count: 4)
     private var dragStartMouse: CGPoint = .zero
     private var isDragging: Bool = false
-
-    // Compatibility getters/setters
-    private var currentImageSize: CGSize {
-        get { paneImageSizes[0] }
-        set { paneImageSizes[0] = newValue }
-    }
-    private var rightImageSize: CGSize {
-        get { paneImageSizes[1] }
-        set { paneImageSizes[1] = newValue }
-    }
-    private var zoomPanOffset: CGPoint {
-        get { zoomPanOffsets[0] }
-        set { zoomPanOffsets[0] = newValue }
-    }
-    private var rightZoomPanOffset: CGPoint {
-        get { zoomPanOffsets[1] }
-        set { zoomPanOffsets[1] = newValue }
-    }
 
     private var cursorTimer: Timer?
     private var trackingArea: NSTrackingArea?
@@ -675,11 +634,6 @@ public final class SlideView: NSView {
         displayMultiUp(images: images, nativeSizes: sizes, splitInfos: splitInfos, info: info)
     }
 
-    public func updateSplitAesthetics(left: AestheticScoreResult?, right: AestheticScoreResult?) {
-        splitBadges[0].updateAestheticScore(left)
-        splitBadges[1].updateAestheticScore(right)
-    }
-
     public func updateSlotAesthetics(slot: Int, score: AestheticScoreResult?) {
         guard slot >= 1 && slot <= 4 else { return }
         splitBadges[slot - 1].updateAestheticScore(score)
@@ -691,11 +645,6 @@ public final class SlideView: NSView {
 
     public func updateBurstBreadcrumb(_ burst: BurstBreadcrumbInfo?) {
         hudView.updateBurstBreadcrumb(burst)
-    }
-
-    public func updateSplitScene(description: String?) {
-        splitBadges[0].updateBurstDescription(description)
-        splitBadges[1].updateBurstDescription(description)
     }
 
     public func updateSlotScene(slot: Int, description: String?, isHero: Bool = false) {
@@ -771,10 +720,6 @@ public final class SlideView: NSView {
         updatePaneBorders(animated: false)
     }
 
-    public func setSplitMode(_ enabled: Bool) {
-        setMultiUpMode(enabled ? .twoUp : .single)
-    }
-
     public func displayMessage(_ message: String) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -791,20 +736,12 @@ public final class SlideView: NSView {
         hudView.update(with: info)
     }
 
-    public func toggleHud() {
-        hudView.togglePersistent()
-    }
-
     public func toggleHelp() {
         quickHelpView.toggle()
     }
 
     public func updateFaceTiles(_ tiles: [FaceTileData]) {
         faceOverlayView.update(with: tiles)
-    }
-
-    public func toggleFaceOverlay() {
-        faceOverlayView.toggle()
     }
 
     public func setFaceOverlayVisible(_ visible: Bool) {
@@ -853,14 +790,6 @@ public final class SlideView: NSView {
             cursorLoupeView.dismiss()
             showToast("Loupe Off", icon: "🔍", shortcut: "M")
         }
-    }
-
-    public func cycleCursorLoupeMagnification() {
-        cursorLoupeView.cycleMagnification()
-        let mouseInWindow = window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: bounds.midX, y: bounds.midY)
-        let localPt = convert(mouseInWindow, from: nil)
-        cursorLoupeView.updatePosition(mousePt: localPt, in: self)
-        showToast("Loupe Magnification \(Int(cursorLoupeView.magnification))×", icon: "🔍", shortcut: "+/-")
     }
 
     public func imageInfoForPoint(_ point: CGPoint) -> (image: CGImage, imageRectInView: CGRect)? {
@@ -950,11 +879,6 @@ public final class SlideView: NSView {
         histogramHud.update(with: data, slot: slot)
     }
 
-    public func updateDualHistogram(left: HistogramData, right: HistogramData) {
-        let active = (hoveredSplitSlot == 2) ? right : left
-        histogramHud.update(with: active, slot: hoveredSplitSlot)
-    }
-
     public func setHistogramVisible(_ visible: Bool) {
         if isHelpPresented {
             savedHistogramAlpha = visible ? 1.0 : 0.0
@@ -993,10 +917,6 @@ public final class SlideView: NSView {
             paneClippingLayers[i].contents = (i < masks.count) ? masks[i] : nil
         }
         CATransaction.commit()
-    }
-
-    public func updateClippingMask(_ mask: CGImage?, rightMask: CGImage? = nil) {
-        updateClippingMasks([mask, rightMask, nil, nil])
     }
 
     private func startBlinkyAnimation() {
@@ -1055,10 +975,6 @@ public final class SlideView: NSView {
             panePeakingLayers[i].contents = (i < masks.count) ? masks[i] : nil
         }
         CATransaction.commit()
-    }
-
-    public func updatePeakingMask(_ mask: CGImage?, rightMask: CGImage? = nil) {
-        updatePeakingMasks([mask, rightMask, nil, nil])
     }
 
     // MARK: - 100% Zoom & Pan Mechanics

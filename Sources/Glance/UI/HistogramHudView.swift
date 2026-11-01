@@ -567,13 +567,6 @@ public final class HistogramHudView: NSView {
         highlightClipIndicator.isClipped = hasHighlightClip
     }
 
-    /// Backward compatibility fallback for dual update requests
-    public func updateDual(left: HistogramData, right: HistogramData) {
-        let slot = activeSlot ?? 1
-        let activeData = (slot == 2) ? right : left
-        update(with: activeData, slot: slot)
-    }
-
     public func setVisible(_ visible: Bool, animated: Bool = true) {
         let targetAlpha: CGFloat = visible ? 1.0 : 0.0
         guard alphaValue != targetAlpha else { return }
