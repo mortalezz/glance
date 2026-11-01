@@ -58,6 +58,8 @@ public protocol SlideViewDelegate: AnyObject {
     // Phase 4: Output & Workflow Productivity
     func slideViewRequestExport()
     func slideViewRotate(direction: RotationDirection)
+    func slideViewJumpToFilteredPos(index: Int)
+    func slideViewToggleFilmstrip()
     func slideViewToggleSlideshow()
     func slideViewStopSlideshow()
     func slideViewAdjustSlideshowInterval(increase: Bool)
@@ -67,6 +69,8 @@ public extension SlideViewDelegate {
     func slideViewToggleSplitCompare() {
         slideViewCycleMultiUp()
     }
+    func slideViewJumpToFilteredPos(index: Int) {}
+    func slideViewToggleFilmstrip() {}
 }
 
 /// Ultra-responsive, zero-latency layer-backed NSView.
@@ -91,6 +95,7 @@ public final class SlideView: NSView {
     public let faceOverlayView = FaceLoupeOverlayView()
     public let cursorLoupeView = CursorLoupeView()
     public let falseColorLegendHud = FalseColorLegendHudView()
+    public let filmstripHud = FilmstripHudView()
 
     public let splitBadges: [SplitPaneBadgeView] = (1...4).map { SplitPaneBadgeView(slot: $0) }
 
@@ -112,6 +117,7 @@ public final class SlideView: NSView {
     public private(set) var isPeakingActive: Bool = false
     public private(set) var isFalseColorActive: Bool = false
     private var savedFalseColorLegendAlpha: CGFloat = 0.0
+    private var savedFilmstripAlpha: CGFloat = 0.0
 
     // Zoom & Pan state across up to 4 panes
     // Loupe Pop (Option B for 4-UP) & Spring-Loaded Z
@@ -272,6 +278,12 @@ public final class SlideView: NSView {
         falseColorLegendHud.translatesAutoresizingMaskIntoConstraints = false
         addSubview(falseColorLegendHud)
 
+        filmstripHud.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(filmstripHud)
+        filmstripHud.onSelectIndex = { [weak self] index in
+            self?.delegate?.slideViewJumpToFilteredPos(index: index)
+        }
+
         // Split Badges: positioned manually via frames in updateLayerLayout
         for badge in splitBadges {
             badge.translatesAutoresizingMaskIntoConstraints = true
@@ -319,7 +331,14 @@ public final class SlideView: NSView {
             falseColorLegendHud.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -28),
             falseColorLegendHud.centerYAnchor.constraint(equalTo: centerYAnchor),
             falseColorLegendHud.widthAnchor.constraint(equalToConstant: 136),
-            falseColorLegendHud.heightAnchor.constraint(equalToConstant: 220)
+            falseColorLegendHud.heightAnchor.constraint(equalToConstant: 220),
+
+            filmstripHud.centerXAnchor.constraint(equalTo: centerXAnchor),
+            filmstripHud.bottomAnchor.constraint(equalTo: hudView.topAnchor, constant: -12),
+            filmstripHud.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 28),
+            filmstripHud.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -28),
+            filmstripHud.widthAnchor.constraint(lessThanOrEqualToConstant: 960),
+            filmstripHud.heightAnchor.constraint(equalToConstant: 88)
         ])
     }
 
@@ -833,6 +852,7 @@ public final class SlideView: NSView {
         savedHistogramAlpha = histogramHud.alphaValue
         savedExifAlpha = exifHud.alphaValue
         savedFalseColorLegendAlpha = falseColorLegendHud.alphaValue
+        savedFilmstripAlpha = filmstripHud.alphaValue
         for i in 0..<4 {
             savedSplitBadgesAlpha[i] = splitBadges[i].alphaValue
         }
@@ -842,6 +862,7 @@ public final class SlideView: NSView {
             self.histogramHud.animator().alphaValue = 0.0
             self.exifHud.animator().alphaValue = 0.0
             self.falseColorLegendHud.animator().alphaValue = 0.0
+            self.filmstripHud.animator().alphaValue = 0.0
             for badge in self.splitBadges {
                 badge.animator().alphaValue = 0.0
             }
@@ -857,6 +878,7 @@ public final class SlideView: NSView {
             self.histogramHud.animator().alphaValue = self.savedHistogramAlpha
             self.exifHud.animator().alphaValue = self.savedExifAlpha
             self.falseColorLegendHud.animator().alphaValue = self.savedFalseColorLegendAlpha
+            self.filmstripHud.animator().alphaValue = self.savedFilmstripAlpha
             for i in 0..<4 {
                 if self.multiUpMode != .single && self.paneImageLayers[i].contents != nil {
                     self.splitBadges[i].animator().alphaValue = (self.savedSplitBadgesAlpha[i] > 0) ? self.savedSplitBadgesAlpha[i] : 1.0
@@ -1205,6 +1227,13 @@ public final class SlideView: NSView {
             return
         }
 
+        if filmstripHud.isPresented {
+            let mouseInStrip = filmstripHud.convert(event.locationInWindow, from: nil)
+            if filmstripHud.bounds.contains(mouseInStrip) {
+                return
+            }
+        }
+
         if hudView.alphaValue > 0.0 {
             let mouseInHud = hudView.convert(event.locationInWindow, from: nil)
             if hudView.handleMouseDown(at: mouseInHud) {
@@ -1297,6 +1326,14 @@ public final class SlideView: NSView {
     }
 
     public override func scrollWheel(with event: NSEvent) {
+        if filmstripHud.isPresented {
+            let mousePt = convert(event.locationInWindow, from: nil)
+            if filmstripHud.frame.contains(mousePt) {
+                filmstripHud.handleScrollWheel(with: event)
+                return
+            }
+        }
+
         if cursorLoupeView.isPresented {
             let delta = event.isDirectionInvertedFromDevice ? -event.scrollingDeltaY : event.scrollingDeltaY
             if abs(delta) > 1.2 {
@@ -1415,6 +1452,12 @@ public final class SlideView: NSView {
                 showToast("Loupe 2×", icon: "🔍", shortcut: "- / [")
                 return
             }
+        }
+
+        // Esc closes Filmstrip Scrubber if pinned
+        if filmstripHud.isPresented && filmstripHud.isPinned && event.keyCode == 53 {
+            filmstripHud.dismiss(animated: true)
+            return
         }
 
         // Esc (KeyCode 53): If zoomed, exit zoom to grid/fit; otherwise quit Glance
@@ -1685,6 +1728,12 @@ public final class SlideView: NSView {
             return
         }
 
+        // Filmstrip Scrubber: 'G' (KeyCode 5)
+        if !isCmd && (lower == "g" || event.keyCode == 5) {
+            toggleFilmstrip()
+            return
+        }
+
         // Fullscreen Toggle: 'F' (when Shift is not held)
         if !isShift && !isCmd && (lower == "f" || event.keyCode == 3) {
             delegate?.slideViewToggleFullScreen()
@@ -1775,6 +1824,16 @@ public final class SlideView: NSView {
 
         let mousePt = convert(event.locationInWindow, from: nil)
 
+        if filmstripHud.isPresented {
+            if filmstripHud.frame.insetBy(dx: -20, dy: -20).contains(mousePt) {
+                filmstripHud.cancelAutoDismiss()
+            } else if mousePt.y > filmstripHud.frame.maxY + 40 {
+                filmstripHud.handleMouseExited()
+            }
+        } else if mousePt.y <= 36 && bounds.width > 200 {
+            filmstripHud.pulseFromHover()
+        }
+
         if cursorLoupeView.isPresented {
             CursorLoupeView.hideSystemCursor()
             cursorLoupeView.updatePosition(mousePt: mousePt, in: self)
@@ -1855,5 +1914,41 @@ public final class SlideView: NSView {
 
     deinit {
         cursorTimer?.invalidate()
+    }
+}
+
+// MARK: - Filmstrip Scrubber Integration
+
+public extension SlideView {
+    func updateFilmstrip(
+        items: [SlideItem],
+        currentIndex: Int,
+        cullingData: [String: CullingMetadata],
+        burstCache: [Int: BurstBreadcrumbInfo?]
+    ) {
+        filmstripHud.update(
+            items: items,
+            currentIndex: currentIndex,
+            cullingData: cullingData,
+            burstCache: burstCache
+        )
+    }
+
+    func updateFilmstripActiveIndex(_ newIndex: Int) {
+        filmstripHud.updateActiveIndex(newIndex)
+    }
+
+    func updateFilmstripCulling(for itemId: String, metadata: CullingMetadata) {
+        filmstripHud.updateCulling(for: itemId, metadata: metadata)
+    }
+
+    func updateFilmstripBurstCache(_ burstCache: [Int: BurstBreadcrumbInfo?]) {
+        filmstripHud.updateBurstCache(burstCache)
+    }
+
+    func toggleFilmstrip() {
+        filmstripHud.togglePinned()
+        let isNowPinned = filmstripHud.isPinned && filmstripHud.isPresented
+        showToast(isNowPinned ? "Filmstrip ON" : "Filmstrip OFF", icon: "🎞️", shortcut: "G")
     }
 }

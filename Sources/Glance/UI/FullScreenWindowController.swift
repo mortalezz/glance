@@ -327,6 +327,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 if activePos == primaryPos {
                     self.slideView.updateBurstBreadcrumb(result)
                 }
+                self.slideView.updateFilmstripBurstCache(self.burstClusterCache)
                 if self.multiUpMode != .single {
                     for s in 0..<self.displayedMultiUpPositions.count {
                         let p = self.displayedMultiUpPositions[s]
@@ -368,6 +369,14 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             nativeSizes: slotSizes,
             splitInfos: slotInfos,
             info: info
+        )
+
+        let playlistItems = filteredIndices.map { allItems[$0] }
+        slideView.updateFilmstrip(
+            items: playlistItems,
+            currentIndex: currentFilteredPos,
+            cullingData: cullingData,
+            burstCache: burstClusterCache
         )
 
         let activeSlotOffset = max(0, min(slotCount - 1, activeHoverSlot - 1))
@@ -934,6 +943,16 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
         navigate(toFilteredPos: heroTargetPos, direction: (heroTargetPos > currentPos) ? .forward : .backward)
         slideView.showToast("Jumped to Hero [ \(heroIdx) / \(burst.totalInBurst) ]", icon: "👑", shortcut: "B", tint: NSColor(srgbRed: 1.0, green: 0.84, blue: 0.25, alpha: 1.0))
+    }
+
+    public func slideViewJumpToFilteredPos(index: Int) {
+        stopSlideshowIfRunning()
+        guard index >= 0, index < filteredIndices.count else { return }
+        navigate(toFilteredPos: index, direction: .jump)
+    }
+
+    public func slideViewToggleFilmstrip() {
+        slideView.toggleFilmstrip()
     }
 
     public func slideViewRequestDelete() {
@@ -1547,6 +1566,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             burstInfo: burstBreadcrumb
         )
         slideView.hudView.update(with: info)
+        slideView.updateFilmstripCulling(for: item.id, metadata: meta)
     }
 
     public func slideViewHoverPaneChanged(to slot: Int) {

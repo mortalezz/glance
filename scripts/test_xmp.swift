@@ -1985,6 +1985,99 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+                // =========================================================================
+        // TEST 36: On-Demand Floating Filmstrip Scrubber & Micro-Thumbnail Engine
+        // =========================================================================
+        do {
+            print("🧪 TEST 36: On-Demand Floating Filmstrip Scrubber & Micro-Thumbnail Engine...")
+
+            // 1. MicroThumbnailEngine Invariants & Cache Behavior
+            let thumbEngine = MicroThumbnailEngine(targetPixelSize: 180)
+            assertEqual(thumbEngine.targetPixelSize, 180, "MicroThumbnailEngine uses 180px target size")
+
+            let testURL = URL(fileURLWithPath: "/tmp/glance_test_thumb.jpg")
+            let testImg = makeTestCGImage(width: 180, height: 120, r: 100, g: 150, b: 200)
+
+            assertEqual(thumbEngine.cachedThumbnail(for: testURL) == nil, true, "Thumbnail initially un-cached")
+            thumbEngine.cacheThumbnail(testImg, for: testURL)
+            let cached = thumbEngine.cachedThumbnail(for: testURL)
+            assertEqual(cached != nil, true, "Thumbnail retrieved synchronously from cache")
+            assertEqual(cached?.width, 180, "Cached thumbnail width is 180px")
+            assertEqual(cached?.height, 120, "Cached thumbnail height is 120px")
+
+            thumbEngine.clearCache()
+            assertEqual(thumbEngine.cachedThumbnail(for: testURL) == nil, true, "Cache cleared successfully")
+
+            // 2. FilmstripHudView Presentation & Pinned Invariants
+            await MainActor.run {
+                let filmstrip = FilmstripHudView()
+                assertEqual(filmstrip.isPresented, false, "Filmstrip initially unpresented")
+                assertEqual(filmstrip.isPinned, false, "Filmstrip initially unpinned")
+                assertEqual(filmstrip.isHidden, true, "Filmstrip initially hidden")
+
+                // Presentation via G key toggle (Pinned Mode)
+                filmstrip.togglePinned()
+                assertEqual(filmstrip.isPinned, true, "Filmstrip is pinned after toggle")
+                assertEqual(filmstrip.isPresented, true, "Filmstrip is presented after toggle")
+                assertEqual(filmstrip.isHidden, false, "Filmstrip is visible")
+
+                // Second G key toggle dismisses
+                filmstrip.togglePinned()
+                assertEqual(filmstrip.isPinned, false, "Filmstrip unpinned after second toggle")
+                assertEqual(filmstrip.isPresented, false, "Filmstrip dismissed after second toggle")
+
+                // Hover reveal (Unpinned Mode)
+                filmstrip.pulseFromHover()
+                assertEqual(filmstrip.isPresented, true, "Filmstrip presents on hover pulse")
+                assertEqual(filmstrip.isPinned, false, "Hover reveal remains unpinned for auto-dismissal")
+
+                // Dismiss
+                filmstrip.dismiss(animated: false)
+                assertEqual(filmstrip.isPresented, false, "Filmstrip dismissed")
+
+                // 3. Data Synchronization & Burst/Culling Layout Invariants
+                let mockItems = (0..<5).map { i in
+                    SlideItem(url: URL(fileURLWithPath: "/tmp/photo_\(i).arw"))
+                }
+                let cullingMap: [String: CullingMetadata] = [
+                    mockItems[0].id: CullingMetadata(rating: 0, pick: .unflagged),
+                    mockItems[1].id: CullingMetadata(rating: 3, pick: .pick),
+                    mockItems[2].id: CullingMetadata(rating: 5, pick: .reject, color: .red),
+                    mockItems[3].id: CullingMetadata(rating: 0, pick: .unflagged, color: .green),
+                    mockItems[4].id: CullingMetadata(rating: 4, pick: .pick, color: .blue)
+                ]
+                // Items 1, 2, 3 belong to a 3-frame burst where item 2 is the Hero
+                let burstMap: [Int: BurstBreadcrumbInfo?] = [
+                    1: BurstBreadcrumbInfo(indexInBurst: 1, totalInBurst: 3, isHero: false, heroIndex: 2),
+                    2: BurstBreadcrumbInfo(indexInBurst: 2, totalInBurst: 3, isHero: true, heroIndex: 2),
+                    3: BurstBreadcrumbInfo(indexInBurst: 3, totalInBurst: 3, isHero: false, heroIndex: 2)
+                ]
+
+                filmstrip.update(
+                    items: mockItems,
+                    currentIndex: 2,
+                    cullingData: cullingMap,
+                    burstCache: burstMap
+                )
+
+                // Verify active index update
+                filmstrip.updateActiveIndex(3)
+
+                // Verify live culling update for item 0
+                let newMeta = CullingMetadata(rating: 5, pick: .pick, color: .yellow)
+                filmstrip.updateCulling(for: mockItems[0].id, metadata: newMeta)
+
+                // Verify theme application
+                let theme = ThemeManager.shared
+                let origTheme = theme.currentTheme
+                theme.setTheme(.light, userInitiated: false)
+                filmstrip.applyTheme()
+                theme.setTheme(origTheme, userInitiated: false)
+            }
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

@@ -128,9 +128,9 @@ public final class QuickHelpView: NSView {
             (("\\ / ⇧\\", "Filter / Picks review"), ("O / ⇧O", "Blinkies / False Color")),
             (("Space / →", "Next / Prev photo"), ("F / ⇧F", "Fullscreen / Peaking")),
             (("[ / ]", "Scene leap"), ("I", "EXIF (Hover expand)")),
-            (("B", "Best in burst (Hero)"), ("V / T", "Profile / Theme")),
-            (("E / ⇧E", "Export / Batch Selects"), ("Return", "Slideshow (+ / - speed)")),
-            (("R / L", "Lossless rotate 90°"), ("⌘↵ / ⌘O", "Open in Lightroom/PS")),
+            (("B", "Best in burst (Hero)"), ("G", "Filmstrip scrubber")),
+            (("E / ⇧E", "Export / Batch Selects"), ("V / T", "Profile / Theme")),
+            (("R / L", "Lossless rotate 90°"), ("Return", "Slideshow (+ / - speed)")),
             (("⌫ / ⇧⌫", "Trash / Purge rejects"), ("⌘Z / ⇧⌘Z", "Multi-Step Undo / Redo")),
             (("?", "Cheatsheet toggle"), ("Esc / Q", "Dismiss / Quit Glance"))
         ]
@@ -249,7 +249,7 @@ public final class QuickHelpView: NSView {
             ),
             (
                 ("⌘Z / ⇧⌘Z", "Multi-Step Undo / Redo", "Full undo stack for ratings, flags, rotations, burst knockouts, and purge operations."),
-                ("I", "EXIF Technical HUD", "Camera, lens, exposure. Hover to reveal full shooting dossier (metering, WB, shutter count). Click to copy."),
+                ("G / I", "Filmstrip & EXIF HUD", "G: Floating filmstrip with burst brackets & ratings. I: EXIF dossier (hover to expand, click to copy)."),
                 ("Esc / Q", "Dismiss & Quit Glance", "Esc dismisses open overlays or zooms. Esc or Q quits Glance to reveal Finder.")
             )
         ]
