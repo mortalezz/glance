@@ -1865,6 +1865,53 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+                // =========================================================================
+        // TEST 34: Auto-Advance & Face Inspection Defaults & Conditional Visibility
+        // =========================================================================
+        do {
+            print("🧪 TEST 34: Auto-Advance & Face Inspection Defaults & Conditional Visibility...")
+
+            await MainActor.run {
+                // 1. Auto-Advance default on HudInfo & HUD Pill
+                let hud = GlassHudView()
+                let defaultInfo = HudInfo(currentIndex: 0, totalCount: 10, filename: "DSC_001.ARW", autoAdvance: true)
+                hud.update(with: defaultInfo)
+                assertEqual(defaultInfo.autoAdvance, true, "HudInfo reflects autoAdvance == true by default")
+                assertEqual(hud.autoPill.isHidden, false, "HUD AUTO pill is visible by default when autoAdvance is on")
+
+                let disabledInfo = HudInfo(currentIndex: 0, totalCount: 10, filename: "DSC_001.ARW", autoAdvance: false)
+                hud.update(with: disabledInfo)
+                assertEqual(hud.autoPill.isHidden, true, "HUD AUTO pill hides when autoAdvance is toggled off")
+
+                // 2. FaceLoupeOverlayView Conditional Visibility (Must not appear if no faces)
+                let faceOverlay = FaceLoupeOverlayView(frame: NSRect(x: 0, y: 0, width: 400, height: 120))
+                assertEqual(faceOverlay.isPresented, false, "Face overlay starts unpresented")
+                assertEqual(faceOverlay.isHidden, true, "Face overlay starts hidden")
+
+                // Calling present() when 0 faces are in view MUST NOT appear
+                faceOverlay.present()
+                assertEqual(faceOverlay.isPresented, false, "Face overlay refuses to present when no face tiles exist")
+                assertEqual(faceOverlay.isHidden, true, "Face overlay remains hidden when 0 faces detected")
+
+                // Populating faces enables presentation
+                let dummyCG = makeTestCGImage(width: 100, height: 100, r: 200, g: 150, b: 120)
+                let faceTile = FaceTileData(index: 1, image: dummyCG, eyeCenterNormalized: CGPoint(x: 0.5, y: 0.5))
+                faceOverlay.update(with: [faceTile])
+                faceOverlay.present()
+                assertEqual(faceOverlay.isPresented, true, "Face overlay presents when faces exist in view")
+
+                // When transitioning to a view/slide with 0 faces, update(with: []) must auto-dismiss
+                faceOverlay.update(with: [])
+                assertEqual(faceOverlay.isPresented, false, "Face overlay automatically dismisses when view has no faces")
+
+                // Calling dismiss() when already dismissed is safe
+                faceOverlay.dismiss()
+                assertEqual(faceOverlay.isPresented, false, "Safe idempotent dismiss")
+            }
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

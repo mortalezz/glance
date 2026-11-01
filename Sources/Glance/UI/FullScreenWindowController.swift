@@ -15,7 +15,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     private var filteredIndices: [Int] = []
     private var currentFilteredPos: Int = 0
 
-    private var autoAdvance: Bool = false
+    private var autoAdvance: Bool = true
     private var isDeleting: Bool = false
 
     // Multi-Up View & Inspection
@@ -41,7 +41,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     private var slideshowTimer: Timer? = nil
 
     // Auto Face & Eye Focus Jump
-    private var isFaceOverlayVisible: Bool = false
+    private var isFaceOverlayVisible: Bool = true
     private var filterBeforePicksToggle: CullingFilter? = nil
     private var detectedFacesForCurrentSlide: [DetectedFace] = []
     private var detectedFacesForChallengerSlide: [DetectedFace] = []
@@ -393,8 +393,21 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             info: info
         )
 
+        let activeSlotOffset = max(0, min(slotCount - 1, activeHoverSlot - 1))
+        let activePos = (activeSlotOffset < pagePositions.count) ? pagePositions[activeSlotOffset] : currentFilteredPos
+        let activeRawIdx = (activePos < filteredIndices.count) ? filteredIndices[activePos] : rawIndex
+
         if isFaceOverlayVisible {
-            refreshFaceOverlay(for: decoded.image, faces: detectedFacesForCurrentSlide)
+            let activeImg = slotImages[activeSlotOffset] ?? decoded.image
+            if let cachedFaces = detectedFacesByRawIndex[activeRawIdx] {
+                refreshFaceOverlay(for: activeImg, faces: cachedFaces)
+            } else {
+                slideView.updateFaceTiles([])
+                slideView.setFaceOverlayVisible(false)
+            }
+        } else {
+            slideView.updateFaceTiles([])
+            slideView.setFaceOverlayVisible(false)
         }
 
         // Asynchronous Histogram calculations for all visible panes
@@ -1131,11 +1144,12 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
     public func slideViewToggleFaceOverlay() {
         isFaceOverlayVisible.toggle()
-        slideView.setFaceOverlayVisible(isFaceOverlayVisible)
         if isFaceOverlayVisible {
             slideView.showToast("Face Inspection On", icon: "👥", shortcut: "A", tint: .systemCyan)
             refreshFaceOverlay()
         } else {
+            slideView.setFaceOverlayVisible(false)
+            slideView.updateFaceTiles([])
             slideView.showToast("Face Inspection Off", icon: "👥", shortcut: "A")
         }
     }
@@ -1181,13 +1195,18 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     }
 
     private func refreshFaceOverlay(for cgImage: CGImage? = nil, faces: [DetectedFace]? = nil) {
-        guard isFaceOverlayVisible else { return }
+        guard isFaceOverlayVisible else {
+            slideView.updateFaceTiles([])
+            slideView.setFaceOverlayVisible(false)
+            return
+        }
 
         let activePos = (activeHoverSlot <= displayedMultiUpPositions.count)
             ? displayedMultiUpPositions[activeHoverSlot - 1]
             : currentFilteredPos
         guard activePos < filteredIndices.count else {
             slideView.updateFaceTiles([])
+            slideView.setFaceOverlayVisible(false)
             return
         }
 
@@ -1212,6 +1231,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
             guard !faceList.isEmpty else {
                 self.slideView.updateFaceTiles([])
+                self.slideView.setFaceOverlayVisible(false)
                 return
             }
 
@@ -1226,6 +1246,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
             guard let image = img else {
                 self.slideView.updateFaceTiles([])
+                self.slideView.setFaceOverlayVisible(false)
                 return
             }
 
@@ -1261,7 +1282,16 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 ))
             }
 
+            guard !tiles.isEmpty else {
+                self.slideView.updateFaceTiles([])
+                self.slideView.setFaceOverlayVisible(false)
+                return
+            }
+
             self.slideView.updateFaceTiles(tiles)
+            if self.isFaceOverlayVisible {
+                self.slideView.setFaceOverlayVisible(true)
+            }
         }
     }
 

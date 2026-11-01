@@ -299,7 +299,7 @@ public final class FaceLoupeOverlayView: NSView {
         tilesStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.addArrangedSubview(tilesStack)
 
-        // Empty label
+        // Empty label (kept hidden; widget hides when empty)
         emptyLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
         emptyLabel.isHidden = true
         contentStack.addArrangedSubview(emptyLabel)
@@ -355,8 +355,9 @@ public final class FaceLoupeOverlayView: NSView {
         if tiles.isEmpty {
             titleLabel.stringValue = "👥 FACES"
             hintLabel.stringValue = ""
-            emptyLabel.isHidden = false
+            emptyLabel.isHidden = true
             tilesStack.isHidden = true
+            dismiss()
         } else {
             titleLabel.stringValue = "👥 FACES (\(tiles.count))"
             hintLabel.stringValue = "Click to jump 100%"
@@ -384,6 +385,10 @@ public final class FaceLoupeOverlayView: NSView {
     }
 
     public func present() {
+        guard !tilesStack.arrangedSubviews.isEmpty else {
+            dismiss()
+            return
+        }
         guard !isPresented else { return }
         isPresented = true
         isHidden = false
@@ -397,7 +402,11 @@ public final class FaceLoupeOverlayView: NSView {
     }
 
     public func dismiss() {
-        guard isPresented else { return }
+        guard isPresented else {
+            isHidden = true
+            alphaValue = 0.0
+            return
+        }
         isPresented = false
 
         NSAnimationContext.runAnimationGroup({ context in

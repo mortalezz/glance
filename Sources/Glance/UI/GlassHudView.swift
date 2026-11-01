@@ -253,7 +253,7 @@ public final class GlassHudView: NSView {
     private let rawBadge = NSView()
     private let rawLabel = NSTextField(labelWithString: "RAW")
 
-    private let autoPill = NSView()
+    public private(set) var autoPill = NSView()
     private let autoLabel = NSTextField(labelWithString: "AUTO")
 
     private let filterPill = NSView()
