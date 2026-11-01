@@ -141,10 +141,26 @@ open class ThemedPillView: NSView {
 
     public override func layout() {
         super.layout()
-        // Enforce perfect capsule shape based on actual height
-        let r = bounds.height / 2.0
+        let h = bounds.height
+        let r = h / 2.0
         visualEffectView.layer?.cornerRadius = r
         layer?.cornerRadius = r
+
+        if hasIndicatorDot {
+            let dotSize: CGFloat = 5.0
+            let font = label.font ?? NSFont.systemFont(ofSize: 9, weight: .bold)
+            let labelH = label.frame.height > 0 ? label.frame.height : label.fittingSize.height
+            let labelMinY = (h - labelH) / 2.0
+            let capCenterY = labelMinY + (-font.descender + font.capHeight / 2.0)
+            let dotY = round(capCenterY - dotSize / 2.0)
+            let dotX: CGFloat = 7.5
+
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            indicatorDot.frame = CGRect(x: dotX, y: dotY, width: dotSize, height: dotSize)
+            indicatorDot.cornerRadius = dotSize / 2.0
+            CATransaction.commit()
+        }
     }
 
     private func setupUI() {
@@ -171,8 +187,8 @@ open class ThemedPillView: NSView {
         ])
 
         // Optional status dot
-        indicatorDot.frame = CGRect(x: 8.5, y: 7.0, width: 6, height: 6)
-        indicatorDot.cornerRadius = 3.0
+        indicatorDot.frame = CGRect(x: 7.5, y: 6.0, width: 5.0, height: 5.0)
+        indicatorDot.cornerRadius = 2.5
         indicatorDot.isHidden = !hasIndicatorDot
         visualEffectView.layer?.addSublayer(indicatorDot)
 
@@ -182,19 +198,20 @@ open class ThemedPillView: NSView {
         label.translatesAutoresizingMaskIntoConstraints = false
         visualEffectView.addSubview(label)
 
-        let lead = label.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor, constant: hasIndicatorDot ? 19 : 8)
+        let lead = label.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor, constant: hasIndicatorDot ? 18 : 8)
         self.leadingConstraint = lead
 
         NSLayoutConstraint.activate([
             lead,
             label.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor, constant: -8),
-            label.topAnchor.constraint(equalTo: visualEffectView.topAnchor, constant: 2.5),
-            label.bottomAnchor.constraint(equalTo: visualEffectView.bottomAnchor, constant: -2.5)
+            label.centerYAnchor.constraint(equalTo: visualEffectView.centerYAnchor),
+            visualEffectView.heightAnchor.constraint(greaterThanOrEqualToConstant: 18)
         ])
     }
 
     private func updateLayoutConstraints() {
-        leadingConstraint?.constant = hasIndicatorDot ? 19 : 8
+        leadingConstraint?.constant = hasIndicatorDot ? 18 : 8
+        needsLayout = true
     }
 
     private func setupThemeObserver() {

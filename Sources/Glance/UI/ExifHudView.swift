@@ -430,9 +430,10 @@ public final class ExifHudView: NSView {
         guard isExpanded != expanded else { return }
         isExpanded = expanded
 
-        expandBadge.label.stringValue = expanded ? "▴ Expanded" : "▾ Details"
+        expandBadge.label.stringValue = expanded ? "Expanded" : "▾ Details"
         expandBadge.hasIndicatorDot = expanded
         expandBadge.indicatorDot.backgroundColor = NSColor.systemCyan.cgColor
+        expandBadge.needsLayout = true
 
         onHoverExpansionChanged?(expanded)
 
