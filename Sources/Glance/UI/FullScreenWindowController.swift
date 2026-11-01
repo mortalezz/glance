@@ -1869,7 +1869,18 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         window?.toggleFullScreen(nil)
     }
 
+    public func windowDidResignKey(_ notification: Notification) {
+        CursorLoupeView.unhideSystemCursor()
+    }
+
+    public func windowDidBecomeKey(_ notification: Notification) {
+        if slideView.cursorLoupeView.isPresented {
+            CursorLoupeView.hideSystemCursor()
+        }
+    }
+
     public func slideViewClose() {
+        CursorLoupeView.unhideSystemCursor()
         stopSlideshowTimer()
         NSApp.terminate(nil)
     }

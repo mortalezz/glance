@@ -5,10 +5,19 @@ import CoreGraphics
 /// without displacing or zooming the overall photo framing.
 @MainActor
 public final class CursorLoupeView: NSView {
-    public static let transparentCursor: NSCursor = {
-        let img = NSImage(size: NSSize(width: 1, height: 1))
-        return NSCursor(image: img, hotSpot: .zero)
-    }()
+    private static var isSystemCursorHidden = false
+
+    public static func hideSystemCursor() {
+        guard !isSystemCursorHidden else { return }
+        isSystemCursorHidden = true
+        NSCursor.hide()
+    }
+
+    public static func unhideSystemCursor() {
+        guard isSystemCursorHidden else { return }
+        isSystemCursorHidden = false
+        NSCursor.unhide()
+    }
 
     public private(set) var isPresented: Bool = false
     public private(set) var magnification: CGFloat = 2.0 // 2.0 or 4.0
@@ -240,7 +249,7 @@ public final class CursorLoupeView: NSView {
     public func present() {
         isPresented = true
         isHidden = false
-        CursorLoupeView.transparentCursor.set()
+        CursorLoupeView.hideSystemCursor()
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.12
             self.animator().alphaValue = 1.0
@@ -251,7 +260,7 @@ public final class CursorLoupeView: NSView {
     public func dismiss() {
         guard isPresented else { return }
         isPresented = false
-        NSCursor.arrow.set()
+        CursorLoupeView.unhideSystemCursor()
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.12
             self.animator().alphaValue = 0.0
@@ -306,7 +315,7 @@ public final class CursorLoupeView: NSView {
         self.frame.origin = CGPoint(x: targetX, y: targetY)
         CATransaction.commit()
 
-        CursorLoupeView.transparentCursor.set()
+        CursorLoupeView.hideSystemCursor()
 
         // 2. Sample underlying pane image
         guard let info = slideView.imageInfoForPoint(mousePt) else {

@@ -1786,7 +1786,7 @@ public final class SlideView: NSView {
         let mousePt = convert(event.locationInWindow, from: nil)
 
         if cursorLoupeView.isPresented {
-            CursorLoupeView.transparentCursor.set()
+            CursorLoupeView.hideSystemCursor()
             cursorLoupeView.updatePosition(mousePt: mousePt, in: self)
         }
 
@@ -1850,7 +1850,7 @@ public final class SlideView: NSView {
     public override func mouseExited(with event: NSEvent) {
         cursorTimer?.invalidate()
         if cursorLoupeView.isPresented {
-            NSCursor.arrow.set()
+            CursorLoupeView.unhideSystemCursor()
         }
     }
 
