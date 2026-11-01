@@ -1246,7 +1246,7 @@ public final class SlideView: NSView {
         updateLayerLayout(animated: true)
 
         if let msg = label {
-            showToast(msg, icon: "👁️", shortcut: "⇧Z")
+            showToast(msg, icon: "👁️", shortcut: "⇧Z", tint: .systemCyan)
         }
     }
 

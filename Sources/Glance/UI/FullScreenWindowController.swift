@@ -1078,9 +1078,13 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     public func slideViewRequestZoomToggle(mouseLocation: CGPoint) {
         stopSlideshowIfRunning()
         if slideView.isZoomed {
+            let wasFaceZoomed = (activeZoomedFaceIndex != nil)
             activeZoomedFaceIndex = nil
             slideView.faceOverlayView.setActiveFaceIndex(nil)
             slideView.setZoom(false)
+            if wasFaceZoomed {
+                slideView.showToast("Eye Focus: Off", icon: "👁️", shortcut: "⇧Z")
+            }
         } else {
             guard currentRawIndex != nil else { return }
 
@@ -1198,6 +1202,8 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             activeZoomedFaceIndex = nil
             slideView.faceOverlayView.setActiveFaceIndex(nil)
             slideView.setZoom(false)
+            let unzoomMsg = (multiUpMode != .single) ? "[\(slotOffset + 1)] Eye Focus: Off" : "Eye Focus: Off"
+            slideView.showToast(unzoomMsg, icon: "👁️", shortcut: "⇧Z")
             return
         }
 
@@ -1215,7 +1221,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         slideView.faceOverlayView.setActiveFaceIndex(index)
 
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
-        let label = "👁️ Face \(index)/\(faces.count) (Eye Focus)"
+        let label = (multiUpMode != .single)
+            ? "[\(slotOffset + 1)] Face \(index)/\(faces.count) (Eye Focus)"
+            : "Face \(index)/\(faces.count) (Eye Focus)"
         slideView.zoomToNormalizedPoint(face.eyeCenter, targetPaneIndex: slotOffset, label: label)
 
         Task {
@@ -1388,12 +1396,12 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             let label: String
             if self.multiUpMode != .single {
                 label = faces.count > 1
-                    ? "👁️ [\(targetSlot)] Face \((nextIdx % faces.count) + 1)/\(faces.count) (Eye Focus)"
-                    : "👁️ [\(targetSlot)] Eye Focus"
+                    ? "[\(targetSlot)] Face \(faceIdx)/\(faces.count) (Eye Focus)"
+                    : "[\(targetSlot)] Eye Focus"
             } else {
                 label = faces.count > 1
-                    ? "👁️ Face \((nextIdx % faces.count) + 1)/\(faces.count) (Eye Focus)"
-                    : "👁️ Eye Focus"
+                    ? "Face \(faceIdx)/\(faces.count) (Eye Focus)"
+                    : "Eye Focus"
             }
 
             let eyePoint = currentFace.eyeCenter
