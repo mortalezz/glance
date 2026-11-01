@@ -113,10 +113,10 @@ public final class QuickHelpView: NSView {
         let header = makeSectionHeader(title: "KEYBOARD SHORTCUTS")
         stack.addArrangedSubview(header)
 
-        // Balanced 2-column table grid (13 rows each, perfectly aligned horizontally)
+        // Semantic 4-column table grid: guarantees 100% mathematical keycap width & column alignment
         let grid = NSGridView()
         grid.translatesAutoresizingMaskIntoConstraints = false
-        grid.columnSpacing = 32
+        grid.columnSpacing = 10
         grid.rowSpacing = 8
 
         let compactPairs: [(col1: (key: String, desc: String), col2: (key: String, desc: String))] = [
@@ -127,22 +127,27 @@ public final class QuickHelpView: NSView {
             (("C", "Auto-advance (ON)"), ("H", "RGB Histogram")),
             (("\\ / ⇧\\", "Filter / Picks review"), ("O / ⇧O", "Blinkies / False Color")),
             (("Space / →", "Next / Prev photo"), ("F / ⇧F", "Fullscreen / Peaking")),
-            (("[ / ]", "Scene leap"), ("I", "EXIF (Hover expand)")),
-            (("B", "Best in burst (Hero)"), ("G", "Filmstrip scrubber")),
+            (("[ / ]", "Scene leap"), ("G", "Filmstrip scrubber")),
+            (("B", "Best in burst (Hero)"), ("I", "EXIF (Hover expand)")),
             (("E / ⇧E", "Export / Batch Selects"), ("V / T", "Profile / Theme")),
             (("R / L", "Lossless rotate 90°"), ("Return", "Slideshow (+ / - speed)")),
-            (("⌫ / ⇧⌫", "Trash / Purge rejects"), ("⌘Z / ⇧⌘Z", "Multi-Step Undo / Redo")),
-            (("?", "Cheatsheet toggle"), ("Esc / Q", "Dismiss / Quit Glance"))
+            (("⌫ / ⇧⌫", "Trash / Purge rejects"), ("⌘↵ / ⌘O", "Open in Lightroom/PS")),
+            (("⌘Z / ⇧⌘Z", "Multi-Step Undo / Redo"), ("Esc / Q", "Dismiss / Quit Glance"))
         ]
 
         for pair in compactPairs {
-            let rowCell1 = makeCompactRow(key: pair.col1.key, desc: pair.col1.desc)
-            let rowCell2 = makeCompactRow(key: pair.col2.key, desc: pair.col2.desc)
-            grid.addRow(with: [rowCell1, rowCell2])
+            let k1 = makeKeycap(text: pair.col1.key, fixedWidth: 70)
+            let d1 = makeCompactDescLabel(text: pair.col1.desc)
+            let k2 = makeKeycap(text: pair.col2.key, fixedWidth: 70)
+            let d2 = makeCompactDescLabel(text: pair.col2.desc)
+            grid.addRow(with: [k1, d1, k2, d2])
         }
 
-        grid.column(at: 0).width = 205
-        grid.column(at: 1).width = 225
+        grid.column(at: 0).width = 70
+        grid.column(at: 1).width = 145
+        grid.column(at: 1).trailingPadding = 24 // Semantic gap between Col 1 and Col 2
+        grid.column(at: 2).width = 70
+        grid.column(at: 3).width = 165
 
         stack.addArrangedSubview(grid)
         compactContainer.addSubview(stack)
@@ -157,28 +162,13 @@ public final class QuickHelpView: NSView {
         rootStack.addArrangedSubview(compactContainer)
     }
 
-    private func makeCompactRow(key: String, desc: String) -> NSView {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 10
-        row.translatesAutoresizingMaskIntoConstraints = false
-
-        let keycap = makeKeycap(text: key, fixedWidth: 54)
-        row.addArrangedSubview(keycap)
-
-        let descLabel = NSTextField(labelWithString: desc)
+    private func makeCompactDescLabel(text: String) -> NSTextField {
+        let descLabel = NSTextField(labelWithString: text)
         descLabel.font = NSFont.systemFont(ofSize: 12, weight: .regular)
         descLabel.lineBreakMode = .byClipping
+        descLabel.translatesAutoresizingMaskIntoConstraints = false
         primaryLabels.append(descLabel)
-        row.addArrangedSubview(descLabel)
-
-        let spacer = NSView()
-        spacer.translatesAutoresizingMaskIntoConstraints = false
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        row.addArrangedSubview(spacer)
-
-        return row
+        return descLabel
     }
 
     // MARK: - Expanded Mode Layout (3-Column Table Grid Alignment)
@@ -337,10 +327,11 @@ public final class QuickHelpView: NSView {
         if let width = fixedWidth {
             NSLayoutConstraint.activate([
                 keycap.heightAnchor.constraint(equalToConstant: 20),
-                keycap.widthAnchor.constraint(greaterThanOrEqualToConstant: width),
-                keycap.widthAnchor.constraint(greaterThanOrEqualTo: keyLabel.widthAnchor, constant: 10),
+                keycap.widthAnchor.constraint(equalToConstant: width),
                 keyLabel.centerXAnchor.constraint(equalTo: keycap.centerXAnchor),
-                keyLabel.centerYAnchor.constraint(equalTo: keycap.centerYAnchor)
+                keyLabel.centerYAnchor.constraint(equalTo: keycap.centerYAnchor),
+                keyLabel.leadingAnchor.constraint(greaterThanOrEqualTo: keycap.leadingAnchor, constant: 2),
+                keyLabel.trailingAnchor.constraint(lessThanOrEqualTo: keycap.trailingAnchor, constant: -2)
             ])
         } else {
             NSLayoutConstraint.activate([

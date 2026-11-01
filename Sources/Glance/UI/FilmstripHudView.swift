@@ -14,6 +14,7 @@ public final class FilmstripHudView: ThemedGlassCardView {
 
     public private(set) var isPresented: Bool = false
     public private(set) var isPinned: Bool = false
+    public private(set) var widthConstraint: NSLayoutConstraint?
 
     private var items: [SlideItem] = []
     private var currentIndex: Int = 0
@@ -42,6 +43,11 @@ public final class FilmstripHudView: ThemedGlassCardView {
         alphaValue = 0.0
         isHidden = true
 
+        let wc = widthAnchor.constraint(equalToConstant: 760)
+        wc.priority = .defaultHigh
+        wc.isActive = true
+        self.widthConstraint = wc
+
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.drawsBackground = false
         scrollView.hasHorizontalScroller = false
@@ -50,7 +56,10 @@ public final class FilmstripHudView: ThemedGlassCardView {
         scrollView.horizontalScrollElasticity = .allowed
         scrollView.verticalScrollElasticity = .none
 
-        canvasView.translatesAutoresizingMaskIntoConstraints = false
+        // Critical: canvasView MUST use translatesAutoresizingMaskIntoConstraints = true
+        // so NSClipView tracks canvasView.frame as the scrollable document size
+        canvasView.translatesAutoresizingMaskIntoConstraints = true
+        canvasView.autoresizingMask = [.height]
         canvasView.hud = self
         scrollView.documentView = canvasView
 
@@ -180,6 +189,14 @@ public final class FilmstripHudView: ThemedGlassCardView {
         self.cullingData = cullingData
         self.burstCache = burstCache
 
+        let count = items.count
+        let stride: CGFloat = 84.0
+        let contentW = 32.0 + CGFloat(count) * stride
+        let maxAllowed = superview?.bounds.width ?? 960.0
+        let maxW = maxAllowed > 100 ? maxAllowed - 64.0 : 960.0
+        let targetW = max(320.0, min(maxW, contentW))
+        widthConstraint?.constant = targetW
+
         canvasView.reloadData(
             items: items,
             currentIndex: self.currentIndex,
@@ -251,6 +268,17 @@ public final class FilmstripHudView: ThemedGlassCardView {
         }
     }
 
+    public override func mouseDown(with event: NSEvent) {
+        cancelAutoDismiss()
+        let pt = convert(event.locationInWindow, from: nil)
+        let ptInCanvas = canvasView.convert(pt, from: self)
+        if let idx = canvasView.indexForPoint(ptInCanvas) {
+            NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+            onSelectIndex?(idx)
+            canvasView.updateActiveSelection(newIndex: idx)
+        }
+    }
+
     public override func applyTheme() {
         super.applyTheme()
         canvasView.applyTheme()
@@ -291,6 +319,10 @@ final class FilmstripCanvasView: NSView {
         return true
     }
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        return true
+    }
+
     func reloadData(
         items: [SlideItem],
         currentIndex: Int,
@@ -307,7 +339,8 @@ final class FilmstripCanvasView: NSView {
             ? 320.0
             : (leftInset + CGFloat(count) * (cellWidth + spacing) - spacing + rightInset)
 
-        let targetFrame = NSRect(x: 0, y: 0, width: max(320.0, totalW), height: 76.0)
+        let targetH = max(76.0, (superview as? NSClipView)?.bounds.height ?? 76.0)
+        let targetFrame = NSRect(x: 0, y: 0, width: max(320.0, totalW), height: targetH)
         if frame != targetFrame {
             frame = targetFrame
         }
@@ -363,8 +396,9 @@ final class FilmstripCanvasView: NSView {
         let stride = cellWidth + spacing
         let vis = visibleRect
 
+        let effectiveMaxX = vis.width > 10 ? vis.maxX : (vis.minX + max(bounds.width, 960.0))
         let firstIndex = max(0, Int(floor((vis.minX - leftInset) / stride)) - 1)
-        let lastIndex = min(items.count - 1, Int(ceil((vis.maxX - leftInset) / stride)) + 1)
+        let lastIndex = min(items.count - 1, Int(ceil((effectiveMaxX - leftInset) / stride)) + 1)
 
         // Recycle offscreen cells
         var toRemove: [Int] = []
@@ -428,7 +462,7 @@ final class FilmstripCanvasView: NSView {
 
     // MARK: - Scrubbing & Mouse Interaction
 
-    private func indexForPoint(_ point: NSPoint) -> Int? {
+    public func indexForPoint(_ point: NSPoint) -> Int? {
         let stride = cellWidth + spacing
         let relX = point.x - leftInset
         guard relX >= 0 else { return 0 }
@@ -485,6 +519,14 @@ final class FilmstripThumbnailCell: NSView {
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         setupLayers()
+    }
+
+    override var isFlipped: Bool {
+        return true
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        return true
     }
 
     private func setupLayers() {
@@ -578,7 +620,6 @@ final class FilmstripThumbnailCell: NSView {
         let w = bounds.width
         let h = bounds.height
 
-        // Thumbnail occupies lower portion to leave top room for burst brackets
         let thumbFrame = CGRect(x: 0, y: 0, width: w, height: h)
         imageLayer.frame = thumbFrame
 
@@ -590,17 +631,18 @@ final class FilmstripThumbnailCell: NSView {
             height: h + rimOutset * 2
         )
 
+        // In flipped coordinates (y = 0 is top):
         // Pick badge in top-left
-        pickBadgeLayer.frame = CGRect(x: 3, y: h - 17, width: 14, height: 14)
+        pickBadgeLayer.frame = CGRect(x: 3, y: 3, width: 14, height: 14)
 
         // Hero badge in top-right
-        heroBadgeLayer.frame = CGRect(x: w - 18, y: h - 16, width: 16, height: 16)
+        heroBadgeLayer.frame = CGRect(x: w - 18, y: 2, width: 16, height: 16)
 
         // Rating in bottom-left
-        ratingBadgeLayer.frame = CGRect(x: 3, y: 3, width: 18, height: 12)
+        ratingBadgeLayer.frame = CGRect(x: 3, y: h - 15, width: 18, height: 12)
 
         // Color bar across bottom edge
-        colorBarLayer.frame = CGRect(x: 0, y: 0, width: w, height: 3.5)
+        colorBarLayer.frame = CGRect(x: 0, y: h - 3.5, width: w, height: 3.5)
 
         CATransaction.commit()
     }
@@ -708,27 +750,26 @@ final class FilmstripThumbnailCell: NSView {
 
         heroBadgeLayer.isHidden = !burst.isHero
 
-        // Build burst bracket shape
+        // Build burst bracket shape in flipped coordinates (y = -4 is above cell top edge)
         let path = CGMutablePath()
         let w = bounds.width
-        let y: CGFloat = bounds.height + 4.0
+        let y: CGFloat = -4.0
 
         if isBurstStart && isBurstEnd {
-            // Standalone single-frame burst item
-            path.move(to: CGPoint(x: 2, y: bounds.height - 2))
+            path.move(to: CGPoint(x: 2, y: 2))
             path.addLine(to: CGPoint(x: 2, y: y))
             path.addLine(to: CGPoint(x: w - 2, y: y))
-            path.addLine(to: CGPoint(x: w - 2, y: bounds.height - 2))
+            path.addLine(to: CGPoint(x: w - 2, y: 2))
         } else if isBurstStart {
             // Burst start bracket: ┌───
-            path.move(to: CGPoint(x: 2, y: bounds.height - 2))
+            path.move(to: CGPoint(x: 2, y: 2))
             path.addLine(to: CGPoint(x: 2, y: y))
             path.addLine(to: CGPoint(x: w + 8, y: y))
         } else if isBurstEnd {
             // Burst end bracket: ───┐
             path.move(to: CGPoint(x: -8, y: y))
             path.addLine(to: CGPoint(x: w - 2, y: y))
-            path.addLine(to: CGPoint(x: w - 2, y: bounds.height - 2))
+            path.addLine(to: CGPoint(x: w - 2, y: 2))
         } else {
             // Middle burst frame: continuous line across
             path.move(to: CGPoint(x: -8, y: y))

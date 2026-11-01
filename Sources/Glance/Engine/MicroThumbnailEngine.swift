@@ -98,7 +98,9 @@ public final class MicroThumbnailEngine: @unchecked Sendable {
     }
 
     private func decodeFromSource(_ source: CGImageSource) -> CGImage? {
-        // Fast embedded thumbnail extraction first: sub-2ms for camera RAW/EXIF previews
+        let count = CGImageSourceGetCount(source)
+
+        // 1. Fast embedded thumbnail extraction first: sub-2ms for camera RAW/EXIF previews across all streams
         let embeddedOptions: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
             kCGImageSourceCreateThumbnailWithTransform: true, // Auto-rotate EXIF
@@ -106,11 +108,13 @@ public final class MicroThumbnailEngine: @unchecked Sendable {
             kCGImageSourceShouldCacheImmediately: true
         ]
 
-        if let thumb = CGImageSourceCreateThumbnailAtIndex(source, 0, embeddedOptions as CFDictionary) {
-            return thumb
+        for i in 0..<count {
+            if let thumb = CGImageSourceCreateThumbnailAtIndex(source, i, embeddedOptions as CFDictionary) {
+                return thumb
+            }
         }
 
-        // Fallback: force generation from full image data if embedded thumbnail is absent
+        // 2. Fallback: force generation from full image data if embedded thumbnail is absent
         let fallbackOptions: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
