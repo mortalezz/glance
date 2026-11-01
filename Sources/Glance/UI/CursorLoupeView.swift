@@ -96,7 +96,7 @@ public final class CursorLoupeView: NSView {
         isHidden = true
         alphaValue = 0.0
 
-        // 1. Dual-stage natural floating elevation drop shadow
+        // 1. Natural floating elevation drop shadow
         let shadow = NSShadow()
         shadow.shadowColor = NSColor.black.withAlphaComponent(0.48)
         shadow.shadowBlurRadius = 18
@@ -268,7 +268,7 @@ public final class CursorLoupeView: NSView {
         // 1. Center precision target circle (radius 14pt, diameter 28pt)
         path.addEllipse(in: CGRect(x: midX - 14.0, y: midY - 14.0, width: 28.0, height: 28.0))
 
-        // 2. Cardinal guide hairlines with 6pt center clearance
+        // 2. Cardinal guide hairlines with 6pt center clearance for unobstructed target inspection
         let innerClear: CGFloat = 6.0
         let outerLen: CGFloat = 36.0
 
@@ -287,7 +287,7 @@ public final class CursorLoupeView: NSView {
 
         // 3. Vernier sub-scale hash ticks across hairlines at radius 24pt
         let hashRadius: CGFloat = 24.0
-        let hashHalf: CGFloat = 3.0
+        let hashHalf: CGFloat = 3.5
 
         // North tick
         path.move(to: CGPoint(x: midX - hashHalf, y: midY + hashRadius))
@@ -302,19 +302,19 @@ public final class CursorLoupeView: NSView {
         path.move(to: CGPoint(x: midX + hashRadius, y: midY - hashHalf))
         path.addLine(to: CGPoint(x: midX + hashRadius, y: midY + hashHalf))
 
-        // Subtle dark shadow outline for instant legibility over bright specular areas
+        // Dual-Stroke Reticle: Solid Black backing for 100% legibility over bright specular areas (e.g. windshield glare, sky, snow)
         let darkBacking = CAShapeLayer()
         darkBacking.path = path
-        darkBacking.strokeColor = NSColor.black.withAlphaComponent(0.42).cgColor
-        darkBacking.lineWidth = 2.0
+        darkBacking.strokeColor = NSColor.black.withAlphaComponent(0.95).cgColor
+        darkBacking.lineWidth = 2.6
         darkBacking.fillColor = nil
         darkBacking.lineCap = .round
 
-        // Crisp optical hairline
+        // Brilliant pure white optical hairline core
         let hairline = CAShapeLayer()
         hairline.path = path
-        hairline.strokeColor = NSColor.white.withAlphaComponent(0.85).cgColor
-        hairline.lineWidth = 0.85
+        hairline.strokeColor = NSColor.white.withAlphaComponent(1.0).cgColor
+        hairline.lineWidth = 1.0
         hairline.fillColor = nil
         hairline.lineCap = .round
 
@@ -336,38 +336,74 @@ public final class CursorLoupeView: NSView {
     }
 
     public func updateTheme() {
-        let isDark = ThemeManager.shared.isDark
+        let theme = ThemeManager.shared
+        let isDark = theme.isDark
+
+        // 1. Overall View Shadow: consistent with Glance HUD floating elevation
+        let shadow = NSShadow()
+        shadow.shadowColor = theme.shadowColor
+        shadow.shadowBlurRadius = isDark ? 20 : 16
+        shadow.shadowOffset = NSSize(width: 0, height: -5)
+        self.shadow = shadow
+
+        // 2. Translucent Frosted Glass Barrel: matches Glance Frosted Glass design language
         if isDark {
-            // Titanium barrel
-            barrelContainer.backgroundColor = NSColor(white: 0.12, alpha: 0.94).cgColor
-            outerChamferLayer.borderColor = NSColor(white: 1.0, alpha: 0.22).cgColor
-            innerChamferLayer.borderColor = NSColor(white: 1.0, alpha: 0.38).cgColor
-            bezelEngravingsLayer.strokeColor = NSColor(white: 1.0, alpha: 0.30).cgColor
+            barrelContainer.backgroundColor = NSColor(deviceWhite: 0.08, alpha: 0.85).cgColor
+            outerChamferLayer.borderColor = theme.glassBorderColor
+            innerChamferLayer.borderColor = NSColor.white.withAlphaComponent(0.35).cgColor
+            bezelEngravingsLayer.strokeColor = NSColor.white.withAlphaComponent(0.40).cgColor
 
-            badgeView.layer?.borderColor = NSColor(white: 1.0, alpha: 0.32).cgColor
-            badgeView.layer?.backgroundColor = NSColor(white: 0.08, alpha: 0.65).cgColor
-            badgeLabel.textColor = NSColor(white: 0.95, alpha: 1.0)
+            badgeView.appearance = theme.glassAppearance
+            badgeView.layer?.backgroundColor = theme.wellBackgroundColor
+            badgeView.layer?.borderColor = theme.pillBorderColor
+            badgeLabel.textColor = theme.primaryTextColor
+
+            let textShadow = NSShadow()
+            textShadow.shadowColor = NSColor.black.withAlphaComponent(0.80)
+            textShadow.shadowOffset = NSSize(width: 0, height: -1)
+            textShadow.shadowBlurRadius = 2
+            badgeLabel.shadow = textShadow
         } else {
-            // Brushed aluminum barrel
-            barrelContainer.backgroundColor = NSColor(white: 0.92, alpha: 0.94).cgColor
-            outerChamferLayer.borderColor = NSColor(white: 0.15, alpha: 0.25).cgColor
-            innerChamferLayer.borderColor = NSColor(white: 0.20, alpha: 0.30).cgColor
-            bezelEngravingsLayer.strokeColor = NSColor(white: 0.20, alpha: 0.35).cgColor
+            // Light Frosted Platinum Glass (semi-translucent, matches Glance Light HUD)
+            barrelContainer.backgroundColor = NSColor(deviceWhite: 0.93, alpha: 0.82).cgColor
+            outerChamferLayer.borderColor = theme.glassBorderColor
+            innerChamferLayer.borderColor = NSColor.black.withAlphaComponent(0.18).cgColor
+            bezelEngravingsLayer.strokeColor = NSColor.black.withAlphaComponent(0.50).cgColor
 
-            badgeView.layer?.borderColor = NSColor(white: 0.10, alpha: 0.25).cgColor
-            badgeView.layer?.backgroundColor = NSColor(white: 0.96, alpha: 0.72).cgColor
-            badgeLabel.textColor = NSColor(white: 0.10, alpha: 1.0)
+            badgeView.appearance = theme.glassAppearance
+            badgeView.layer?.backgroundColor = theme.wellBackgroundColor
+            badgeView.layer?.borderColor = theme.pillBorderColor
+            badgeLabel.textColor = theme.primaryTextColor
+            badgeLabel.shadow = nil
         }
+
+        // 3. Multiplier Badge Drop Shadow for clean float
+        let pillShadow = NSShadow()
+        pillShadow.shadowColor = NSColor.black.withAlphaComponent(isDark ? 0.45 : 0.22)
+        pillShadow.shadowBlurRadius = 8
+        pillShadow.shadowOffset = NSSize(width: 0, height: -2)
+        badgeView.shadow = pillShadow
+
         updateBadgeVisuals()
     }
 
     private func updateBadgeVisuals() {
+        let theme = ThemeManager.shared
+        let isDark = theme.isDark
+
         if magnification == 4.0 {
             badgeLabel.stringValue = "4×"
-            badgeDot.backgroundColor = NSColor(red: 1.0, green: 0.72, blue: 0.20, alpha: 0.95).cgColor // Warm amber for 4x
+            badgeDot.backgroundColor = NSColor(srgbRed: 1.0, green: 0.62, blue: 0.05, alpha: 1.0).cgColor // Vibrant amber
+            badgeDot.borderColor = NSColor.black.withAlphaComponent(isDark ? 0.4 : 0.25).cgColor
+            badgeDot.borderWidth = 0.5
         } else {
             badgeLabel.stringValue = "2×"
-            badgeDot.backgroundColor = NSColor(white: 0.85, alpha: 0.95).cgColor
+            // High-contrast dot: crisp white in dark mode, dark slate in light mode
+            badgeDot.backgroundColor = isDark
+                ? NSColor(white: 0.92, alpha: 1.0).cgColor
+                : NSColor(white: 0.20, alpha: 1.0).cgColor
+            badgeDot.borderColor = isDark ? nil : NSColor.white.withAlphaComponent(0.5).cgColor
+            badgeDot.borderWidth = isDark ? 0.0 : 0.5
         }
     }
 
