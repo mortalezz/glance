@@ -192,6 +192,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         guard clamped != currentFilteredPos || filteredIndices.count == 1 else { return }
 
         self.currentFilteredPos = clamped
+        slideView.updateFilmstripActiveIndex(clamped)
         guard let rawIndex = currentRawIndex else { return }
 
         Task {

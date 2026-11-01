@@ -184,8 +184,9 @@ public final class FilmstripHudView: ThemedGlassCardView {
         cullingData: [String: CullingMetadata],
         burstCache: [Int: BurstBreadcrumbInfo?]
     ) {
+        let samePlaylist = (self.items.count == items.count && !items.isEmpty && self.items.first?.id == items.first?.id && self.items.last?.id == items.last?.id)
+
         self.items = items
-        self.currentIndex = max(0, min(currentIndex, max(0, items.count - 1)))
         self.cullingData = cullingData
         self.burstCache = burstCache
 
@@ -197,23 +198,32 @@ public final class FilmstripHudView: ThemedGlassCardView {
         let targetW = max(320.0, min(maxW, contentW))
         widthConstraint?.constant = targetW
 
-        canvasView.reloadData(
-            items: items,
-            currentIndex: self.currentIndex,
-            cullingData: cullingData,
-            burstCache: burstCache
-        )
+        if samePlaylist {
+            // Playlist unchanged: simply update selection & metadata without wiping active cells!
+            updateActiveIndex(currentIndex)
+            canvasView.updateMetadata(cullingData: cullingData, burstCache: burstCache)
+        } else {
+            // New folder or active filter changed: reload dataset
+            self.currentIndex = max(0, min(currentIndex, max(0, items.count - 1)))
+            canvasView.reloadData(
+                items: items,
+                currentIndex: self.currentIndex,
+                cullingData: cullingData,
+                burstCache: burstCache
+            )
 
-        if isPresented {
-            scrollToActiveIndex(animated: true)
+            if isPresented {
+                scrollToActiveIndex(animated: true)
+            }
         }
     }
 
     public func updateActiveIndex(_ newIndex: Int) {
-        guard newIndex != currentIndex, newIndex >= 0, newIndex < items.count else { return }
-        self.currentIndex = newIndex
-        canvasView.updateActiveSelection(newIndex: newIndex)
-        if isPresented {
+        let clamped = max(0, min(newIndex, max(0, items.count - 1)))
+        let changed = (clamped != currentIndex)
+        self.currentIndex = clamped
+        canvasView.updateActiveSelection(newIndex: clamped)
+        if isPresented && changed {
             scrollToActiveIndex(animated: true)
         }
     }
@@ -274,8 +284,8 @@ public final class FilmstripHudView: ThemedGlassCardView {
         let ptInCanvas = canvasView.convert(pt, from: self)
         if let idx = canvasView.indexForPoint(ptInCanvas) {
             NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+            updateActiveIndex(idx)
             onSelectIndex?(idx)
-            canvasView.updateActiveSelection(newIndex: idx)
         }
     }
 
@@ -345,12 +355,18 @@ final class FilmstripCanvasView: NSView {
             frame = targetFrame
         }
 
-        // Return all existing cells to pool
-        for (_, cell) in activeCells {
-            cell.removeFromSuperview()
-            cellPool.append(cell)
+        // Only recycle cells whose represented photo has actually changed or is out of bounds
+        var toRecycle: [Int] = []
+        for (idx, cell) in activeCells {
+            if idx >= items.count || items[idx].id != cell.representedItemId {
+                cell.removeFromSuperview()
+                cellPool.append(cell)
+                toRecycle.append(idx)
+            }
         }
-        activeCells.removeAll()
+        for idx in toRecycle {
+            activeCells.removeValue(forKey: idx)
+        }
 
         updateVisibleCells()
     }
@@ -359,11 +375,30 @@ final class FilmstripCanvasView: NSView {
         let oldIndex = currentIndex
         self.currentIndex = newIndex
 
-        if let oldCell = activeCells[oldIndex] {
-            oldCell.setIsActive(false)
+        if oldIndex != newIndex {
+            if let oldCell = activeCells[oldIndex] {
+                oldCell.setIsActive(false)
+            }
+            if let newCell = activeCells[newIndex] {
+                newCell.setIsActive(true)
+            }
         }
-        if let newCell = activeCells[newIndex] {
-            newCell.setIsActive(true)
+    }
+
+    func updateMetadata(cullingData: [String: CullingMetadata], burstCache: [Int: BurstBreadcrumbInfo?]) {
+        self.cullingData = cullingData
+        self.burstCache = burstCache
+
+        for (idx, cell) in activeCells {
+            guard idx < items.count else { continue }
+            let item = items[idx]
+            let meta = cullingData[item.id] ?? CullingMetadata()
+            let burst = burstCache[idx] ?? nil
+            let isBurstStart = (burst?.indexInBurst == 1)
+            let isBurstEnd = (burst != nil && burst!.indexInBurst == burst!.totalInBurst)
+
+            cell.updateCulling(meta)
+            cell.updateBurst(burstInfo: burst, isBurstStart: isBurstStart, isBurstEnd: isBurstEnd)
         }
     }
 
@@ -420,6 +455,7 @@ final class FilmstripCanvasView: NSView {
 
             if let existing = activeCells[idx] {
                 existing.frame = cellFrame
+                existing.setIsActive(idx == currentIndex)
             } else {
                 let cell: FilmstripThumbnailCell
                 if !cellPool.isEmpty {
@@ -476,8 +512,8 @@ final class FilmstripCanvasView: NSView {
         let pt = convert(event.locationInWindow, from: nil)
         if let idx = indexForPoint(pt) {
             NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
-            hud?.onSelectIndex?(idx)
             updateActiveSelection(newIndex: idx)
+            hud?.onSelectIndex?(idx)
         }
     }
 
@@ -486,8 +522,8 @@ final class FilmstripCanvasView: NSView {
         let pt = convert(event.locationInWindow, from: nil)
         if let idx = indexForPoint(pt), idx != currentIndex {
             NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .default)
-            hud?.onSelectIndex?(idx)
             updateActiveSelection(newIndex: idx)
+            hud?.onSelectIndex?(idx)
         }
     }
 
@@ -656,12 +692,18 @@ final class FilmstripThumbnailCell: NSView {
         isBurstEnd: Bool,
         isActive: Bool
     ) {
+        let isSameItem = (self.representedItemId == item.id && self.representedIndex == index)
         self.representedIndex = index
         self.representedItemId = item.id
 
         setIsActive(isActive)
         updateCulling(culling)
         updateBurst(burstInfo: burstInfo, isBurstStart: isBurstStart, isBurstEnd: isBurstEnd)
+
+        // If the cell already holds the loaded image for this item, NEVER clear or re-assign imageLayer.contents!
+        if isSameItem && imageLayer.contents != nil {
+            return
+        }
 
         // Load thumbnail asynchronously without blocking main thread
         let thumbURL = item.url
