@@ -28,6 +28,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
     private var isHistogramVisible: Bool = false
     private var isClippingVisible: Bool = false
     private var isFocusPeakingVisible: Bool = false
+    private var isFalseColorVisible: Bool = false
     private var isExifVisible: Bool = false
     private var paneHistogramData: [Int: HistogramData] = [:]
     private var paneExifData: [Int: (exif: ExifMetadata?, dims: String, size: String?)] = [:]
@@ -405,6 +406,9 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         }
         if isFocusPeakingVisible {
             updatePeakingMaskAsync(for: slotImages)
+        }
+        if isFalseColorVisible {
+            updateFalseColorMaskAsync(for: slotImages)
         }
 
         // Face detection asynchronously across multi-up slots
@@ -1375,6 +1379,20 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         }
     }
 
+    public func slideViewToggleFalseColor() {
+        isFalseColorVisible.toggle()
+        slideView.setFalseColorActive(isFalseColorVisible)
+        slideView.showToast(isFalseColorVisible ? "False Color: ON" : "False Color: OFF", icon: "🌈", shortcut: "⇧O")
+
+        if isFalseColorVisible {
+            Task {
+                await loadAndDisplayCurrent()
+            }
+        } else {
+            slideView.updateFalseColorMasks([nil, nil, nil, nil])
+        }
+    }
+
     public func slideViewToggleFocusPeaking() {
         isFocusPeakingVisible.toggle()
         slideView.setPeakingActive(isFocusPeakingVisible)
@@ -1567,6 +1585,22 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
             Task { @MainActor [weak self] in
                 guard let self = self, self.currentRawIndex == expectedIndex else { return }
                 self.slideView.updatePeakingMasks(masks)
+            }
+        }
+    }
+
+    private func updateFalseColorMaskAsync(for images: [CGImage?]) {
+        let expectedIndex = currentRawIndex
+        Task.detached(priority: .userInitiated) { [weak self] in
+            var masks: [CGImage?] = Array(repeating: nil, count: 4)
+            for (i, img) in images.enumerated() where i < 4 {
+                if let img = img {
+                    masks[i] = FalseColorEngine.generateFalseColorImage(for: img)
+                }
+            }
+            Task { @MainActor [weak self] in
+                guard let self = self, self.currentRawIndex == expectedIndex else { return }
+                self.slideView.updateFalseColorMasks(masks)
             }
         }
     }

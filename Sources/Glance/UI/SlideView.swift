@@ -47,6 +47,7 @@ public protocol SlideViewDelegate: AnyObject {
     // Phase 3: Histogram & Exposure Clipping
     func slideViewToggleHistogram()
     func slideViewToggleClipping()
+    func slideViewToggleFalseColor()
     func slideViewToggleFocusPeaking()
     func slideViewToggleExif()
     func slideViewCycleCameraProfile()
@@ -86,6 +87,7 @@ public final class SlideView: NSView {
     private let paneImageLayers: [CALayer] = (0..<4).map { _ in CALayer() }
     private let paneClippingLayers: [CALayer] = (0..<4).map { _ in CALayer() }
     private let panePeakingLayers: [CALayer] = (0..<4).map { _ in CALayer() }
+    private let paneFalseColorLayers: [CALayer] = (0..<4).map { _ in CALayer() }
 
     // Backward-compatibility aliases
     private var leftContainerLayer: CALayer { paneContainerLayers[0] }
@@ -109,6 +111,7 @@ public final class SlideView: NSView {
     public let topToastView = TopToastView()
     public let faceOverlayView = FaceLoupeOverlayView()
     public let cursorLoupeView = CursorLoupeView()
+    public let falseColorLegendHud = FalseColorLegendHudView()
 
     public let splitBadges: [SplitPaneBadgeView] = (1...4).map { SplitPaneBadgeView(slot: $0) }
     public var leftSplitBadge: SplitPaneBadgeView { splitBadges[0] }
@@ -129,6 +132,8 @@ public final class SlideView: NSView {
     public private(set) var isZoomed: Bool = false
     public private(set) var isClippingActive: Bool = false
     public private(set) var isPeakingActive: Bool = false
+    public private(set) var isFalseColorActive: Bool = false
+    private var savedFalseColorLegendAlpha: CGFloat = 0.0
 
     // Zoom & Pan state across up to 4 panes
     // Loupe Pop (Option B for 4-UP) & Spring-Loaded Z
@@ -239,6 +244,19 @@ public final class SlideView: NSView {
             ]
             peak.isHidden = true
             img.addSublayer(peak)
+
+            let fc = paneFalseColorLayers[i]
+            fc.backgroundColor = NSColor.clear.cgColor
+            fc.contentsGravity = .resizeAspect
+            fc.actions = [
+                "contents": NSNull(),
+                "bounds": NSNull(),
+                "position": NSNull(),
+                "transform": NSNull(),
+                "opacity": NSNull()
+            ]
+            fc.isHidden = true
+            img.addSublayer(fc)
         }
     }
 
@@ -279,6 +297,9 @@ public final class SlideView: NSView {
         cursorLoupeView.translatesAutoresizingMaskIntoConstraints = true
         addSubview(cursorLoupeView)
 
+        falseColorLegendHud.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(falseColorLegendHud)
+
         // Split Badges: positioned manually via frames in updateLayerLayout
         for badge in splitBadges {
             badge.translatesAutoresizingMaskIntoConstraints = true
@@ -317,7 +338,12 @@ public final class SlideView: NSView {
             topToastView.heightAnchor.constraint(greaterThanOrEqualToConstant: 32),
 
             faceOverlayView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -28),
-            faceOverlayView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -76)
+            faceOverlayView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -76),
+
+            falseColorLegendHud.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -28),
+            falseColorLegendHud.centerYAnchor.constraint(equalTo: centerYAnchor),
+            falseColorLegendHud.widthAnchor.constraint(equalToConstant: 136),
+            falseColorLegendHud.heightAnchor.constraint(equalToConstant: 220)
         ])
     }
 
@@ -560,6 +586,8 @@ public final class SlideView: NSView {
             paneClippingLayers[i].contentsGravity = paneImageLayers[i].contentsGravity
             panePeakingLayers[i].frame = paneImageLayers[i].bounds
             panePeakingLayers[i].contentsGravity = paneImageLayers[i].contentsGravity
+            paneFalseColorLayers[i].frame = paneImageLayers[i].bounds
+            paneFalseColorLayers[i].contentsGravity = paneImageLayers[i].contentsGravity
         }
 
         CATransaction.commit()
@@ -737,6 +765,7 @@ public final class SlideView: NSView {
             paneImageLayers[i].contents = nil
             paneClippingLayers[i].contents = nil
             panePeakingLayers[i].contents = nil
+            paneFalseColorLayers[i].contents = nil
             splitBadges[i].isHidden = true
         }
         CATransaction.commit()
@@ -857,6 +886,7 @@ public final class SlideView: NSView {
         cursorLoupeView.dismiss()
         savedHistogramAlpha = histogramHud.alphaValue
         savedExifAlpha = exifHud.alphaValue
+        savedFalseColorLegendAlpha = falseColorLegendHud.alphaValue
         for i in 0..<4 {
             savedSplitBadgesAlpha[i] = splitBadges[i].alphaValue
         }
@@ -865,6 +895,7 @@ public final class SlideView: NSView {
             context.duration = 0.16
             self.histogramHud.animator().alphaValue = 0.0
             self.exifHud.animator().alphaValue = 0.0
+            self.falseColorLegendHud.animator().alphaValue = 0.0
             for badge in self.splitBadges {
                 badge.animator().alphaValue = 0.0
             }
@@ -879,6 +910,7 @@ public final class SlideView: NSView {
             context.duration = 0.16
             self.histogramHud.animator().alphaValue = self.savedHistogramAlpha
             self.exifHud.animator().alphaValue = self.savedExifAlpha
+            self.falseColorLegendHud.animator().alphaValue = self.savedFalseColorLegendAlpha
             for i in 0..<4 {
                 if self.multiUpMode != .single && self.paneImageLayers[i].contents != nil {
                     self.splitBadges[i].animator().alphaValue = (self.savedSplitBadgesAlpha[i] > 0) ? self.savedSplitBadgesAlpha[i] : 1.0
@@ -976,6 +1008,27 @@ public final class SlideView: NSView {
         for i in 0..<4 {
             panePeakingLayers[i].isHidden = !active
         }
+    }
+
+    public func setFalseColorActive(_ active: Bool) {
+        isFalseColorActive = active
+        for i in 0..<4 {
+            paneFalseColorLayers[i].isHidden = !active
+        }
+        if active {
+            falseColorLegendHud.showLegend()
+        } else {
+            falseColorLegendHud.hideLegend()
+        }
+    }
+
+    public func updateFalseColorMasks(_ masks: [CGImage?]) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for i in 0..<4 {
+            paneFalseColorLayers[i].contents = (i < masks.count) ? masks[i] : nil
+        }
+        CATransaction.commit()
     }
 
     public func updatePeakingMasks(_ masks: [CGImage?]) {
@@ -1689,9 +1742,13 @@ public final class SlideView: NSView {
             return
         }
 
-        // Exposure Clipping Warnings: 'O'
+        // Exposure Warnings: 'O' (Clipping) vs '⇧O' (ARRI False Color)
         if !isCmd && (lower == "o" || event.keyCode == 31) {
-            delegate?.slideViewToggleClipping()
+            if isShift {
+                delegate?.slideViewToggleFalseColor()
+            } else {
+                delegate?.slideViewToggleClipping()
+            }
             return
         }
 

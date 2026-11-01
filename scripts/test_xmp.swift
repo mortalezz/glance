@@ -1703,6 +1703,106 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+        // ==========================================
+        // TEST 32: ARRI False Color Exposure Engine & IRE Scale Invariants
+        // ==========================================
+        do {
+            print("🧪 TEST 32: ARRI False Color Exposure Engine & IRE Scale Invariants...")
+
+            // Helper to sample pixel from CGImage
+            func sampleFirstPixel(from image: CGImage) -> (r: UInt8, g: UInt8, b: UInt8)? {
+                var pixel: [UInt8] = [0, 0, 0, 0]
+                let colorSpace = CGColorSpaceCreateDeviceRGB()
+                guard let ctx = CGContext(
+                    data: &pixel,
+                    width: 1,
+                    height: 1,
+                    bitsPerComponent: 8,
+                    bytesPerRow: 4,
+                    space: colorSpace,
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                ) else { return nil }
+                ctx.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+                return (pixel[0], pixel[1], pixel[2])
+            }
+
+            // 1. Pure White / 100% IRE -> Warning Red (#FF002B)
+            let whiteImg = makeTestCGImage(width: 10, height: 10, r: 255, g: 255, b: 255)
+            let fcWhite = FalseColorEngine.generateFalseColorImage(for: whiteImg)
+            assertEqual(fcWhite != nil, true, "False color generated for pure white")
+            if let fc = fcWhite, let p = sampleFirstPixel(from: fc) {
+                assertEqual(p.r, 255, "White highlights mapped to Red R=255")
+                assertEqual(p.g, 0, "White highlights mapped to Red G=0")
+                assertEqual(p.b, 43, "White highlights mapped to Red B=43")
+            }
+
+            // 2. Pure Black / 0% IRE -> Purple Crush (#8B1FA2)
+            let blackImg = makeTestCGImage(width: 10, height: 10, r: 0, g: 0, b: 0)
+            let fcBlack = FalseColorEngine.generateFalseColorImage(for: blackImg)
+            assertEqual(fcBlack != nil, true, "False color generated for pure black")
+            if let fc = fcBlack, let p = sampleFirstPixel(from: fc) {
+                assertEqual(p.r, 139, "Crushed blacks mapped to Purple R=139")
+                assertEqual(p.g, 31, "Crushed blacks mapped to Purple G=31")
+                assertEqual(p.b, 162, "Crushed blacks mapped to Purple B=162")
+            }
+
+            // 3. 18% Neutral Gray (Y=102, 40% IRE) -> Kelly Green (#00E64D)
+            let grayImg = makeTestCGImage(width: 10, height: 10, r: 102, g: 102, b: 102)
+            let fcGray = FalseColorEngine.generateFalseColorImage(for: grayImg)
+            assertEqual(fcGray != nil, true, "False color generated for 18% gray")
+            if let fc = fcGray, let p = sampleFirstPixel(from: fc) {
+                assertEqual(p.r, 0, "18% Gray mapped to Green R=0")
+                assertEqual(p.g, 230, "18% Gray mapped to Green G=230")
+                assertEqual(p.b, 77, "18% Gray mapped to Green B=77")
+            }
+
+            // 4. Caucasian Skin Tone Reference (Y=138, 54% IRE) -> Orchid Pink (#FF66B2)
+            let skinImg = makeTestCGImage(width: 10, height: 10, r: 138, g: 138, b: 138)
+            let fcSkin = FalseColorEngine.generateFalseColorImage(for: skinImg)
+            assertEqual(fcSkin != nil, true, "False color generated for skin tone")
+            if let fc = fcSkin, let p = sampleFirstPixel(from: fc) {
+                assertEqual(p.r, 255, "Skin tone mapped to Pink R=255")
+                assertEqual(p.g, 102, "Skin tone mapped to Pink G=102")
+                assertEqual(p.b, 178, "Skin tone mapped to Pink B=178")
+            }
+
+            // 5. Near Clipping / Roll-off (Y=250, 98% IRE) -> Bright Yellow (#FFE600)
+            let nearClipImg = makeTestCGImage(width: 10, height: 10, r: 250, g: 250, b: 250)
+            let fcNear = FalseColorEngine.generateFalseColorImage(for: nearClipImg)
+            assertEqual(fcNear != nil, true, "False color generated for near-clipping")
+            if let fc = fcNear, let p = sampleFirstPixel(from: fc) {
+                assertEqual(p.r, 255, "Near clipping mapped to Yellow R=255")
+                assertEqual(p.g, 230, "Near clipping mapped to Yellow G=230")
+                assertEqual(p.b, 0, "Near clipping mapped to Yellow B=0")
+            }
+
+            // 6. Deep Shadow Detail (Y=8, 3.1% IRE) -> Cyan-Blue (#007AFF)
+            let shadowImg = makeTestCGImage(width: 10, height: 10, r: 8, g: 8, b: 8)
+            let fcShadow = FalseColorEngine.generateFalseColorImage(for: shadowImg)
+            assertEqual(fcShadow != nil, true, "False color generated for shadow detail")
+            if let fc = fcShadow, let p = sampleFirstPixel(from: fc) {
+                assertEqual(p.r, 0, "Shadow detail mapped to Blue R=0")
+                assertEqual(p.g, 122, "Shadow detail mapped to Blue G=122")
+                assertEqual(p.b, 255, "Shadow detail mapped to Blue B=255")
+            }
+
+            // 7. Component State & SlideView Integration Invariants
+            await MainActor.run {
+                let slideView = SlideView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+                assertEqual(slideView.isFalseColorActive, false, "False Color starts inactive")
+                assertEqual(slideView.falseColorLegendHud.isHidden, true, "Legend HUD starts hidden")
+
+                slideView.setFalseColorActive(true)
+                assertEqual(slideView.isFalseColorActive, true, "False Color activated")
+                assertEqual(slideView.falseColorLegendHud.isHidden, false, "Legend HUD visible when active")
+
+                slideView.setFalseColorActive(false)
+                assertEqual(slideView.isFalseColorActive, false, "False Color deactivated")
+            }
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

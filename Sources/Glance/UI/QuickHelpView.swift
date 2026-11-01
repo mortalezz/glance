@@ -229,7 +229,7 @@ public final class QuickHelpView: NSView {
             ),
             (
                 ("1 – 5", "Star Ratings", "Rates 1 to 5 stars (xmp:Rating). 0 clears stars."),
-                ("O", "Clipping Warnings", "Pulsing blinkies: Red for blown highlights, Blue for shadows."),
+                ("O / ⇧O", "Clipping & False Color", "O: Pulsing blinkies. ⇧O: ARRI False Color exposure HUD with IRE scale."),
                 ("E / ⇧E", "Export / Batch Picks", "E: Quick export active shot. ⇧E: Batch export all ✓ Picks to ./Selects.")
             ),
             (
