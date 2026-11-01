@@ -23,16 +23,12 @@ mkdir -p "${RESOURCES_DIR}"
 # Copy compiled binary
 cp "${BUILD_DIR}/${APP_NAME}" "${MACOS_DIR}/${APP_NAME}"
 
-# Copy App Icons
-if [ -f "AppIcon.icns" ]; then
-    cp "AppIcon.icns" "${RESOURCES_DIR}/AppIcon.icns"
-fi
-if [ -f "AppIcon-Dark.icns" ]; then
-    cp "AppIcon-Dark.icns" "${RESOURCES_DIR}/AppIcon-Dark.icns"
-fi
-if [ -f "AppIcon-Tinted.icns" ]; then
-    cp "AppIcon-Tinted.icns" "${RESOURCES_DIR}/AppIcon-Tinted.icns"
-fi
+# Copy App Icons (AppIcon is Dark default; AppIcon-Light, AppIcon-Dark, AppIcon-Tinted available for dynamic switching)
+for icon in AppIcon.icns AppIcon-Dark.icns AppIcon-Light.icns AppIcon-Tinted.icns; do
+    if [ -f "$icon" ]; then
+        cp "$icon" "${RESOURCES_DIR}/$icon"
+    fi
+done
 
 # Create Info.plist
 cat << 'EOF' > "${CONTENTS_DIR}/Info.plist"

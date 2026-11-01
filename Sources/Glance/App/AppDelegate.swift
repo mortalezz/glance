@@ -105,10 +105,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateDockIconForAppearance() {
         let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let iconName = isDark ? "AppIcon-Dark" : "AppIcon"
+        let iconName = isDark ? "AppIcon-Dark" : "AppIcon-Light"
         if let iconURL = Bundle.main.url(forResource: iconName, withExtension: "icns"),
            let iconImage = NSImage(contentsOf: iconURL) {
             NSApplication.shared.applicationIconImage = iconImage
+        } else if isDark {
+            // Default bundle icon (AppIcon.icns) is Dark
+            NSApplication.shared.applicationIconImage = nil
         }
     }
 
