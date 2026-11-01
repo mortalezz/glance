@@ -58,6 +58,10 @@ cat << 'EOF' > "${CONTENTS_DIR}/Info.plist"
     <true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key>
     <true/>
+    <key>NSSupportsAutomaticTermination</key>
+    <false/>
+    <key>NSSupportsSuddenTermination</key>
+    <false/>
     <key>NSDownloadsFolderUsageDescription</key>
     <string>Glance needs permission to view images in your Downloads folder.</string>
     <key>NSDocumentsFolderUsageDescription</key>

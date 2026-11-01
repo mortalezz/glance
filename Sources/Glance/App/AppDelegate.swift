@@ -15,6 +15,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        ProcessInfo.processInfo.disableAutomaticTermination("GlanceOpenSession")
         setupMainMenu()
         setupAppearanceObserver()
 
@@ -71,6 +72,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     public func promptOpenPanel() {
+        NSApp.activate(ignoringOtherApps: true)
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
@@ -79,18 +81,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.message = "Choose an image file or a folder to view in Glance"
         panel.prompt = "Open"
 
-        panel.begin { [weak self] response in
-            if response == .OK {
-                let targetURL = panel.url ?? panel.urls.first ?? panel.directoryURL
-                if let targetURL = targetURL {
-                    self?.openTarget(url: targetURL)
-                    return
-                }
+        let response = panel.runModal()
+        if response == .OK {
+            let targetURL = panel.url ?? panel.urls.first ?? panel.directoryURL
+            if let targetURL = targetURL {
+                self.openTarget(url: targetURL)
+                return
             }
-            if self?.windowController?.window?.isVisible != true {
-                // If user cancelled and no window is open, exit
-                NSApp.terminate(nil)
-            }
+        }
+        if windowController?.window?.isVisible != true {
+            // If user cancelled and no window is open, exit
+            NSApp.terminate(nil)
         }
     }
 
@@ -156,6 +157,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        return true
+        return hasOpenedTarget
     }
 }
