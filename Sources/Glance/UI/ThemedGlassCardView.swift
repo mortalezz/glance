@@ -148,12 +148,10 @@ open class ThemedPillView: NSView {
 
         if hasIndicatorDot {
             let dotSize: CGFloat = 5.0
-            let font = label.font ?? NSFont.systemFont(ofSize: 9, weight: .bold)
-            let labelH = label.frame.height > 0 ? label.frame.height : label.fittingSize.height
-            let labelMinY = (h - labelH) / 2.0
-            let capCenterY = labelMinY + (-font.descender + font.capHeight / 2.0)
-            let dotY = round(capCenterY - dotSize / 2.0)
-            let dotX: CGFloat = 7.5
+            let h = bounds.height > 0 ? bounds.height : 20.0
+            // Optical center alignment with NSTextField monospaced digits
+            let dotY = round((h - dotSize) / 2.0 + 0.5)
+            let dotX: CGFloat = 7.0
 
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -187,7 +185,7 @@ open class ThemedPillView: NSView {
         ])
 
         // Optional status dot
-        indicatorDot.frame = CGRect(x: 7.5, y: 6.0, width: 5.0, height: 5.0)
+        indicatorDot.frame = CGRect(x: 7.0, y: 8.0, width: 5.0, height: 5.0)
         indicatorDot.cornerRadius = 2.5
         indicatorDot.isHidden = !hasIndicatorDot
         visualEffectView.layer?.addSublayer(indicatorDot)

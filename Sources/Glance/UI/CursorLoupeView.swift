@@ -359,6 +359,8 @@ public final class CursorLoupeView: NSView {
             badgePill.indicatorDot.borderColor = isDark ? nil : NSColor.white.withAlphaComponent(0.5).cgColor
             badgePill.indicatorDot.borderWidth = isDark ? 0.0 : 0.5
         }
+        badgePill.needsLayout = true
+        badgePill.layoutSubtreeIfNeeded()
     }
 
     // MARK: - Presentation Lifecycle
