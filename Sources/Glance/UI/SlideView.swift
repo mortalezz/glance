@@ -278,12 +278,6 @@ public final class SlideView: NSView {
             self?.updateNavigatorPosition(animated: true)
         }
 
-        navigatorMiniMap.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(navigatorMiniMap)
-        navigatorMiniMap.onPanToNormalizedPoint = { [weak self] normPt in
-            self?.panZoomToNormalizedPoint(normPt)
-        }
-
         faceOverlayView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(faceOverlayView)
         faceOverlayView.onFaceSelected = { [weak self] faceIndex in
@@ -295,6 +289,12 @@ public final class SlideView: NSView {
 
         cursorLoupeView.translatesAutoresizingMaskIntoConstraints = true
         addSubview(cursorLoupeView)
+
+        navigatorMiniMap.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(navigatorMiniMap)
+        navigatorMiniMap.onPanToNormalizedPoint = { [weak self] normPt in
+            self?.panZoomToNormalizedPoint(normPt)
+        }
 
         falseColorLegendHud.translatesAutoresizingMaskIntoConstraints = false
         addSubview(falseColorLegendHud)
@@ -626,7 +626,7 @@ public final class SlideView: NSView {
             }
         }
 
-        if cursorLoupeView.isPresented {
+        if cursorLoupeView.isPresented && !isZoomed {
             let mouseInWindow = window?.mouseLocationOutsideOfEventStream ?? CGPoint(x: bounds.midX, y: bounds.midY)
             let localPt = convert(mouseInWindow, from: nil)
             cursorLoupeView.updatePosition(mousePt: localPt, in: self)
@@ -824,6 +824,7 @@ public final class SlideView: NSView {
     // MARK: - Magnifier Loupe Navigation & Interaction
 
     public func toggleCursorLoupe() {
+        guard !isZoomed else { return }
         if !cursorLoupeView.isPresented {
             cursorLoupeView.setMagnification(2.0)
             cursorLoupeView.present()
@@ -1248,6 +1249,9 @@ public final class SlideView: NSView {
         hudView.updateZoomState(isZoomed)
 
         if isZoomed {
+            if cursorLoupeView.isPresented {
+                cursorLoupeView.dismiss()
+            }
             let mousePt = anchorPointInView ?? CGPoint(x: bounds.midX, y: bounds.midY)
             let scale = window?.backingScaleFactor ?? 2.0
             let totalW = bounds.width
@@ -1359,6 +1363,9 @@ public final class SlideView: NSView {
         }
 
         isZoomed = true
+        if cursorLoupeView.isPresented {
+            cursorLoupeView.dismiss()
+        }
         hudView.updateZoomState(true)
 
         let scale = window?.backingScaleFactor ?? 2.0

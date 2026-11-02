@@ -60,6 +60,13 @@ public final class CursorLoupeView: NSView {
     }
 
     public override func hitTest(_ point: NSPoint) -> NSView? {
+        if let slideView = superview as? SlideView {
+            guard isPresented && !isHidden && alphaValue > 0.0 else { return nil }
+            let ptInSlide = slideView.convert(point, from: self)
+            if slideView.navigatorMiniMap.isPresented && slideView.navigatorMiniMap.frame.contains(ptInSlide) {
+                return nil
+            }
+        }
         // 1. Check barrel circle
         let barrelCenter = CGPoint(x: totalDiameter / 2.0, y: barrelOffsetY + totalDiameter / 2.0)
         let dist = hypot(point.x - barrelCenter.x, point.y - barrelCenter.y)
