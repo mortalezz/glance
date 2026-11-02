@@ -244,8 +244,10 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
 
                 // In multi-up mode, force neutral baseline so comparison is completely unbiased
                 let activeProf = (multiUpMode != .single) ? .asShot : (m.cameraProfile ?? .asShot)
+                let isRaw = itm.rawURL != nil || SupportedFormats.isRaw(url: itm.url)
                 let brand = CameraProfileEngine.detectBrand(for: itm, exif: dec.exif)
-                let rendered = (activeProf != .asShot)
+                let canApply = isRaw && brand.isSupported
+                let rendered = (activeProf != .asShot && canApply)
                     ? (CameraProfileEngine.apply(profile: activeProf, brand: brand, to: dec.image) ?? dec.image)
                     : dec.image
                 slotImages[s] = rendered
@@ -1698,8 +1700,16 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         }
 
         guard let rawIndex = currentRawIndex else { return }
-        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .default)
         let item = allItems[rawIndex]
+        let currentExif = paneExifData[1]?.exif
+
+        let check = CameraProfileEngine.isProfileSupported(for: item, exif: currentExif)
+        guard check.supported else {
+            slideView.showToast(check.reason ?? "Profiles Unavailable", icon: "🎨", shortcut: "V")
+            return
+        }
+
+        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .default)
         var meta = cullingData[item.id] ?? CullingMetadata()
         let previous = meta.cameraProfile
 
@@ -1716,7 +1726,7 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
         saveMetadataAsync(meta: meta, for: item)
 
         Task {
-            let brand = CameraProfileEngine.detectBrand(for: item, exif: nil)
+            let brand = CameraProfileEngine.detectBrand(for: item, exif: currentExif)
             let brandName = nextProfile.displayName(for: brand)
             await loadAndDisplayCurrent()
             slideView.showToast("Profile: \(brandName)", icon: "🎨", shortcut: "V")

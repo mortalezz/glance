@@ -225,7 +225,7 @@ public final class QuickHelpView: NSView {
             (
                 ("C", "Auto-Advance", "Speed culling: automatically advances after rating, flag, or color change (ON by default)."),
                 ("H", "RGB Histogram", "Real-time 256-bin RGB and Rec. 709 Luminance tonal curve distribution overlay."),
-                ("V / T", "Color Profile & Theme", "V: Cycle Camera Picture Controls / Film Sims. T: Switch between Frosted Dark & Light glass.")
+                ("V / T", "Color Profile & Theme", "V: Cycle Camera Picture Controls / Film Sims (Fuji, Nikon & Sony RAWs). T: Switch between Frosted Dark & Light glass.")
             ),
             (
                 ("\\ / ⇧\\", "Filters & Picks Review", "\\: Cycle populated filters (skips unassigned). ⇧\\: Instant toggle between Picks Only and All Files."),

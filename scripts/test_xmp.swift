@@ -633,34 +633,65 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
-        // TEST 19: CameraProfileEngine (MakerNote Picture Control Extraction & Color Profile Simulation)
+        // TEST 19: CameraProfileEngine (RAW-Only & Fuji/Nikon/Sony Scoping & Simulation)
         do {
             print("▶ Testing CameraProfileEngine Picture Control extraction & color profile simulation...")
 
-            // Test extraction on real Fuji RAF file if present
+            // 1. Guard Tests: Non-RAW vs Unsupported RAW vs Supported RAW
+            let jpegItem = SlideItem(url: URL(fileURLWithPath: "/tmp/sample.jpg"))
+            let jpegCheck = CameraProfileEngine.isProfileSupported(for: jpegItem)
+            assertEqual(jpegCheck.supported, false, "JPEG files must reject profile cycling")
+            assertEqual(jpegCheck.reason, "Profiles for RAW Files Only", "JPEG rejection reason matches")
+
+            let canonItem = SlideItem(url: URL(fileURLWithPath: "/tmp/sample.cr2"))
+            let canonCheck = CameraProfileEngine.isProfileSupported(for: canonItem)
+            assertEqual(canonCheck.supported, false, "Canon RAW files must reject profile cycling")
+            assertEqual(canonCheck.reason, "Profiles for Fuji, Nikon & Sony RAWs", "Unsupported RAW brand rejection matches")
+
+            let fujiItem = SlideItem(url: URL(fileURLWithPath: "/tmp/sample.raf"))
+            assertTrue(CameraProfileEngine.isProfileSupported(for: fujiItem).supported, "Fuji RAF must be supported")
+
+            let nikonItem = SlideItem(url: URL(fileURLWithPath: "/tmp/sample.nef"))
+            assertTrue(CameraProfileEngine.isProfileSupported(for: nikonItem).supported, "Nikon NEF must be supported")
+
+            let sonyItem = SlideItem(url: URL(fileURLWithPath: "/tmp/sample.arw"))
+            assertTrue(CameraProfileEngine.isProfileSupported(for: sonyItem).supported, "Sony ARW must be supported")
+
+            // 2. Real Live File Picture Control Extraction
             let sampleRaf = URL(fileURLWithPath: "/Users/mortalezz/Desktop/Fuji/0955097116.raf")
             if FileManager.default.fileExists(atPath: sampleRaf.path) {
                 let extracted = CameraProfileEngine.extractCameraProfile(from: sampleRaf)
                 assertEqual(extracted, "Velvia / Vivid", "Fujifilm X100V RAF should extract Velvia / Vivid Film Simulation")
             }
 
-            // Test extraction on real Nikon NEF file if present
             let sampleNef = URL(fileURLWithPath: "/Users/mortalezz/Pictures/fall colors/_DSC3088.NEF")
             if FileManager.default.fileExists(atPath: sampleNef.path) {
                 let extracted = CameraProfileEngine.extractCameraProfile(from: sampleNef)
                 assertEqual(extracted, "Standard", "Nikon Z 6 NEF MakerNote should extract Standard Picture Control")
             }
 
-            // Test Profile Rendering (Vivid, Monochrome, etc.)
+            let sampleArw = URL(fileURLWithPath: "/Users/mortalezz/Downloads/2048194824.arw")
+            if FileManager.default.fileExists(atPath: sampleArw.path) {
+                let extracted = CameraProfileEngine.extractCameraProfile(from: sampleArw)
+                assertEqual(extracted, "Standard (ST)", "Sony ILCE-9 ARW should extract Standard (ST) Creative Look")
+            }
+
+            // 3. Test Profile Rendering across Supported Brands
             let testImg = makeTestCGImage(width: 64, height: 64, r: 180, g: 120, b: 60)
-            let vividImg = CameraProfileEngine.apply(profile: .vivid, to: testImg)
-            assertTrue(vividImg != nil, "Vivid camera profile rendering should produce valid CGImage")
-            assertEqual(vividImg?.width, 64, "Vivid image width matches")
+            let fujiVivid = CameraProfileEngine.apply(profile: .vivid, brand: .fujifilm, to: testImg)
+            assertTrue(fujiVivid != nil, "Fujifilm Velvia rendering produces valid image")
+            assertEqual(fujiVivid?.width, 64, "Fuji image width matches")
 
-            let monoImg = CameraProfileEngine.apply(profile: .monochrome, to: testImg)
-            assertTrue(monoImg != nil, "Monochrome profile rendering should produce valid CGImage")
+            let nikonVivid = CameraProfileEngine.apply(profile: .vivid, brand: .nikon, to: testImg)
+            assertTrue(nikonVivid != nil, "Nikon Vivid rendering produces valid image")
 
-            // Test XMP serialization & roundtrip
+            let sonyVivid = CameraProfileEngine.apply(profile: .vivid, brand: .sony, to: testImg)
+            assertTrue(sonyVivid != nil, "Sony VV rendering produces valid image")
+
+            let unsupportedRender = CameraProfileEngine.apply(profile: .vivid, brand: .unsupported, to: testImg)
+            assertEqual(unsupportedRender, testImg, "Unsupported brand must return original image untouched")
+
+            // 4. Test XMP serialization & roundtrip
             let xmpFile = tempDir.appendingPathComponent("profile_test.xmp")
             let metaWithProfile = CullingMetadata(rating: 5, pick: .pick, cameraProfile: .vivid)
             try XmpSidecarManager.save(metadata: metaWithProfile, for: xmpFile)
