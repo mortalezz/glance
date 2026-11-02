@@ -22,6 +22,10 @@ public final class NavigatorThumbnailView: NSView {
         setupLayers()
     }
 
+    public override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        return true
+    }
+
     private func setupLayers() {
         wantsLayer = true
         layer?.masksToBounds = true
@@ -117,7 +121,7 @@ public final class NavigatorThumbnailView: NSView {
         handleMouse(event)
     }
 
-    private func handleMouse(_ event: NSEvent) {
+    public func handleMouse(_ event: NSEvent) {
         let loc = convert(event.locationInWindow, from: nil)
         guard bounds.width > 0, bounds.height > 0 else { return }
 
@@ -142,14 +146,14 @@ public final class NavigatorMiniMapView: ThemedGlassCardView {
     public let thumbnailView = NavigatorThumbnailView()
 
     // Header views
-    private let headerContainer = NSView()
+    public let headerContainer = NSView()
     private let titleLabel = NSTextField(labelWithString: "NAVIGATOR")
     private let zoomBadge = NSTextField(labelWithString: "1:1")
     private let zoomBadgePill = NSView()
-    private let collapseButton = NSButton()
+    public let collapseButton = NSButton()
 
     // Collapsed pill view
-    private let collapsedContainer = NSView()
+    public let collapsedContainer = NSView()
     private let collapsedIcon = NSTextField(labelWithString: "🧭")
     private let collapsedLabel = NSTextField(labelWithString: "NAV 1:1")
 
@@ -169,6 +173,17 @@ public final class NavigatorMiniMapView: ThemedGlassCardView {
         super.init(coder: coder)
         setupContent()
         applyTheme()
+    }
+
+    public override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        return true
+    }
+
+    public override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden && alphaValue > 0.0 else { return nil }
+        let ptInSelf = convert(point, from: superview)
+        guard bounds.contains(ptInSelf) else { return nil }
+        return super.hitTest(point) ?? self
     }
 
     private func setupContent() {
@@ -307,11 +322,32 @@ public final class NavigatorMiniMapView: ThemedGlassCardView {
             toggleCollapse()
             return
         }
+
+        let ptInBtn = collapseButton.convert(event.locationInWindow, from: nil)
+        if collapseButton.bounds.contains(ptInBtn) {
+            toggleCollapse()
+            return
+        }
+
+        let ptInThumb = thumbnailView.convert(event.locationInWindow, from: nil)
+        if thumbnailView.bounds.contains(ptInThumb) {
+            thumbnailView.handleMouse(event)
+            return
+        }
+
         if event.clickCount == 2 {
             toggleCollapse()
             return
         }
-        // Absorb other clicks so they do not fall through to SlideView
+    }
+
+    public override func mouseDragged(with event: NSEvent) {
+        if !isCollapsed {
+            let ptInThumb = thumbnailView.convert(event.locationInWindow, from: nil)
+            if thumbnailView.bounds.contains(ptInThumb) {
+                thumbnailView.handleMouse(event)
+            }
+        }
     }
 
     public func toggleCollapse() {

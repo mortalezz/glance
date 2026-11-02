@@ -1104,72 +1104,50 @@ public final class FullScreenWindowController: NSWindowController, SlideViewDele
                 ? displayedMultiUpPositions[slotOffset]
                 : currentFilteredPos
             guard targetFilteredPos < filteredIndices.count else { return }
-            let targetRawIndex = filteredIndices[targetFilteredPos]
 
             // Instantly zoom the view using the screen-bounded layer (0ms latency!)
             slideView.setZoom(true, anchorPointInView: mouseLocation, targetPaneIndex: slotOffset)
 
-            if multiUpMode == .fourUp {
-                // Option B: Solo full-screen 100% loupe for targetSlot only
-                Task {
-                    if let dec = try? await self.pipeline.getFullResolutionImage(at: targetRawIndex) {
-                        guard self.slideView.isZoomed else { return }
-                        let dims = CGSize(width: dec.originalWidth, height: dec.originalHeight)
-                        self.slideView.setZoom(
-                            true,
-                            anchorPointInView: mouseLocation,
-                            targetPaneIndex: slotOffset,
-                            fullResImage: (slotOffset == 0) ? dec.image : nil,
-                            originalDimensions: (slotOffset == 0) ? dims : nil,
-                            rightFullResImage: (slotOffset == 1) ? dec.image : nil,
-                            rightOriginalDimensions: (slotOffset == 1) ? dims : nil,
-                            multiFullResImages: (0..<4).map { $0 == slotOffset ? dec.image : nil },
-                            multiOriginalDimensions: (0..<4).map { $0 == slotOffset ? dims : .zero }
-                        )
-                    }
+            var rawIndicesToFetch: [Int: Int] = [:] // [slot: rawIndex]
+            for s in 0..<displayedMultiUpPositions.count {
+                let pos = displayedMultiUpPositions[s]
+                if pos < filteredIndices.count {
+                    rawIndicesToFetch[s] = filteredIndices[pos]
                 }
-            } else {
-                var rawIndicesToFetch: [Int: Int] = [:] // [slot: rawIndex]
-                for s in 0..<displayedMultiUpPositions.count {
-                    let pos = displayedMultiUpPositions[s]
-                    if pos < filteredIndices.count {
-                        rawIndicesToFetch[s] = filteredIndices[pos]
-                    }
-                }
+            }
 
-                Task {
-                    var fullImages: [CGImage?] = Array(repeating: nil, count: 4)
-                    var fullDims: [CGSize] = Array(repeating: .zero, count: 4)
+            Task {
+                var fullImages: [CGImage?] = Array(repeating: nil, count: 4)
+                var fullDims: [CGSize] = Array(repeating: .zero, count: 4)
 
-                    await withTaskGroup(of: (Int, DecodedImage?).self) { group in
-                        for (slot, rIdx) in rawIndicesToFetch {
-                            group.addTask {
-                                let dec = try? await self.pipeline.getFullResolutionImage(at: rIdx)
-                                return (slot, dec)
-                            }
-                        }
-                        for await (slot, dec) in group {
-                            if let dec = dec {
-                                fullImages[slot] = dec.image
-                                fullDims[slot] = CGSize(width: dec.originalWidth, height: dec.originalHeight)
-                            }
+                await withTaskGroup(of: (Int, DecodedImage?).self) { group in
+                    for (slot, rIdx) in rawIndicesToFetch {
+                        group.addTask {
+                            let dec = try? await self.pipeline.getFullResolutionImage(at: rIdx)
+                            return (slot, dec)
                         }
                     }
-
-                    guard self.slideView.isZoomed else { return }
-
-                    self.slideView.setZoom(
-                        true,
-                        anchorPointInView: mouseLocation,
-                        targetPaneIndex: slotOffset,
-                        fullResImage: fullImages[0],
-                        originalDimensions: fullDims[0],
-                        rightFullResImage: fullImages[1],
-                        rightOriginalDimensions: fullDims[1],
-                        multiFullResImages: fullImages,
-                        multiOriginalDimensions: fullDims
-                    )
+                    for await (slot, dec) in group {
+                        if let dec = dec {
+                            fullImages[slot] = dec.image
+                            fullDims[slot] = CGSize(width: dec.originalWidth, height: dec.originalHeight)
+                        }
+                    }
                 }
+
+                guard self.slideView.isZoomed else { return }
+
+                self.slideView.setZoom(
+                    true,
+                    anchorPointInView: mouseLocation,
+                    targetPaneIndex: slotOffset,
+                    fullResImage: fullImages[0],
+                    originalDimensions: fullDims[0],
+                    rightFullResImage: fullImages[1],
+                    rightOriginalDimensions: fullDims[1],
+                    multiFullResImages: fullImages,
+                    multiOriginalDimensions: fullDims
+                )
             }
         }
     }

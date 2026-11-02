@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import CoreGraphics
 import Accelerate
@@ -10,6 +11,20 @@ struct TestRunner {
             print("❌ ASSERTION FAILED: \(msg) [\(file):\(line)]")
             exit(1)
         }
+    }
+
+    static func makeMouseEvent(type: NSEvent.EventType, at loc: CGPoint) -> NSEvent {
+        return NSEvent.mouseEvent(
+            with: type,
+            location: loc,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil as NSGraphicsContext?,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1.0
+        )!
     }
 
     static func assertEqual<T: Equatable>(_ a: T, _ b: T, _ msg: String = "", file: String = #file, line: Int = #line) {
@@ -2237,7 +2252,64 @@ struct TestRunner {
                 assertEqual(slideView.filmstripHud.isPresented, false, "Filmstrip is dismissed")
                 assertEqual(navBottomConstraint?.constant, -28.0, "Navigator restores down to -28pt")
 
-                // 6. Unzooming automatically dismisses Navigator Mini-Map
+                // 6. Click inside minimap does not toggle zoom or loupe
+                let navOrigin = slideView.navigatorMiniMap.frame.origin
+                let clickInsideNav = makeMouseEvent(type: .leftMouseDown, at: CGPoint(x: navOrigin.x + 10, y: navOrigin.y + 10))
+                slideView.mouseDown(with: clickInsideNav)
+                slideView.mouseUp(with: clickInsideNav)
+                assertEqual(slideView.isZoomed, true, "Click inside minimap does not toggle zoom off")
+
+                // 7. 2-UP & 4-UP Active Quadrant Traversal Updates Mini-Map While Zoomed
+                let dummyCG2 = makeTestCGImage(width: 4000, height: 3000, r: 255, g: 0, b: 0)
+                let dummyCG3 = makeTestCGImage(width: 5000, height: 3500, r: 0, g: 255, b: 0)
+                let dummyCG4 = makeTestCGImage(width: 3000, height: 3000, r: 0, g: 0, b: 255)
+
+                // Test 2-UP Traversal while Zoomed
+                slideView.setMultiUpMode(.twoUp)
+                slideView.displayMultiUp(images: [dummyCG, dummyCG2, nil, nil], nativeSizes: [CGSize(width: 6000, height: 4000), CGSize(width: 4000, height: 3000)])
+                slideView.setZoom(true)
+
+                // Move cursor to right pane (Pane 2)
+                let moveRight = makeMouseEvent(type: .mouseMoved, at: CGPoint(x: 900, y: 400))
+                slideView.mouseMoved(with: moveRight)
+                assertEqual(slideView.hoveredSplitSlot, 2, "2-UP cursor movement to right half selects Slot 2")
+
+                // Move cursor back to left pane (Pane 1)
+                let moveLeft = makeMouseEvent(type: .mouseMoved, at: CGPoint(x: 300, y: 400))
+                slideView.mouseMoved(with: moveLeft)
+                assertEqual(slideView.hoveredSplitSlot, 1, "2-UP cursor movement to left half selects Slot 1")
+
+                // Test 4-UP Traversal while Zoomed
+                slideView.setMultiUpMode(.fourUp)
+                slideView.displayMultiUp(images: [dummyCG, dummyCG2, dummyCG3, dummyCG4], nativeSizes: [
+                    CGSize(width: 6000, height: 4000),
+                    CGSize(width: 4000, height: 3000),
+                    CGSize(width: 5000, height: 3500),
+                    CGSize(width: 3000, height: 3000)
+                ])
+                slideView.setZoom(true)
+
+                // Top-Right Quadrant (Slot 2)
+                let moveTR = makeMouseEvent(type: .mouseMoved, at: CGPoint(x: 900, y: 600))
+                slideView.mouseMoved(with: moveTR)
+                assertEqual(slideView.hoveredSplitSlot, 2, "4-UP Top-Right quadrant selects Slot 2")
+
+                // Bottom-Right Quadrant (Slot 4)
+                let moveBR = makeMouseEvent(type: .mouseMoved, at: CGPoint(x: 900, y: 200))
+                slideView.mouseMoved(with: moveBR)
+                assertEqual(slideView.hoveredSplitSlot, 4, "4-UP Bottom-Right quadrant selects Slot 4")
+
+                // Bottom-Left Quadrant (Slot 3)
+                let moveBL = makeMouseEvent(type: .mouseMoved, at: CGPoint(x: 300, y: 200))
+                slideView.mouseMoved(with: moveBL)
+                assertEqual(slideView.hoveredSplitSlot, 3, "4-UP Bottom-Left quadrant selects Slot 3")
+
+                // Top-Left Quadrant (Slot 1)
+                let moveTL = makeMouseEvent(type: .mouseMoved, at: CGPoint(x: 300, y: 600))
+                slideView.mouseMoved(with: moveTL)
+                assertEqual(slideView.hoveredSplitSlot, 1, "4-UP Top-Left quadrant selects Slot 1")
+
+                // 8. Unzooming automatically dismisses Navigator Mini-Map
                 slideView.setZoom(false)
                 assertEqual(slideView.isZoomed, false, "Zoom is off")
                 assertEqual(slideView.navigatorMiniMap.isPresented, false, "Navigator auto-dismissed on unzoom")
