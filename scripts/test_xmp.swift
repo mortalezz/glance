@@ -2174,6 +2174,81 @@ struct TestRunner {
             print("  ✅ Passed")
         }
 
+        // =========================================================================
+        // TEST 38: Collapsible 1:1 Loupe Navigator Mini-Map (PiP) Invariants
+        // =========================================================================
+        do {
+            print("🧪 TEST 38: Collapsible 1:1 Loupe Navigator Mini-Map (PiP) Invariants...")
+
+            await MainActor.run {
+                let slideView = SlideView(frame: NSRect(x: 0, y: 0, width: 1200, height: 800))
+                slideView.layoutSubtreeIfNeeded()
+
+                let dummyCG = makeTestCGImage(width: 6000, height: 4000, r: 100, g: 150, b: 200)
+                slideView.displayImage(dummyCG, nativeSize: CGSize(width: 6000, height: 4000))
+
+                // 1. Initial State: Navigator is dismissed and hidden when not zoomed
+                assertEqual(slideView.isZoomed, false, "Initial zoom state is false")
+                assertEqual(slideView.navigatorMiniMap.isPresented, false, "Navigator initially not presented")
+                assertEqual(slideView.navigatorMiniMap.isHidden, true, "Navigator initially hidden")
+                assertEqual(slideView.navigatorMiniMap.isCollapsed, false, "Navigator initially not collapsed")
+
+                let navBottomConstraint = slideView.constraints.first { c in
+                    c.firstItem === slideView.navigatorMiniMap && c.firstAttribute == .bottom
+                }
+                assertEqual(navBottomConstraint != nil, true, "Found navigatorBottomConstraint")
+                assertEqual(navBottomConstraint?.constant, -28.0, "Navigator sits at -28pt bottom baseline")
+
+                // 2. Zooming 1:1 automatically presents Navigator Mini-Map
+                slideView.setZoom(true)
+                assertEqual(slideView.isZoomed, true, "Zoom is active")
+                assertEqual(slideView.navigatorMiniMap.isPresented, true, "Navigator auto-presented on 1:1 zoom")
+                assertEqual(slideView.navigatorMiniMap.isHidden, false, "Navigator visible")
+                assertEqual(slideView.navigatorMiniMap.alphaValue, 1.0, "Navigator alpha is 1.0")
+
+                // 3. Interactive Click/Drag Panning via Mini-Map
+                // Pan to top-left region: normPoint (0.1, 0.9)
+                slideView.navigatorMiniMap.thumbnailView.onPanToNormalizedPoint?(CGPoint(x: 0.1, y: 0.9))
+                // Verify layer position has shifted
+                let panOffset = slideView.zoomPanOffsets[0]
+                assertEqual(panOffset.x > 0, true, "Pan offset X shifted rightwards for normalized X = 0.1")
+                assertEqual(panOffset.y < 0, true, "Pan offset Y shifted downwards for normalized Y = 0.9")
+
+                // Pan back to exact center: normPoint (0.5, 0.5)
+                slideView.navigatorMiniMap.thumbnailView.onPanToNormalizedPoint?(CGPoint(x: 0.5, y: 0.5))
+                assertEqual(slideView.zoomPanOffsets[0].x, 0.0, "Pan offset X is 0 at center")
+                assertEqual(slideView.zoomPanOffsets[0].y, 0.0, "Pan offset Y is 0 at center")
+
+                // 4. Collapsible Mini Pill Mode
+                slideView.navigatorMiniMap.toggleCollapse()
+                assertEqual(slideView.navigatorMiniMap.isCollapsed, true, "Navigator enters collapsed mode")
+                assertEqual(slideView.navigatorMiniMap.thumbnailView.isHidden, true, "Thumbnail hidden in collapsed mode")
+
+                slideView.navigatorMiniMap.toggleCollapse()
+                assertEqual(slideView.navigatorMiniMap.isCollapsed, false, "Navigator restored from collapsed mode")
+                assertEqual(slideView.navigatorMiniMap.thumbnailView.isHidden, false, "Thumbnail visible in expanded mode")
+
+                // 5. Spatial Deconfliction with Filmstrip Scrubber
+                slideView.filmstripHud.present(pinned: true, animated: false)
+                assertEqual(slideView.filmstripHud.isPresented, true, "Filmstrip is presented")
+                assertEqual(navBottomConstraint?.constant, -112.0, "Navigator elevates to -112pt above filmstrip")
+
+                slideView.filmstripHud.dismiss(animated: false)
+                assertEqual(slideView.filmstripHud.isPresented, false, "Filmstrip is dismissed")
+                assertEqual(navBottomConstraint?.constant, -28.0, "Navigator restores down to -28pt")
+
+                // 6. Unzooming automatically dismisses Navigator Mini-Map
+                slideView.setZoom(false)
+                assertEqual(slideView.isZoomed, false, "Zoom is off")
+                assertEqual(slideView.navigatorMiniMap.isPresented, false, "Navigator auto-dismissed on unzoom")
+
+                // Clean up
+                slideView.filmstripHud.dismiss(animated: false)
+            }
+
+            print("  ✅ Passed")
+        }
+
         print("\n🎉 ALL GLANCE ENGINEERING TESTS PASSED SUCCESSFULLY!")
     }
 }

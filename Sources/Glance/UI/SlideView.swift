@@ -96,6 +96,8 @@ public final class SlideView: NSView {
     public let cursorLoupeView = CursorLoupeView()
     public let falseColorLegendHud = FalseColorLegendHudView()
     public let filmstripHud = FilmstripHudView()
+    public let navigatorMiniMap = NavigatorMiniMapView()
+    private var navigatorBottomConstraint: NSLayoutConstraint?
 
     public let splitBadges: [SplitPaneBadgeView] = (1...4).map { SplitPaneBadgeView(slot: $0) }
 
@@ -120,6 +122,7 @@ public final class SlideView: NSView {
     public private(set) var isFalseColorActive: Bool = false
     private var savedFalseColorLegendAlpha: CGFloat = 0.0
     private var savedFilmstripAlpha: CGFloat = 0.0
+    private var savedNavigatorAlpha: CGFloat = 0.0
 
     // Zoom & Pan state across up to 4 panes
     // Loupe Pop (Option B for 4-UP) & Spring-Loaded Z
@@ -131,7 +134,7 @@ public final class SlideView: NSView {
 
     // Zoom & Pan state across up to 4 panes
     private var paneImageSizes: [CGSize] = Array(repeating: .zero, count: 4)
-    private var zoomPanOffsets: [CGPoint] = Array(repeating: .zero, count: 4)
+    public private(set) var zoomPanOffsets: [CGPoint] = Array(repeating: .zero, count: 4)
     private var dragStartOffsets: [CGPoint] = Array(repeating: .zero, count: 4)
     private var dragStartMouse: CGPoint = .zero
     private var isDragging: Bool = false
@@ -272,6 +275,13 @@ public final class SlideView: NSView {
         }
         filmstripHud.onVisibilityChanged = { [weak self] _ in
             self?.updateFaceOverlayPosition(animated: true)
+            self?.updateNavigatorPosition(animated: true)
+        }
+
+        navigatorMiniMap.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(navigatorMiniMap)
+        navigatorMiniMap.onPanToNormalizedPoint = { [weak self] normPt in
+            self?.panZoomToNormalizedPoint(normPt)
         }
 
         faceOverlayView.translatesAutoresizingMaskIntoConstraints = false
@@ -347,7 +357,14 @@ public final class SlideView: NSView {
             filmstripHud.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 28),
             filmstripHud.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -28),
             filmstripHud.widthAnchor.constraint(lessThanOrEqualToConstant: 960),
-            filmstripHud.heightAnchor.constraint(equalToConstant: 88)
+            filmstripHud.heightAnchor.constraint(equalToConstant: 88),
+
+            navigatorMiniMap.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 28),
+            {
+                let c = navigatorMiniMap.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -28)
+                self.navigatorBottomConstraint = c
+                return c
+            }()
         ])
     }
 
@@ -597,6 +614,7 @@ public final class SlideView: NSView {
         CATransaction.commit()
 
         updatePaneBorders(animated: animated)
+        updateNavigatorMiniMap(animated: animated)
     }
 
     public func displayMultiUp(
@@ -781,6 +799,23 @@ public final class SlideView: NSView {
         }
     }
 
+    public func updateNavigatorPosition(animated: Bool = true) {
+        let targetBottom: CGFloat = filmstripHud.isPresented ? -112 : -28
+        guard let constraint = navigatorBottomConstraint else { return }
+        if constraint.constant == targetBottom { return }
+
+        constraint.constant = targetBottom
+        if animated && navigatorMiniMap.isPresented {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.20
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                self.layoutSubtreeIfNeeded()
+            }
+        } else {
+            layoutSubtreeIfNeeded()
+        }
+    }
+
     public func updateFaceOverlayPosition(animated: Bool = true) {
         let targetBottom: CGFloat = filmstripHud.isPresented ? -178 : -76
         guard let constraint = faceOverlayBottomConstraint else { return }
@@ -881,6 +916,7 @@ public final class SlideView: NSView {
         savedExifAlpha = exifHud.alphaValue
         savedFalseColorLegendAlpha = falseColorLegendHud.alphaValue
         savedFilmstripAlpha = filmstripHud.alphaValue
+        savedNavigatorAlpha = navigatorMiniMap.alphaValue
         for i in 0..<4 {
             savedSplitBadgesAlpha[i] = splitBadges[i].alphaValue
         }
@@ -891,6 +927,7 @@ public final class SlideView: NSView {
             self.exifHud.animator().alphaValue = 0.0
             self.falseColorLegendHud.animator().alphaValue = 0.0
             self.filmstripHud.animator().alphaValue = 0.0
+            self.navigatorMiniMap.animator().alphaValue = 0.0
             for badge in self.splitBadges {
                 badge.animator().alphaValue = 0.0
             }
@@ -907,6 +944,9 @@ public final class SlideView: NSView {
             self.exifHud.animator().alphaValue = self.savedExifAlpha
             self.falseColorLegendHud.animator().alphaValue = self.savedFalseColorLegendAlpha
             self.filmstripHud.animator().alphaValue = self.savedFilmstripAlpha
+            if self.isZoomed {
+                self.navigatorMiniMap.animator().alphaValue = self.savedNavigatorAlpha
+            }
             if self.savedFaceOverlayPresented {
                 self.updateFaceOverlayPosition(animated: false)
                 self.faceOverlayView.present()
@@ -1034,6 +1074,133 @@ public final class SlideView: NSView {
     // MARK: - 100% Zoom & Pan Mechanics
 
     /// Converts a point in local pane coordinates to normalized [0, 1] image coordinates
+    private func panZoomToNormalizedPoint(_ normPoint: CGPoint) {
+        guard isZoomed else { return }
+        let scale = window?.backingScaleFactor ?? 2.0
+        let totalW = bounds.width
+        let totalH = bounds.height
+
+        switch multiUpMode {
+        case .single:
+            let imgSize = paneImageSizes[0]
+            let nativeW = (imgSize.width > 0 ? imgSize.width : totalW * scale) / scale
+            let nativeH = (imgSize.height > 0 ? imgSize.height : totalH * scale) / scale
+
+            let maxPanX = max(0, (nativeW - totalW) / 2)
+            let maxPanY = max(0, (nativeH - totalH) / 2)
+
+            let targetX = (0.5 - normPoint.x) * nativeW
+            let targetY = (0.5 - normPoint.y) * nativeH
+
+            zoomPanOffsets[0].x = min(maxPanX, max(-maxPanX, targetX))
+            zoomPanOffsets[0].y = min(maxPanY, max(-maxPanY, targetY))
+
+        case .twoUp:
+            let pad: CGFloat = 6
+            let gutter: CGFloat = 6
+            let paneW = floor((totalW - 2 * pad - gutter) / 2)
+            let paneH = totalH - 2 * pad
+
+            for i in 0..<2 {
+                let imgSize = paneImageSizes[i].width > 0 ? paneImageSizes[i] : paneImageSizes[0]
+                let nativeW = (imgSize.width > 0 ? imgSize.width : paneW * scale) / scale
+                let nativeH = (imgSize.height > 0 ? imgSize.height : paneH * scale) / scale
+
+                let maxPanX = max(0, (nativeW - paneW) / 2)
+                let maxPanY = max(0, (nativeH - paneH) / 2)
+
+                let targetX = (0.5 - normPoint.x) * nativeW
+                let targetY = (0.5 - normPoint.y) * nativeH
+
+                zoomPanOffsets[i].x = min(maxPanX, max(-maxPanX, targetX))
+                zoomPanOffsets[i].y = min(maxPanY, max(-maxPanY, targetY))
+            }
+
+        case .fourUp:
+            let s = activeLoupeSlot
+            let imgSize = paneImageSizes[s].width > 0 ? paneImageSizes[s] : paneImageSizes[0]
+            let nativeW = (imgSize.width > 0 ? imgSize.width : totalW * scale) / scale
+            let nativeH = (imgSize.height > 0 ? imgSize.height : totalH * scale) / scale
+
+            let maxPanX = max(0, (nativeW - totalW) / 2)
+            let maxPanY = max(0, (nativeH - totalH) / 2)
+
+            let targetX = (0.5 - normPoint.x) * nativeW
+            let targetY = (0.5 - normPoint.y) * nativeH
+
+            zoomPanOffsets[s].x = min(maxPanX, max(-maxPanX, targetX))
+            zoomPanOffsets[s].y = min(maxPanY, max(-maxPanY, targetY))
+        }
+
+        updateLayerLayout(animated: false)
+    }
+
+    private func updateNavigatorMiniMap(animated: Bool = false) {
+        guard !isHelpPresented else {
+            if navigatorMiniMap.isPresented {
+                navigatorMiniMap.dismiss(animated: animated)
+            }
+            return
+        }
+
+        if !isZoomed {
+            if navigatorMiniMap.isPresented {
+                navigatorMiniMap.dismiss(animated: animated)
+            }
+            return
+        }
+
+        let slot = (multiUpMode == .fourUp) ? activeLoupeSlot : ((hoveredSplitSlot == 2) ? 1 : 0)
+        let imgSize = paneImageSizes[slot].width > 0 ? paneImageSizes[slot] : paneImageSizes[0]
+        guard imgSize.width > 0, imgSize.height > 0 else { return }
+
+        if !navigatorMiniMap.isPresented {
+            navigatorMiniMap.present(animated: animated)
+        }
+
+        let rawSlot = paneImageLayers[slot].contents
+        let rawZero = paneImageLayers[0].contents
+        let currentImg: CGImage?
+        if let raw = rawSlot, CFGetTypeID(raw as CFTypeRef) == CGImage.typeID {
+            currentImg = (raw as! CGImage)
+        } else if let raw = rawZero, CFGetTypeID(raw as CFTypeRef) == CGImage.typeID {
+            currentImg = (raw as! CGImage)
+        } else {
+            currentImg = nil
+        }
+        navigatorMiniMap.setImage(currentImg, dimensions: imgSize)
+
+        let scale = window?.backingScaleFactor ?? 2.0
+        let nativeW = imgSize.width / scale
+        let nativeH = imgSize.height / scale
+
+        let viewW: CGFloat
+        let viewH: CGFloat
+        switch multiUpMode {
+        case .single:
+            viewW = bounds.width
+            viewH = bounds.height
+        case .twoUp:
+            let pad: CGFloat = 6
+            let gutter: CGFloat = 6
+            viewW = floor((bounds.width - 2 * pad - gutter) / 2)
+            viewH = bounds.height - 2 * pad
+        case .fourUp:
+            viewW = bounds.width
+            viewH = bounds.height
+        }
+
+        let normWidth = min(1.0, max(0.01, viewW / nativeW))
+        let normHeight = min(1.0, max(0.01, viewH / nativeH))
+        let normCenterX = 0.5 - (zoomPanOffsets[slot].x / nativeW)
+        let normCenterY = 0.5 - (zoomPanOffsets[slot].y / nativeH)
+        let normOriginX = max(0.0, min(1.0 - normWidth, normCenterX - normWidth / 2.0))
+        let normOriginY = max(0.0, min(1.0 - normHeight, normCenterY - normHeight / 2.0))
+
+        let normRect = CGRect(x: normOriginX, y: normOriginY, width: normWidth, height: normHeight)
+        navigatorMiniMap.setNormalizedViewport(rect: normRect)
+    }
+
     private func imageNormalizedPoint(fromPaneLocalPoint pt: CGPoint, paneSize: CGSize, imageSize: CGSize) -> CGPoint {
         guard imageSize.width > 0, imageSize.height > 0, paneSize.width > 0, paneSize.height > 0 else {
             return CGPoint(x: 0.5, y: 0.5)

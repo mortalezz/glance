@@ -204,7 +204,7 @@ public final class QuickHelpView: NSView {
         )] = [
             (
                 ("P / ⇧P", "Pick / Burst Knockout", "P: Flag keeper (xmp:Pick=1). ⇧P: Burst Knockout (pick best, auto-reject burst siblings)."),
-                ("Z / ⇧Z", "100% Loupe & Eye Jump", "Z: Instant 1:1 Loupe peep at cursor. ⇧Z: Jump Loupe directly to detected eye or face."),
+                ("Z / ⇧Z", "100% Loupe & Navigator", "Z: Instant 1:1 Loupe peep at cursor with interactive Navigator Mini-Map. ⇧Z: Jump Loupe directly to detected eye/face."),
                 ("Space / →", "Photo Navigation", "Space or → advances to next photo. ← goes back. Home / End jump to first or last photo.")
             ),
             (
