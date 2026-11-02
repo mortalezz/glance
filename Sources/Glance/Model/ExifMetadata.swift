@@ -31,7 +31,6 @@ public struct ExifMetadata: Sendable {
     public let bodySerialNumber: String?
     public let lensSerialNumber: String?
     public let shutterCount: Int?
-    public let afPoints: [AFPointData]
 
     public init(
         cameraMake: String? = nil,
@@ -58,8 +57,7 @@ public struct ExifMetadata: Sendable {
         software: String? = nil,
         bodySerialNumber: String? = nil,
         lensSerialNumber: String? = nil,
-        shutterCount: Int? = nil,
-        afPoints: [AFPointData] = []
+        shutterCount: Int? = nil
     ) {
         self.cameraMake = cameraMake
         self.cameraModel = cameraModel
@@ -86,7 +84,6 @@ public struct ExifMetadata: Sendable {
         self.bodySerialNumber = bodySerialNumber
         self.lensSerialNumber = lensSerialNumber
         self.shutterCount = shutterCount
-        self.afPoints = afPoints
     }
 
     /// Returns a copy of this metadata with an updated pictureControl profile name.
@@ -116,44 +113,12 @@ public struct ExifMetadata: Sendable {
             software: software,
             bodySerialNumber: bodySerialNumber,
             lensSerialNumber: lensSerialNumber,
-            shutterCount: shutterCount,
-            afPoints: afPoints
+            shutterCount: shutterCount
         )
     }
 
-    public func withAFPoints(_ points: [AFPointData]) -> ExifMetadata {
-        ExifMetadata(
-            cameraMake: cameraMake,
-            cameraModel: cameraModel,
-            lensModel: lensModel,
-            shutterSpeed: shutterSpeed,
-            aperture: aperture,
-            iso: iso,
-            focalLength: focalLength,
-            focalLength35mm: focalLength35mm,
-            exposureBias: exposureBias,
-            flashFired: flashFired,
-            dateTimeOriginal: dateTimeOriginal,
-            pictureControl: pictureControl,
-            exposureProgramInt: exposureProgramInt,
-            meteringModeInt: meteringModeInt,
-            whiteBalanceInt: whiteBalanceInt,
-            flashInt: flashInt,
-            colorSpaceInt: colorSpaceInt,
-            rawColorSpaceName: rawColorSpaceName,
-            lensMake: lensMake,
-            lensSpecification: lensSpecification,
-            maxAperture: maxAperture,
-            software: software,
-            bodySerialNumber: bodySerialNumber,
-            lensSerialNumber: lensSerialNumber,
-            shutterCount: shutterCount,
-            afPoints: points
-        )
-    }
-
-        /// Parses EXIF, TIFF, and MakerNotes dictionaries from ImageIO properties dictionary.
-    public init(from properties: [CFString: Any], url: URL? = nil) {
+    /// Parses EXIF, TIFF, and MakerNotes dictionaries from ImageIO properties dictionary.
+    public init(from properties: [CFString: Any]) {
         let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any]
         let tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any]
 
@@ -315,11 +280,6 @@ public struct ExifMetadata: Sendable {
             }
         }
         self.shutterCount = parsedShutterCount
-
-        // 19. Camera Autofocus Points & Subject Tracking Reticles
-        let w = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue ?? 1
-        let h = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue ?? 1
-        self.afPoints = FocusPointEngine.shared.extractAFPoints(from: properties, imageWidth: w, imageHeight: h, url: url)
     }
 
     // MARK: - Formatted Readouts

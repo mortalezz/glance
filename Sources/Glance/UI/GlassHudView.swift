@@ -74,7 +74,6 @@ public struct HudInfo: Sendable {
     public let exportProgressText: String?
     public let aestheticScore: AestheticScoreResult?
     public let burstInfo: BurstBreadcrumbInfo?
-    public let isAFOverlayVisible: Bool
 
     public init(
         currentIndex: Int,
@@ -95,8 +94,7 @@ public struct HudInfo: Sendable {
         slideshowInterval: Double = 3.0,
         exportProgressText: String? = nil,
         aestheticScore: AestheticScoreResult? = nil,
-        burstInfo: BurstBreadcrumbInfo? = nil,
-        isAFOverlayVisible: Bool = false
+        burstInfo: BurstBreadcrumbInfo? = nil
     ) {
         self.currentIndex = currentIndex
         self.totalCount = totalCount
@@ -117,7 +115,6 @@ public struct HudInfo: Sendable {
         self.exportProgressText = exportProgressText
         self.aestheticScore = aestheticScore
         self.burstInfo = burstInfo
-        self.isAFOverlayVisible = isAFOverlayVisible
     }
 }
 
@@ -274,10 +271,6 @@ public final class GlassHudView: NSView {
     private let exportPill = NSView()
     private let exportLabel = NSTextField(labelWithString: "")
 
-    private let afPill = NSView()
-    private let afLabel = NSTextField(labelWithString: "🎯 AF")
-    public var onToggleAFOverlay: (() -> Void)?
-
     private let themeButton = ThemePillButton()
 
     private let stackView = NSStackView()
@@ -322,12 +315,6 @@ public final class GlassHudView: NSView {
         let ptInButton = themeButton.convert(point, from: self)
         if themeButton.bounds.contains(ptInButton) {
             ThemeManager.shared.toggleTheme()
-            pulse()
-            return true
-        }
-
-        if !afPill.isHidden && afPill.frame.contains(point) {
-            onToggleAFOverlay?()
             pulse()
             return true
         }
@@ -618,31 +605,6 @@ public final class GlassHudView: NSView {
             zoomLabel.trailingAnchor.constraint(equalTo: zoomPill.trailingAnchor, constant: -6)
         ])
         stackView.addArrangedSubview(zoomPill)
-
-        // 9b. AF Point Overlay Indicator Pill
-        afPill.wantsLayer = true
-        afPill.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.25).cgColor
-        afPill.layer?.borderColor = NSColor.systemGreen.withAlphaComponent(0.55).cgColor
-        afPill.layer?.borderWidth = 0.5
-        afPill.layer?.cornerRadius = 5
-        afPill.layer?.cornerCurve = .continuous
-        afPill.translatesAutoresizingMaskIntoConstraints = false
-        afPill.isHidden = true
-
-        afLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .bold)
-        afLabel.textColor = NSColor.systemGreen
-        afLabel.stringValue = "🎯 AF"
-        afLabel.alignment = .center
-        afLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        afPill.addSubview(afLabel)
-        NSLayoutConstraint.activate([
-            afLabel.topAnchor.constraint(equalTo: afPill.topAnchor, constant: 2),
-            afLabel.bottomAnchor.constraint(equalTo: afPill.bottomAnchor, constant: -2),
-            afLabel.leadingAnchor.constraint(equalTo: afPill.leadingAnchor, constant: 6),
-            afLabel.trailingAnchor.constraint(equalTo: afPill.trailingAnchor, constant: -6)
-        ])
-        stackView.addArrangedSubview(afPill)
 
         // 10. Slideshow Mode Pill
         slideshowPill.wantsLayer = true
@@ -1049,9 +1011,6 @@ public final class GlassHudView: NSView {
         // 100% Zoom Pill
         zoomPill.isHidden = !info.isZoomed
 
-        // AF Point Overlay Pill
-        afPill.isHidden = !info.isAFOverlayVisible
-
         // Slideshow Mode Pill
         slideshowPill.isHidden = !info.isSlideshow
         if info.isSlideshow {
@@ -1130,12 +1089,6 @@ public final class GlassHudView: NSView {
             )
             self.lastInfo = updated
         }
-        pulse()
-    }
-
-    /// Updates the AF point overlay status pill in the HUD
-    public func updateAFState(_ isVisible: Bool) {
-        afPill.isHidden = !isVisible
         pulse()
     }
 
